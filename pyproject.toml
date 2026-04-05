@@ -7,7 +7,10 @@ authors = [
     { name = "Peter Siegel", email = "psiegel2000@icloud.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "torch>=2.1",
+    "torchvision>=0.16",
+]
 
 [tool.pyrefly]
 
