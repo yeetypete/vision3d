@@ -8,8 +8,8 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
-    "torch>=2.1",
-    "torchvision>=0.16",
+    "torch>=2.6",
+    "torchvision>=0.21",
 ]
 
 [tool.pyrefly]

@@ -481,8 +481,8 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "torch", specifier = ">=2.1" },
-    { name = "torchvision", specifier = ">=0.16" },
+    { name = "torch", specifier = ">=2.6" },
+    { name = "torchvision", specifier = ">=0.21" },
 ]
 
 [package.metadata.requires-dev]
