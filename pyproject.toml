@@ -21,4 +21,5 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pyrefly>=0.59.1",
+    "pytest>=9.0.2",
 ]
