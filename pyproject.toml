@@ -13,6 +13,23 @@ dependencies = [
 ]
 
 [tool.pyrefly]
+min-severity = "ignore"
+
+[tool.pyrefly.errors]
+# Pyrefly does not yet have a strict mode, so we manually set all diagnostics
+# with "ignore" severity levels to "warn".
+implicit-abstract-class = "warn"
+implicit-any = "warn"
+implicitly-defined-attribute = "warn"
+missing-override-decorator = "warn"
+missing-source = "warn"
+not-required-key-access = "warn"
+open-unpacking = "warn"
+unannotated-attribute = "warn"
+unannotated-parameter = "warn"
+unannotated-return = "warn"
+untyped-import = "warn"
+unused-ignore = "warn"
 
 [build-system]
 requires = ["uv_build>=0.11.3,<0.12.0"]
