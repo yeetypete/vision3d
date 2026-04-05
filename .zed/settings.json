@@ -1,22 +1,28 @@
 {
-    "languages": {
-        "Python": {
-            "language_servers": ["pyrefly", "!pyright", "!pylsp"]
-        }
-    },
-    "lsp": {
-        "pyrefly": {
-            "binary": {
-                "path": ".venv/bin/pyrefly",
-                "arguments": ["lsp"]
-            },
-            "settings": {
-                "python": {
-                    "pyrefly": {
-                        "displayTypeErrors": "force-on"
-                    }
-                }
-            }
-        }
+  "languages": {
+    "Python": {
+      "language_servers": [
+        "pyrefly",
+        "!pyright",
+        "!pylsp"
+      ]
     }
+  },
+  "lsp": {
+    "pyrefly": {
+      "binary": {
+        "arguments": [
+          "lsp"
+        ],
+        "path": ".venv/bin/pyrefly"
+      },
+      "settings": {
+        "python": {
+          "pyrefly": {
+            "displayTypeErrors": "force-on"
+          }
+        }
+      }
+    }
+  }
 }
