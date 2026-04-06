@@ -90,15 +90,15 @@ def flip_3d_bounding_boxes(
         lo, hi = idx, idx + 3
         boxes[:, [lo, hi]] = boxes[:, [hi, lo]].neg_()
     elif format in (
-        BoundingBox3DFormat.XYZWHD,
-        BoundingBox3DFormat.XYZWHDY,
-        BoundingBox3DFormat.XYZWHDYPR,
+        BoundingBox3DFormat.XYZLWH,
+        BoundingBox3DFormat.XYZLWHY,
+        BoundingBox3DFormat.XYZLWHYPR,
     ):
         boxes[:, idx].neg_()
-        if format is BoundingBox3DFormat.XYZWHDY:
+        if format is BoundingBox3DFormat.XYZLWHY:
             if axis in ("x", "y"):
                 boxes[:, 6].neg_()
-        elif format is BoundingBox3DFormat.XYZWHDYPR:
+        elif format is BoundingBox3DFormat.XYZLWHYPR:
             for angle_idx in _FLIP_NEGATE_YPR[axis]:
                 boxes[:, angle_idx].neg_()
 

@@ -7,7 +7,7 @@ from vision3d.tensors import BoundingBox3DFormat
 if TYPE_CHECKING:
     from torch import Tensor
 
-from ._box3d_convert import _xyzwhd_to_xyzxyz, _xyzxyz_to_xyzwhd
+from ._box3d_convert import _xyzlwh_to_xyzxyz, _xyzxyz_to_xyzlwh
 
 
 def box3d_convert(
@@ -17,7 +17,7 @@ def box3d_convert(
 ) -> Tensor:
     """Convert 3D bounding boxes from ``in_fmt`` to ``out_fmt``.
 
-    Only the lossless ``XYZXYZ`` <-> ``XYZWHD`` conversion is supported.
+    Only the lossless ``XYZXYZ`` <-> ``XYZLWH`` conversion is supported.
     All other conversions would discard or fabricate rotation angles.
 
     Args:
@@ -40,10 +40,10 @@ def box3d_convert(
     pair = (in_fmt, out_fmt)
 
     # Axis-aligned conversions
-    if pair == (BoundingBox3DFormat.XYZXYZ, BoundingBox3DFormat.XYZWHD):
-        return _xyzxyz_to_xyzwhd(boxes)
-    if pair == (BoundingBox3DFormat.XYZWHD, BoundingBox3DFormat.XYZXYZ):
-        return _xyzwhd_to_xyzxyz(boxes)
+    if pair == (BoundingBox3DFormat.XYZXYZ, BoundingBox3DFormat.XYZLWH):
+        return _xyzxyz_to_xyzlwh(boxes)
+    if pair == (BoundingBox3DFormat.XYZLWH, BoundingBox3DFormat.XYZXYZ):
+        return _xyzlwh_to_xyzxyz(boxes)
 
     raise NotImplementedError(
         f"Conversion from {in_fmt.value} to {out_fmt.value} is not supported."

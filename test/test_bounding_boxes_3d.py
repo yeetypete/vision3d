@@ -23,9 +23,9 @@ class TestBoundingBox3DFormat:
         ("format", "is_rotated_expected"),
         [
             (BoundingBox3DFormat.XYZXYZ, False),
-            (BoundingBox3DFormat.XYZWHD, False),
-            (BoundingBox3DFormat.XYZWHDY, True),
-            (BoundingBox3DFormat.XYZWHDYPR, True),
+            (BoundingBox3DFormat.XYZLWH, False),
+            (BoundingBox3DFormat.XYZLWHY, True),
+            (BoundingBox3DFormat.XYZLWHYPR, True),
         ],
     )
     def test_is_rotated(
@@ -36,9 +36,9 @@ class TestBoundingBox3DFormat:
 
 FORMATS_AND_K = [
     (BoundingBox3DFormat.XYZXYZ, 6),
-    (BoundingBox3DFormat.XYZWHD, 6),
-    (BoundingBox3DFormat.XYZWHDY, 7),
-    (BoundingBox3DFormat.XYZWHDYPR, 9),
+    (BoundingBox3DFormat.XYZLWH, 6),
+    (BoundingBox3DFormat.XYZLWHY, 7),
+    (BoundingBox3DFormat.XYZLWHYPR, 9),
 ]
 
 
@@ -54,7 +54,7 @@ class TestConstruction:
 
     @pytest.mark.parametrize(
         "format",
-        ["XYZXYZ", "XYZWHD", "XYZWHDY", "XYZWHDYPR"],
+        ["XYZXYZ", "XYZLWH", "XYZLWHY", "XYZLWHYPR"],
     )
     def test_format_from_string(self, format: str) -> None:
         bbox = BoundingBoxes3D(torch.rand(1, 9), format=format)
@@ -63,7 +63,7 @@ class TestConstruction:
     def test_1d_unsqueezed_to_2d(self) -> None:
         bbox = BoundingBoxes3D(
             [1, 2, 3, 4, 5, 6, 0.1, 0.2, 0.3],
-            format=BoundingBox3DFormat.XYZWHDYPR,
+            format=BoundingBox3DFormat.XYZLWHYPR,
         )
         assert bbox.ndim == 2
         assert bbox.shape == (1, 9)
@@ -90,19 +90,19 @@ class TestConstruction:
     ) -> None:
         bbox = BoundingBoxes3D(
             data,
-            format=BoundingBox3DFormat.XYZWHDYPR,
+            format=BoundingBox3DFormat.XYZLWHYPR,
             requires_grad=input_requires_grad,
         )
         assert bbox.requires_grad is expected_requires_grad
 
     def test_ndim_validation(self) -> None:
         with pytest.raises(ValueError, match="1D or 2D"):
-            BoundingBoxes3D(torch.rand(2, 3, 9), format=BoundingBox3DFormat.XYZWHDYPR)
+            BoundingBoxes3D(torch.rand(2, 3, 9), format=BoundingBox3DFormat.XYZLWHYPR)
 
     @pytest.mark.parametrize("dtype", [torch.float16, torch.float32, torch.float64])
     def test_accepts_floating_point(self, dtype: torch.dtype) -> None:
         BoundingBoxes3D(
-            torch.zeros(1, 9, dtype=dtype), format=BoundingBox3DFormat.XYZWHDYPR
+            torch.zeros(1, 9, dtype=dtype), format=BoundingBox3DFormat.XYZLWHYPR
         )
 
     @pytest.mark.parametrize(("format", "k"), FORMATS_AND_K)
@@ -112,12 +112,12 @@ class TestConstruction:
 
     def test_wrapping_no_copy(self) -> None:
         tensor = torch.rand(3, 9)
-        bbox = BoundingBoxes3D(tensor, format=BoundingBox3DFormat.XYZWHDYPR)
+        bbox = BoundingBoxes3D(tensor, format=BoundingBox3DFormat.XYZLWHYPR)
         assert bbox.data_ptr() == tensor.data_ptr()
 
     def test_repr_includes_format(self) -> None:
-        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZWHDYPR)
-        assert "XYZWHDYPR" in repr(bbox)
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
+        assert "XYZLWHYPR" in repr(bbox)
 
 
 class TestTorchFunction:
@@ -169,7 +169,7 @@ class TestTorchFunction:
 
     @pytest.mark.parametrize("return_type", ["Tensor", "TVTensor"])
     def test_force_subclass_preserves_metadata(self, return_type: str) -> None:
-        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZWHDYPR)
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
         original_format = bbox.format
 
         tv_tensors.set_return_type(return_type)
@@ -267,7 +267,7 @@ class TestTorchFunction:
         class MyBoundingBoxes3D(BoundingBoxes3D):
             pass
 
-        bbox = MyBoundingBoxes3D(torch.rand(2, 9), format=BoundingBox3DFormat.XYZWHDYPR)
+        bbox = MyBoundingBoxes3D(torch.rand(2, 9), format=BoundingBox3DFormat.XYZLWHYPR)
 
         with tv_tensors.set_return_type("TVTensor"):
             clone = bbox.clone()
@@ -299,22 +299,22 @@ class TestTorchFunction:
 
 class TestWrap:
     def test_preserves_type_and_format(self) -> None:
-        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZWHDYPR)
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
         output = bbox * 2
         wrapped = wrap(output, like=bbox)
         assert type(wrapped) is BoundingBoxes3D
         assert wrapped.data_ptr() == output.data_ptr()
-        assert wrapped.format == BoundingBox3DFormat.XYZWHDYPR
+        assert wrapped.format == BoundingBox3DFormat.XYZLWHYPR
 
     def test_override_format(self) -> None:
-        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZWHDYPR)
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
         new_data = torch.rand(1, 6)
         wrapped = wrap(new_data, like=bbox, format=BoundingBox3DFormat.XYZXYZ)
         assert isinstance(wrapped, BoundingBoxes3D)
         assert wrapped.format == BoundingBox3DFormat.XYZXYZ
 
     def test_shares_memory(self) -> None:
-        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZWHD)
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWH)
         new_data = torch.rand(1, 6)
         wrapped = wrap(new_data, like=bbox)
         assert wrapped.data_ptr() == new_data.data_ptr()
@@ -323,7 +323,7 @@ class TestWrap:
         class MyBoundingBoxes3D(BoundingBoxes3D):
             pass
 
-        bbox = MyBoundingBoxes3D(torch.rand(1, 9), format=BoundingBox3DFormat.XYZWHDYPR)
+        bbox = MyBoundingBoxes3D(torch.rand(1, 9), format=BoundingBox3DFormat.XYZLWHYPR)
         output = bbox * 2
         wrapped = wrap(output, like=bbox)
         assert type(wrapped) is MyBoundingBoxes3D

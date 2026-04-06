@@ -56,10 +56,10 @@ def _reference_flip_bounding_boxes(
         out[..., lo], out[..., hi] = -boxes[..., hi], -boxes[..., lo]
     else:
         out[..., idx] = -out[..., idx]
-        if format is BoundingBox3DFormat.XYZWHDY:
+        if format is BoundingBox3DFormat.XYZLWHY:
             if axis in ("x", "y"):
                 out[..., 6] = -out[..., 6]
-        elif format is BoundingBox3DFormat.XYZWHDYPR:
+        elif format is BoundingBox3DFormat.XYZLWHYPR:
             for angle_idx in _REF_NEGATE_YPR[axis]:
                 out[..., angle_idx] = -out[..., angle_idx]
 
@@ -121,20 +121,20 @@ class TestFlip3DBoundingBoxesKernel:
 
     @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
     def test_dtype_preserved(self, dtype: torch.dtype) -> None:
-        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZWHDYPR, dtype=dtype)
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR, dtype=dtype)
         actual = flip_3d_bounding_boxes(
             bbox.as_subclass(torch.Tensor),
-            format=BoundingBox3DFormat.XYZWHDYPR,
+            format=BoundingBox3DFormat.XYZLWHYPR,
             axis="x",
         )
         assert actual.dtype == dtype
 
     def test_does_not_modify_input(self) -> None:
-        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZWHDYPR)
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
         original = bbox.clone()
         flip_3d_bounding_boxes(
             bbox.as_subclass(torch.Tensor),
-            format=BoundingBox3DFormat.XYZWHDYPR,
+            format=BoundingBox3DFormat.XYZLWHYPR,
             axis="x",
         )
         torch.testing.assert_close(bbox, original)
@@ -159,34 +159,34 @@ class TestFlip3DBoundingBoxesKernel:
         expected = torch.tensor([[-10.0, 2, 3, -1, 20, 30]])
         torch.testing.assert_close(flipped, expected)
 
-    def test_xyzwhdypr_flip_x_negates_yaw_and_pitch(self) -> None:
+    def test_xyzlwhypr_flip_x_negates_yaw_and_pitch(self) -> None:
         boxes = torch.tensor([[5.0, 10, 15, 4, 6, 8, 0.3, 0.5, 0.7]])
         flipped = flip_3d_bounding_boxes(
-            boxes, format=BoundingBox3DFormat.XYZWHDYPR, axis="x"
+            boxes, format=BoundingBox3DFormat.XYZLWHYPR, axis="x"
         )
         expected = torch.tensor([[-5.0, 10, 15, 4, 6, 8, -0.3, -0.5, 0.7]])
         torch.testing.assert_close(flipped, expected)
 
-    def test_xyzwhdypr_flip_y_negates_yaw_and_roll(self) -> None:
+    def test_xyzlwhypr_flip_y_negates_yaw_and_roll(self) -> None:
         boxes = torch.tensor([[5.0, 10, 15, 4, 6, 8, 0.3, 0.5, 0.7]])
         flipped = flip_3d_bounding_boxes(
-            boxes, format=BoundingBox3DFormat.XYZWHDYPR, axis="y"
+            boxes, format=BoundingBox3DFormat.XYZLWHYPR, axis="y"
         )
         expected = torch.tensor([[5.0, -10, 15, 4, 6, 8, -0.3, 0.5, -0.7]])
         torch.testing.assert_close(flipped, expected)
 
-    def test_xyzwhdypr_flip_z_negates_pitch_and_roll(self) -> None:
+    def test_xyzlwhypr_flip_z_negates_pitch_and_roll(self) -> None:
         boxes = torch.tensor([[5.0, 10, 15, 4, 6, 8, 0.3, 0.5, 0.7]])
         flipped = flip_3d_bounding_boxes(
-            boxes, format=BoundingBox3DFormat.XYZWHDYPR, axis="z"
+            boxes, format=BoundingBox3DFormat.XYZLWHYPR, axis="z"
         )
         expected = torch.tensor([[5.0, 10, -15, 4, 6, 8, 0.3, -0.5, -0.7]])
         torch.testing.assert_close(flipped, expected)
 
-    def test_xyzwhdy_flip_z_keeps_yaw(self) -> None:
+    def test_xyzlwhy_flip_z_keeps_yaw(self) -> None:
         boxes = torch.tensor([[5.0, 10, 15, 4, 6, 8, 0.3]])
         flipped = flip_3d_bounding_boxes(
-            boxes, format=BoundingBox3DFormat.XYZWHDY, axis="z"
+            boxes, format=BoundingBox3DFormat.XYZLWHY, axis="z"
         )
         expected = torch.tensor([[5.0, 10, -15, 4, 6, 8, 0.3]])
         torch.testing.assert_close(flipped, expected)
@@ -289,7 +289,7 @@ class TestFlip3DCameraExtrinsicsKernel:
 
 # Transform tests
 def _make_sample(
-    format: BoundingBox3DFormat = BoundingBox3DFormat.XYZWHDYPR,
+    format: BoundingBox3DFormat = BoundingBox3DFormat.XYZLWHYPR,
 ) -> dict[str, torch.Tensor]:
     return {
         "points": make_point_cloud_3d(num_points=20),
@@ -299,7 +299,7 @@ def _make_sample(
 
 
 def _make_fusion_sample(
-    format: BoundingBox3DFormat = BoundingBox3DFormat.XYZWHDYPR,
+    format: BoundingBox3DFormat = BoundingBox3DFormat.XYZLWHYPR,
 ) -> dict[str, torch.Tensor]:
     return {
         "points": make_point_cloud_3d(num_points=20),

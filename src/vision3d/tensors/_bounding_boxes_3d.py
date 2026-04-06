@@ -13,28 +13,37 @@ if TYPE_CHECKING:
 class BoundingBox3DFormat(Enum):
     """Coordinate format of a 3D bounding box.
 
+    Dimension convention follows Waymo / OpenPCDet / MMDetection3D:
+
+    * ``l`` (length) = extent along **X** (forward axis, ``dx``)
+    * ``w`` (width) = extent along **Y** (lateral axis, ``dy``)
+    * ``h`` (height) = extent along **Z** (vertical axis, ``dz``)
+
+    Rotation uses intrinsic Tait-Bryan ZY'X'' angles (yaw, pitch, roll)
+    in radians (-pi, +pi).
+
     Available formats are:
 
     * ``XYZXYZ``: axis-aligned box via two opposite corners;
-      x1, y1, z1 (min corner), x2, y2, z2 (max corner).
-    * ``XYZWHD``: center position and size;
-      cx, cy, cz (center), w, h, d (width, height, depth).
-    * ``XYZWHDY``: center, size, and yaw rotation;
-      cx, cy, cz, w, h, d, yaw. Yaw in radians.
-    * ``XYZWHDYPR``: center, size, and full Euler rotation;
-      cx, cy, cz, w, h, d, yaw, pitch, roll. Angles in radians (-pi..+pi).
+      x1, y1, z1 (min corner), x2, y2, z2 (max corner). 6 values.
+    * ``XYZLWH``: center position and axis-aligned extents;
+      cx, cy, cz (center), l, w, h (dx, dy, dz). 6 values.
+    * ``XYZLWHY``: center, extents, and yaw;
+      cx, cy, cz, l, w, h, yaw. 7 values.
+    * ``XYZLWHYPR``: center, extents, and full Euler rotation;
+      cx, cy, cz, l, w, h, yaw, pitch, roll. 9 values.
     """
 
     XYZXYZ = "XYZXYZ"
-    XYZWHD = "XYZWHD"
-    XYZWHDY = "XYZWHDY"
-    XYZWHDYPR = "XYZWHDYPR"
+    XYZLWH = "XYZLWH"
+    XYZLWHY = "XYZLWHY"
+    XYZLWHYPR = "XYZLWHYPR"
 
     @staticmethod
     def is_rotated(format: BoundingBox3DFormat) -> bool:
         return (
-            format == BoundingBox3DFormat.XYZWHDY
-            or format == BoundingBox3DFormat.XYZWHDYPR
+            format == BoundingBox3DFormat.XYZLWHY
+            or format == BoundingBox3DFormat.XYZLWHYPR
         )
 
 
@@ -42,8 +51,8 @@ class BoundingBoxes3D(TVTensor):
     """:class:`torch.Tensor` subclass for 3D bounding boxes with shape ``[N, K]``.
 
     Where ``N`` is the number of bounding boxes and ``K`` depends on the format:
-    6 for axis-aligned (``XYZXYZ``, ``XYZWHD``), 7 for yaw-only (``XYZWHDY``),
-    or 9 for full 9-DOF (``XYZWHDYPR``).
+    6 for axis-aligned (``XYZXYZ``, ``XYZLWH``), 7 for yaw-only (``XYZLWHY``),
+    or 9 for full 9-DOF (``XYZLWHYPR``).
 
     Rotation angles are Euler angles in radians (-pi to +pi).
 

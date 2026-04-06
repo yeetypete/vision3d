@@ -14,7 +14,7 @@ from vision3d.tensors import (
 
 def make_bounding_boxes_3d(
     *,
-    format: BoundingBox3DFormat = BoundingBox3DFormat.XYZWHDYPR,
+    format: BoundingBox3DFormat = BoundingBox3DFormat.XYZLWHYPR,
     num_boxes: int = 1,
     dtype: torch.dtype | None = None,
     device: torch.device | str = "cpu",
@@ -55,11 +55,11 @@ def make_bounding_boxes_3d(
         y2 = cy + h / 2
         z2 = cz + d / 2
         parts = (x1, y1, z1, x2, y2, z2)
-    elif format is BoundingBox3DFormat.XYZWHD:
+    elif format is BoundingBox3DFormat.XYZLWH:
         parts = (cx, cy, cz, w, h, d)
-    elif format is BoundingBox3DFormat.XYZWHDY:
+    elif format is BoundingBox3DFormat.XYZLWHY:
         parts = (cx, cy, cz, w, h, d, yaw)
-    elif format is BoundingBox3DFormat.XYZWHDYPR:
+    elif format is BoundingBox3DFormat.XYZLWHYPR:
         parts = (cx, cy, cz, w, h, d, yaw, pitch, roll)
     else:
         raise ValueError(f"Format {format} is not supported")
