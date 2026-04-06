@@ -6,7 +6,14 @@
         "source.organizeImports.ruff": true,
       },
       "format_on_save": "on",
-      "language_servers": ["pyrefly", "!basedpyright", "..."],
+      "language_servers": [
+        "pyrefly",
+        "!basedpyright",
+        "!pylsp",
+        "!pyright",
+        "!ty",
+        "...",
+      ],
     },
   },
   "lsp": {
