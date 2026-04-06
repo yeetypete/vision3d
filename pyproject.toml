@@ -19,6 +19,7 @@ viz = [
 dev = [
   "pyrefly>=0.59.1",
   "pytest>=9.0.2",
+  "rerun-sdk>=0.31.1",
   "ruff>=0.15.9",
 ]
 

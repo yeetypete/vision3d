@@ -618,6 +618,7 @@ viz = [
 dev = [
     { name = "pyrefly" },
     { name = "pytest" },
+    { name = "rerun-sdk" },
     { name = "ruff" },
 ]
 
@@ -633,5 +634,6 @@ provides-extras = ["viz"]
 dev = [
     { name = "pyrefly", specifier = ">=0.59.1" },
     { name = "pytest", specifier = ">=9.0.2" },
+    { name = "rerun-sdk", specifier = ">=0.31.1" },
     { name = "ruff", specifier = ">=0.15.9" },
 ]
