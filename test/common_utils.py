@@ -2,7 +2,7 @@ import math
 
 import torch
 
-from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
+from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D, PointCloud3D
 
 
 def make_bounding_boxes_3d(
@@ -59,3 +59,33 @@ def make_bounding_boxes_3d(
 
     data = torch.stack(parts, dim=-1).to(dtype=dtype, device=device)
     return BoundingBoxes3D(data, format=format)
+
+
+def make_point_cloud_3d(
+    *,
+    num_points: int = 100,
+    num_features: int = 0,
+    dtype: torch.dtype | None = None,
+    device: torch.device | str = "cpu",
+) -> PointCloud3D:
+    """Generate a random 3D point cloud for testing.
+
+    Points span both positive and negative coordinates.
+
+    Args:
+        num_points: Number of points.
+        num_features: Extra per-point feature columns beyond xyz.
+        dtype: Data type. Defaults to float32.
+        device: Device.
+
+    Returns:
+        PointCloud3D with shape ``[num_points, 3 + num_features]``.
+    """
+    dtype = dtype or torch.float32
+    xyz = torch.rand(num_points, 3, dtype=dtype, device=device) * 200 - 100
+    if num_features > 0:
+        features = torch.rand(num_points, num_features, dtype=dtype, device=device)
+        data = torch.cat([xyz, features], dim=-1)
+    else:
+        data = xyz
+    return PointCloud3D(data)
