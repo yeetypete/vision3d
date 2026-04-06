@@ -23,6 +23,7 @@ build-backend = "uv_build"
 
 [tool.pyrefly]
 min-severity = "ignore"
+search_path = ["test"]
 
 [tool.pyrefly.errors]
 # Pyrefly does not yet have a strict mode, so we manually set all diagnostics
@@ -55,3 +56,6 @@ convention = "google"
 
 [tool.ruff.format]
 docstring-code-format = true
+
+[pytest]
+addopts = ["--import-mode=importlib"]
