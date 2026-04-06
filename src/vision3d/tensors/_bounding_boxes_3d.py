@@ -108,12 +108,9 @@ class BoundingBoxes3D(TVTensor):
         tensor = cls._to_tensor(
             data, dtype=dtype, device=device, requires_grad=requires_grad
         )
-        if not torch.is_floating_point(tensor) and BoundingBox3DFormat.is_rotated(
-            format
-        ):
+        if not torch.is_floating_point(tensor):
             raise ValueError(
-                "Rotated 3D bounding boxes require floating point"
-                f" tensors, got {tensor.dtype}."
+                f"3D bounding boxes require floating point tensors, got {tensor.dtype}."
             )
         return cls._wrap(tensor, format=format)
 
