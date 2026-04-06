@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import TYPE_CHECKING, Any, override
+from typing import TYPE_CHECKING, override
 
 import torch
 from torch.utils._pytree import tree_flatten
@@ -7,7 +7,7 @@ from torchvision.tv_tensors import TVTensor
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from typing import Self
+    from typing import Any, Self
 
 
 class BoundingBox3DFormat(Enum):
