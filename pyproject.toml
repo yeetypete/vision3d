@@ -3,14 +3,23 @@ name = "vision3d"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "Peter Siegel", email = "psiegel2000@icloud.com" }
-]
 requires-python = ">=3.14"
+authors = [{ name = "Peter Siegel", email = "psiegel2000@icloud.com" }]
 dependencies = [
-    "torch>=2.6",
-    "torchvision>=0.21",
+  "torch>=2.6",
+  "torchvision>=0.21",
 ]
+
+[dependency-groups]
+dev = [
+  "pyrefly>=0.59.1",
+  "pytest>=9.0.2",
+  "ruff>=0.15.9",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.3,<0.12.0"]
+build-backend = "uv_build"
 
 [tool.pyrefly]
 min-severity = "ignore"
@@ -31,12 +40,15 @@ unannotated-return = "warn"
 untyped-import = "warn"
 unused-ignore = "warn"
 
-[build-system]
-requires = ["uv_build>=0.11.3,<0.12.0"]
-build-backend = "uv_build"
-
-[dependency-groups]
-dev = [
-    "pyrefly>=0.59.1",
-    "pytest>=9.0.2",
+[tool.ruff.lint]
+preview = true
+extend-select = ["D", "DOC", "PT"]
+ignore = [
+  "D104",  # TODO: remove, missing docstring in placeholder __init__.py packages
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"test/**" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
