@@ -1,5 +1,3 @@
-"""Tests for the kernel dispatch registry."""
-
 import pytest
 import torch
 from torchvision.tv_tensors import TVTensor
