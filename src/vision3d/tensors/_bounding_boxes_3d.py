@@ -135,12 +135,11 @@ class BoundingBoxes3D(TVTensor):
         format = first_bbox_from_args.format
 
         if isinstance(output, torch.Tensor) and not isinstance(output, BoundingBoxes3D):
-            output = BoundingBoxes3D._wrap(output, format=format, check_dims=False)
+            output = cls._wrap(output, format=format, check_dims=False)
         elif isinstance(output, (tuple, list)):
             # This branch exists for chunk() and unbind()
             output = type(output)(
-                BoundingBoxes3D._wrap(part, format=format, check_dims=False)
-                for part in output
+                cls._wrap(part, format=format, check_dims=False) for part in output
             )
         return output
 

@@ -29,7 +29,7 @@ def wrap(
         A TVTensor of the same subclass as ``like``.
     """
     if isinstance(like, BoundingBoxes3D):
-        return BoundingBoxes3D._wrap(
+        return type(like)._wrap(
             wrappee,
             format=kwargs.get("format", like.format),
         )
