@@ -4,7 +4,12 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D, PointCloud3D
+from vision3d.tensors import (
+    BoundingBox3DFormat,
+    BoundingBoxes3D,
+    CameraExtrinsics,
+    PointCloud3D,
+)
 
 from ._registry import register_kernel
 
@@ -58,6 +63,11 @@ def flip_3d_point_cloud(points: Tensor, *, axis: str) -> Tensor:
     return points.reshape(shape)
 
 
+@register_kernel(flip_3d, PointCloud3D)
+def _flip_3d_point_cloud_kernel(points: Tensor, *, axis: str) -> Tensor:
+    return flip_3d_point_cloud(points, axis=axis)
+
+
 def flip_3d_bounding_boxes(
     boxes: Tensor, *, format: BoundingBox3DFormat, axis: str
 ) -> Tensor:
@@ -95,11 +105,6 @@ def flip_3d_bounding_boxes(
     return boxes.reshape(shape)
 
 
-@register_kernel(flip_3d, PointCloud3D)
-def _flip_3d_point_cloud_kernel(points: Tensor, *, axis: str) -> Tensor:
-    return flip_3d_point_cloud(points, axis=axis)
-
-
 @register_kernel(flip_3d, BoundingBoxes3D, tv_tensor_wrapper=False)
 def _flip_3d_bounding_boxes_dispatch(inpt: BoundingBoxes3D, *, axis: str) -> TVTensor:
     from vision3d.tensors import wrap
@@ -108,3 +113,28 @@ def _flip_3d_bounding_boxes_dispatch(inpt: BoundingBoxes3D, *, axis: str) -> TVT
         inpt.as_subclass(torch.Tensor), format=inpt.format, axis=axis
     )
     return wrap(output, like=inpt)
+
+
+def flip_3d_camera_extrinsics(extrinsics: Tensor, *, axis: str) -> Tensor:
+    """Update camera extrinsics after flipping the lidar frame along ``axis``.
+
+    The lidar-to-camera extrinsic is right-multiplied by a flip matrix that
+    negates the flipped axis, keeping the projection consistent.
+
+    Args:
+        extrinsics: Extrinsic matrices ``[..., 4, 4]``.
+        axis: One of ``"x"``, ``"y"``, ``"z"``.
+
+    Returns:
+        Updated extrinsics with the same shape.
+    """
+    idx = AXIS_INDEX[axis]
+    extrinsics = extrinsics.clone()
+    # Right-multiply by diag(..., -1, ..., 1): negate column `idx`
+    extrinsics[..., :, idx].neg_()
+    return extrinsics
+
+
+@register_kernel(flip_3d, CameraExtrinsics)
+def _flip_3d_camera_extrinsics_kernel(extrinsics: Tensor, *, axis: str) -> Tensor:
+    return flip_3d_camera_extrinsics(extrinsics, axis=axis)
