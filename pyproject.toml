@@ -42,7 +42,7 @@ unused-ignore = "warn"
 
 [tool.ruff.lint]
 preview = true
-extend-select = ["D", "DOC", "PT"]
+extend-select = ["D", "DOC", "PT", "TC"]
 ignore = [
   "D104",  # TODO: remove, missing docstring in placeholder __init__.py packages
 ]
