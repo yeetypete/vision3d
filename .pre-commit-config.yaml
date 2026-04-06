@@ -5,6 +5,7 @@ repos:
           - id: check-added-large-files
           - id: check-case-conflict
           - id: check-json
+            exclude: ^\.zed/
           - id: check-merge-conflict
           - id: check-symlinks
           - id: check-toml
@@ -16,6 +17,7 @@ repos:
           - id: mixed-line-ending
           - id: pretty-format-json
             args: [--autofix]
+            exclude: ^\.zed/
           - id: sort-simple-yaml
           - id: trailing-whitespace
     - repo: https://github.com/astral-sh/ruff-pre-commit
