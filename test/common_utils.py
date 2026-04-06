@@ -2,7 +2,14 @@ import math
 
 import torch
 
-from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D, PointCloud3D
+from vision3d.tensors import (
+    BoundingBox3DFormat,
+    BoundingBoxes3D,
+    CameraExtrinsics,
+    CameraImages,
+    CameraIntrinsics,
+    PointCloud3D,
+)
 
 
 def make_bounding_boxes_3d(
@@ -89,3 +96,60 @@ def make_point_cloud_3d(
     else:
         data = xyz
     return PointCloud3D(data)
+
+
+def make_camera_images(
+    *,
+    num_cameras: int = 6,
+    channels: int = 3,
+    height: int = 224,
+    width: int = 224,
+    dtype: torch.dtype | None = None,
+    device: torch.device | str = "cpu",
+) -> CameraImages:
+    """Generate random multi-camera images for testing.
+
+    Returns:
+        CameraImages with shape ``[num_cameras, channels, height, width]``.
+    """
+    dtype = dtype or torch.float32
+    return CameraImages(
+        torch.rand(num_cameras, channels, height, width, dtype=dtype, device=device)
+    )
+
+
+def make_camera_extrinsics(
+    *,
+    num_cameras: int = 6,
+    dtype: torch.dtype | None = None,
+    device: torch.device | str = "cpu",
+) -> CameraExtrinsics:
+    """Generate random camera extrinsic matrices for testing.
+
+    Returns:
+        CameraExtrinsics with shape ``[num_cameras, 4, 4]``.
+    """
+    dtype = dtype or torch.float32
+    return CameraExtrinsics(
+        torch.eye(4, dtype=dtype, device=device).expand(num_cameras, -1, -1).clone()
+    )
+
+
+def make_camera_intrinsics(
+    *,
+    num_cameras: int = 6,
+    dtype: torch.dtype | None = None,
+    device: torch.device | str = "cpu",
+) -> CameraIntrinsics:
+    """Generate random camera intrinsic matrices for testing.
+
+    Returns:
+        CameraIntrinsics with shape ``[num_cameras, 3, 3]``.
+    """
+    dtype = dtype or torch.float32
+    K = torch.eye(3, dtype=dtype, device=device).expand(num_cameras, -1, -1).clone()
+    K[:, 0, 0] = 500.0  # fx
+    K[:, 1, 1] = 500.0  # fy
+    K[:, 0, 2] = 320.0  # cx
+    K[:, 1, 2] = 240.0  # cy
+    return CameraIntrinsics(K)
