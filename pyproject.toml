@@ -52,6 +52,7 @@ preview = true
 extend-select = ["D", "DOC", "PT", "TC"]
 ignore = [
   "D104",  # TODO: remove, missing docstring in placeholder __init__.py packages
+  "D107",  # __init__ args documented in class docstring (Google style)
 ]
 
 [tool.ruff.lint.per-file-ignores]
