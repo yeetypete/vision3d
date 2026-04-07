@@ -20,7 +20,6 @@ from vision3d.transforms import RandomFlip3D
 from vision3d.transforms.functional import (
     flip_3d,
     flip_3d_bounding_boxes,
-    flip_3d_camera_extrinsics,
     flip_3d_point_cloud,
 )
 
@@ -210,15 +209,15 @@ class TestFlip3DDispatch:
         assert isinstance(out, BoundingBoxes3D)
         assert out.format == format
 
-    def test_dispatches_camera_extrinsics(self) -> None:
-        ext = make_camera_extrinsics(num_cameras=4)
-        out = flip_3d(ext, axis="x")
-        assert isinstance(out, CameraExtrinsics)
-
     def test_passthrough_camera_images(self) -> None:
         imgs = make_camera_images(num_cameras=2, height=32, width=32)
         out = flip_3d(imgs, axis="x")
         assert out is imgs
+
+    def test_passthrough_camera_extrinsics(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=4)
+        out = flip_3d(ext, axis="x")
+        assert out is ext
 
     def test_passthrough_camera_intrinsics(self) -> None:
         intr = make_camera_intrinsics(num_cameras=2)
@@ -229,62 +228,6 @@ class TestFlip3DDispatch:
         labels = torch.tensor([0, 1, 2])
         out = flip_3d(labels, axis="x")
         assert out is labels
-
-
-# Extrinsics kernel tests
-class TestFlip3DCameraExtrinsicsKernel:
-    @pytest.mark.parametrize("axis", ALL_AXES)
-    def test_correctness(self, axis: str) -> None:
-        """Flipping negates the column corresponding to the flipped axis."""
-        idx = {"x": 0, "y": 1, "z": 2}[axis]
-        ext = torch.eye(4).unsqueeze(0).expand(3, -1, -1).clone()
-        actual = flip_3d_camera_extrinsics(ext, axis=axis)
-        expected = ext.clone()
-        expected[..., :, idx].neg_()
-        torch.testing.assert_close(actual, expected)
-
-    @pytest.mark.parametrize("axis", ALL_AXES)
-    def test_double_flip_identity(self, axis: str) -> None:
-        ext = make_camera_extrinsics(num_cameras=4)
-        raw = ext.as_subclass(torch.Tensor)
-        double_flipped = flip_3d_camera_extrinsics(
-            flip_3d_camera_extrinsics(raw, axis=axis), axis=axis
-        )
-        torch.testing.assert_close(double_flipped, raw)
-
-    def test_does_not_modify_input(self) -> None:
-        ext = make_camera_extrinsics(num_cameras=2)
-        original = ext.clone()
-        flip_3d_camera_extrinsics(ext.as_subclass(torch.Tensor), axis="x")
-        torch.testing.assert_close(ext, original)
-
-    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
-    def test_dtype_preserved(self, dtype: torch.dtype) -> None:
-        ext = make_camera_extrinsics(num_cameras=2, dtype=dtype)
-        actual = flip_3d_camera_extrinsics(ext.as_subclass(torch.Tensor), axis="y")
-        assert actual.dtype == dtype
-
-    def test_non_identity_extrinsics(self) -> None:
-        """Verify correctness with a non-trivial rotation+translation matrix."""
-        ext = torch.tensor(
-            [
-                [0.0, -1.0, 0.0, 5.0],
-                [1.0, 0.0, 0.0, 3.0],
-                [0.0, 0.0, 1.0, -2.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
-        ).unsqueeze(0)
-        # Flip X: negate column 0
-        actual = flip_3d_camera_extrinsics(ext, axis="x")
-        expected = torch.tensor(
-            [
-                [0.0, -1.0, 0.0, 5.0],
-                [-1.0, 0.0, 0.0, 3.0],
-                [0.0, 0.0, 1.0, -2.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
-        ).unsqueeze(0)
-        torch.testing.assert_close(actual, expected)
 
 
 # Transform tests
@@ -376,39 +319,12 @@ class TestRandomFlip3D:
 
 
 class TestRandomFlip3DFusion:
-    @pytest.mark.parametrize("axis", ALL_AXES)
-    def test_extrinsics_updated(self, axis: str) -> None:
-        sample = _make_fusion_sample()
-        transform = RandomFlip3D(axis=axis, p=1.0)
-        out = transform(sample)
-        assert isinstance(out["extrinsics"], CameraExtrinsics)
-        assert not torch.equal(out["extrinsics"], sample["extrinsics"])
-
-    @pytest.mark.parametrize("axis", ALL_AXES)
-    def test_extrinsics_correctness_vs_functional(self, axis: str) -> None:
-        sample = _make_fusion_sample()
-        transform = RandomFlip3D(axis=axis, p=1.0)
-        out = transform(sample)
-
-        expected = flip_3d_camera_extrinsics(
-            sample["extrinsics"].as_subclass(torch.Tensor), axis=axis
-        )
-        torch.testing.assert_close(
-            out["extrinsics"].as_subclass(torch.Tensor), expected
-        )
-
-    def test_images_passthrough(self) -> None:
+    def test_camera_data_passthrough(self) -> None:
         sample = _make_fusion_sample()
         transform = RandomFlip3D(axis="x", p=1.0)
         out = transform(sample)
-        assert isinstance(out["images"], CameraImages)
         assert torch.equal(out["images"], sample["images"])
-
-    def test_intrinsics_passthrough(self) -> None:
-        sample = _make_fusion_sample()
-        transform = RandomFlip3D(axis="x", p=1.0)
-        out = transform(sample)
-        assert isinstance(out["intrinsics"], CameraIntrinsics)
+        assert torch.equal(out["extrinsics"], sample["extrinsics"])
         assert torch.equal(out["intrinsics"], sample["intrinsics"])
 
     def test_labels_passthrough(self) -> None:

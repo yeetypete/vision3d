@@ -10,7 +10,8 @@ class RandomFlip3D(RandomTransform):
     """Flip inputs along a 3D axis with probability ``p``.
 
     Dispatches to type-specific kernels for :class:`BoundingBoxes3D` and
-    :class:`PointCloud3D`. Other tensor types are passed through unchanged.
+    :class:`PointCloud3D`. Camera data (images, intrinsics, extrinsics) passes
+    through unchanged.
 
     Args:
         axis: Axis to flip along. One of ``"x"``, ``"y"``, ``"z"``.
