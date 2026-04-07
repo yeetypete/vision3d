@@ -11,15 +11,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+nuscenes = [
+  "nuscenes-devkit>=1.1.9",
+]
 viz = [
-    "rerun-sdk>=0.31.1",
+  "rerun-sdk>=0.31.1",
 ]
 
 [dependency-groups]
 dev = [
   "pyrefly>=0.59.1",
   "pytest>=9.0.2",
-  "rerun-sdk>=0.31.1",
   "ruff>=0.15.9",
 ]
 
@@ -29,7 +31,7 @@ build-backend = "uv_build"
 
 [tool.pyrefly]
 min-severity = "ignore"
-search-path = [ "examples", "test"]
+search-path = ["examples", "test"]
 
 [tool.pyrefly.errors]
 # Pyrefly does not yet have a strict mode, so we manually set all diagnostics
