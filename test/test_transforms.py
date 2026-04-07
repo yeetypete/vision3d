@@ -1,3 +1,5 @@
+import math
+
 import pytest
 import torch
 from common_utils import (
@@ -16,11 +18,15 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
-from vision3d.transforms import RandomFlip3D, RandomTranslate3D
+from vision3d.transforms import RandomFlip3D, RandomRotate3D, RandomTranslate3D
 from vision3d.transforms.functional import (
     flip_3d,
     flip_3d_bounding_boxes,
     flip_3d_point_cloud,
+    rotate_3d,
+    rotate_3d_bounding_boxes,
+    rotate_3d_camera_extrinsics,
+    rotate_3d_point_cloud,
     translate_3d,
     translate_3d_bounding_boxes,
     translate_3d_camera_extrinsics,
@@ -585,6 +591,276 @@ class TestRandomTranslate3DFusion:
     def test_all_types_preserved(self) -> None:
         sample = _make_fusion_sample()
         transform = RandomTranslate3D(translation_range=5.0, p=1.0)
+        out = transform(sample)
+        assert isinstance(out["points"], PointCloud3D)
+        assert isinstance(out["boxes"], BoundingBoxes3D)
+        assert isinstance(out["images"], CameraImages)
+        assert isinstance(out["extrinsics"], CameraExtrinsics)
+        assert isinstance(out["intrinsics"], CameraIntrinsics)
+
+
+Z_AXIS = torch.tensor([0.0, 0.0, 1.0])
+X_AXIS = torch.tensor([1.0, 0.0, 0.0])
+
+
+def _make_z_rotation(angle: float) -> torch.Tensor:
+    c, s = math.cos(angle), math.sin(angle)
+    return torch.tensor([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=torch.float32)
+
+
+# Kernel tests
+class TestRotate3DPointCloudKernel:
+    def test_z_rotation_90deg(self) -> None:
+        points = torch.tensor([[1.0, 0, 0]])
+        R = _make_z_rotation(math.pi / 2)
+        actual = rotate_3d_point_cloud(points, rotation_matrix=R)
+        expected = torch.tensor([[0.0, 1.0, 0.0]])
+        torch.testing.assert_close(actual, expected, atol=1e-6, rtol=1e-6)
+
+    def test_preserves_features(self) -> None:
+        points = torch.rand(10, 6)
+        R = _make_z_rotation(0.5)
+        actual = rotate_3d_point_cloud(points, rotation_matrix=R)
+        torch.testing.assert_close(actual[:, 3:], points[:, 3:])
+
+    def test_does_not_modify_input(self) -> None:
+        points = torch.rand(10, 3)
+        original = points.clone()
+        R = _make_z_rotation(0.3)
+        rotate_3d_point_cloud(points, rotation_matrix=R)
+        torch.testing.assert_close(points, original)
+
+    def test_inverse(self) -> None:
+        points = torch.rand(10, 3)
+        R = _make_z_rotation(0.7)
+        roundtripped = rotate_3d_point_cloud(
+            rotate_3d_point_cloud(points, rotation_matrix=R),
+            rotation_matrix=R.T,
+        )
+        torch.testing.assert_close(roundtripped, points, atol=1e-6, rtol=1e-6)
+
+
+class TestRotate3DBoundingBoxesKernel:
+    @pytest.mark.parametrize(
+        "format",
+        [BoundingBox3DFormat.XYZLWHY, BoundingBox3DFormat.XYZLWHYPR],
+    )
+    def test_center_rotated(self, format: BoundingBox3DFormat) -> None:
+        bbox = make_bounding_boxes_3d(format=format, num_boxes=5)
+        raw = bbox.as_subclass(torch.Tensor)
+        R = _make_z_rotation(math.pi / 4)
+        actual = rotate_3d_bounding_boxes(raw, format=format, rotation_matrix=R)
+        expected_centers = (R @ raw[:, :3].unsqueeze(-1)).squeeze(-1)
+        torch.testing.assert_close(
+            actual[:, :3], expected_centers, atol=1e-6, rtol=1e-6
+        )
+
+    @pytest.mark.parametrize(
+        "format",
+        [BoundingBox3DFormat.XYZXYZ, BoundingBox3DFormat.XYZLWH],
+    )
+    def test_axis_aligned_raises(self, format: BoundingBox3DFormat) -> None:
+        bbox = make_bounding_boxes_3d(format=format, num_boxes=2)
+        R = _make_z_rotation(0.3)
+        with pytest.raises(NotImplementedError, match="not supported"):
+            rotate_3d_bounding_boxes(
+                bbox.as_subclass(torch.Tensor), format=format, rotation_matrix=R
+            )
+
+    def test_xyzlwhy_non_z_rotation_raises(self) -> None:
+        from vision3d.transforms.functional._geometry import _rotation_matrix
+
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHY, num_boxes=2)
+        R = _rotation_matrix(X_AXIS, 0.3)
+        with pytest.raises(ValueError, match="Z-axis"):
+            rotate_3d_bounding_boxes(
+                bbox.as_subclass(torch.Tensor),
+                format=BoundingBox3DFormat.XYZLWHY,
+                rotation_matrix=R,
+            )
+
+    def test_yaw_updated_for_xyzlwhy(self) -> None:
+        boxes = torch.tensor([[5.0, 10, 0, 4, 2, 1.5, 0.0]])
+        angle = math.pi / 6
+        R = _make_z_rotation(angle)
+        actual = rotate_3d_bounding_boxes(
+            boxes, format=BoundingBox3DFormat.XYZLWHY, rotation_matrix=R
+        )
+        torch.testing.assert_close(
+            actual[0, 6], torch.tensor(angle), atol=1e-6, rtol=1e-6
+        )
+
+    def test_dimensions_unchanged(self) -> None:
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR, num_boxes=3)
+        raw = bbox.as_subclass(torch.Tensor)
+        R = _make_z_rotation(0.5)
+        rotated = rotate_3d_bounding_boxes(
+            raw, format=BoundingBox3DFormat.XYZLWHYPR, rotation_matrix=R
+        )
+        torch.testing.assert_close(rotated[:, 3:6], raw[:, 3:6])
+
+    def test_does_not_modify_input(self) -> None:
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
+        original = bbox.clone()
+        R = _make_z_rotation(0.3)
+        rotate_3d_bounding_boxes(
+            bbox.as_subclass(torch.Tensor),
+            format=BoundingBox3DFormat.XYZLWHYPR,
+            rotation_matrix=R,
+        )
+        torch.testing.assert_close(bbox, original)
+
+    @pytest.mark.parametrize(
+        "format",
+        [BoundingBox3DFormat.XYZLWHY, BoundingBox3DFormat.XYZLWHYPR],
+    )
+    def test_inverse(self, format: BoundingBox3DFormat) -> None:
+        bbox = make_bounding_boxes_3d(format=format, num_boxes=3)
+        raw = bbox.as_subclass(torch.Tensor)
+        R = _make_z_rotation(0.7)
+        roundtripped = rotate_3d_bounding_boxes(
+            rotate_3d_bounding_boxes(raw, format=format, rotation_matrix=R),
+            format=format,
+            rotation_matrix=R.T,
+        )
+        torch.testing.assert_close(roundtripped, raw, atol=1e-5, rtol=1e-5)
+
+
+class TestRotate3DCameraExtrinsicsKernel:
+    def test_projection_consistent(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=1)
+        raw_ext = ext.as_subclass(torch.Tensor)[0]
+        K = torch.tensor([[500.0, 0, 320], [0, 500, 240], [0, 0, 1]])
+
+        point_lidar = torch.tensor([10.0, 5.0, 1.0, 1.0])
+        p_cam = raw_ext @ point_lidar
+        pixel_before = K @ p_cam[:3]
+        pixel_before = pixel_before[:2] / pixel_before[2]
+
+        R = _make_z_rotation(0.3)
+        ext_rotated = rotate_3d_camera_extrinsics(
+            raw_ext.unsqueeze(0), rotation_matrix=R
+        )[0]
+        point_rotated = torch.tensor([*(R @ point_lidar[:3]).tolist(), 1.0])
+        p_cam_after = ext_rotated @ point_rotated
+        pixel_after = K @ p_cam_after[:3]
+        pixel_after = pixel_after[:2] / pixel_after[2]
+
+        torch.testing.assert_close(pixel_before, pixel_after, atol=1e-4, rtol=1e-4)
+
+    def test_inverse(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=4)
+        raw = ext.as_subclass(torch.Tensor)
+        R = _make_z_rotation(0.7)
+        roundtripped = rotate_3d_camera_extrinsics(
+            rotate_3d_camera_extrinsics(raw, rotation_matrix=R),
+            rotation_matrix=R.T,
+        )
+        torch.testing.assert_close(roundtripped, raw, atol=1e-5, rtol=1e-5)
+
+    def test_does_not_modify_input(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=2)
+        original = ext.clone()
+        R = _make_z_rotation(0.3)
+        rotate_3d_camera_extrinsics(ext.as_subclass(torch.Tensor), rotation_matrix=R)
+        torch.testing.assert_close(ext, original)
+
+
+# Functional tests
+class TestRotate3DDispatch:
+    def test_dispatches_point_cloud(self) -> None:
+        pc = make_point_cloud_3d(num_points=10)
+        R = _make_z_rotation(0.5)
+        out = rotate_3d(pc, rotation_matrix=R)
+        assert isinstance(out, PointCloud3D)
+
+    @pytest.mark.parametrize(
+        "format", [BoundingBox3DFormat.XYZLWHY, BoundingBox3DFormat.XYZLWHYPR]
+    )
+    def test_dispatches_bounding_boxes(self, format: BoundingBox3DFormat) -> None:
+        bbox = make_bounding_boxes_3d(format=format, num_boxes=3)
+        R = _make_z_rotation(0.5)
+        out = rotate_3d(bbox, rotation_matrix=R)
+        assert isinstance(out, BoundingBoxes3D)
+        assert out.format == format
+
+    def test_dispatches_camera_extrinsics(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=4)
+        R = _make_z_rotation(0.5)
+        out = rotate_3d(ext, rotation_matrix=R)
+        assert isinstance(out, CameraExtrinsics)
+
+    def test_passthrough_plain_tensor(self) -> None:
+        labels = torch.tensor([0, 1, 2])
+        R = _make_z_rotation(0.5)
+        out = rotate_3d(labels, rotation_matrix=R)
+        assert out is labels
+
+
+# Transform tests
+class TestRandomRotate3D:
+    def test_p_one_always_rotates(self) -> None:
+        sample = _make_sample()
+        transform = RandomRotate3D(angle_range=0.5, p=1.0)
+        out = transform(sample)
+        assert not torch.equal(out["points"], sample["points"])
+
+    def test_p_zero_never_rotates(self) -> None:
+        sample = _make_sample()
+        transform = RandomRotate3D(angle_range=0.5, p=0.0)
+        out = transform(sample)
+        assert torch.equal(out["points"], sample["points"])
+
+    def test_labels_passthrough(self) -> None:
+        sample = _make_sample()
+        transform = RandomRotate3D(angle_range=0.5, p=1.0)
+        out = transform(sample)
+        assert torch.equal(out["labels"], sample["labels"])
+
+    def test_preserves_types(self) -> None:
+        sample = _make_sample()
+        transform = RandomRotate3D(angle_range=0.5, p=1.0)
+        out = transform(sample)
+        assert isinstance(out["points"], PointCloud3D)
+        assert isinstance(out["boxes"], BoundingBoxes3D)
+
+    @pytest.mark.parametrize(
+        "format", [BoundingBox3DFormat.XYZLWHY, BoundingBox3DFormat.XYZLWHYPR]
+    )
+    def test_preserves_format(self, format: BoundingBox3DFormat) -> None:
+        sample = _make_sample(format=format)
+        transform = RandomRotate3D(angle_range=0.5, p=1.0)
+        out = transform(sample)
+        assert out["boxes"].format == format
+
+    def test_custom_axis(self) -> None:
+        transform = RandomRotate3D(angle_range=0.5, axis=(1.0, 0.0, 0.0), p=1.0)
+        assert torch.equal(transform.axis, X_AXIS)
+
+
+class TestRandomRotate3DFusion:
+    def test_extrinsics_updated(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomRotate3D(angle_range=0.5, p=1.0)
+        out = transform(sample)
+        assert isinstance(out["extrinsics"], CameraExtrinsics)
+        assert not torch.equal(out["extrinsics"], sample["extrinsics"])
+
+    def test_images_passthrough(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomRotate3D(angle_range=0.5, p=1.0)
+        out = transform(sample)
+        assert torch.equal(out["images"], sample["images"])
+
+    def test_intrinsics_passthrough(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomRotate3D(angle_range=0.5, p=1.0)
+        out = transform(sample)
+        assert torch.equal(out["intrinsics"], sample["intrinsics"])
+
+    def test_all_types_preserved(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomRotate3D(angle_range=0.5, p=1.0)
         out = transform(sample)
         assert isinstance(out["points"], PointCloud3D)
         assert isinstance(out["boxes"], BoundingBoxes3D)

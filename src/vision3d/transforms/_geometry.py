@@ -1,11 +1,12 @@
 """Geometric 3D transform classes."""
 
+import math
 from typing import Any, override
 
 import torch
 
 from ._transform import RandomTransform
-from .functional._geometry import flip_3d, translate_3d
+from .functional._geometry import _rotation_matrix, flip_3d, rotate_3d, translate_3d
 
 
 class RandomFlip3D(RandomTransform):
@@ -89,3 +90,49 @@ class RandomTranslate3D(RandomTransform):
             Translated input.
         """
         return self._call_kernel(translate_3d, inpt, offset=params["offset"])
+
+
+class RandomRotate3D(RandomTransform):
+    """Rotate inputs around an axis by a random angle with probability ``p``.
+
+    Dispatches to type-specific kernels for :class:`PointCloud3D`,
+    :class:`BoundingBoxes3D`, and :class:`CameraExtrinsics`.
+
+    Args:
+        angle_range: Maximum rotation angle in radians. Sampled uniformly
+            from ``[-angle_range, angle_range]``. Default: ``pi/4``.
+        axis: Rotation axis as a 3-tuple. Default: ``(0, 0, 1)`` (Z-up).
+        p: Probability of applying the rotation. Default: ``0.5``.
+    """
+
+    def __init__(
+        self,
+        angle_range: float = math.pi / 4,
+        axis: tuple[float, float, float] = (0.0, 0.0, 1.0),
+        p: float = 0.5,
+    ) -> None:
+        super().__init__(p=p)
+        self.angle_range = angle_range
+        self.axis = torch.tensor(axis, dtype=torch.float32)
+
+    @override
+    def make_params(self, flat_inputs: list[Any]) -> dict[str, Any]:
+        """Sample a random rotation matrix.
+
+        Returns:
+            Dict with ``"rotation_matrix"`` key containing a ``[3, 3]`` tensor.
+        """
+        angle = (torch.rand(1).item() * 2 - 1) * self.angle_range
+        R = _rotation_matrix(self.axis, angle)
+        return {"rotation_matrix": R}
+
+    @override
+    def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
+        """Apply the rotation to a single input.
+
+        Returns:
+            Rotated input.
+        """
+        return self._call_kernel(
+            rotate_3d, inpt, rotation_matrix=params["rotation_matrix"]
+        )

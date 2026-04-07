@@ -10,13 +10,14 @@ Usage::
 """
 
 import argparse
+import math
 
 import rerun as rr
 import rerun.blueprint as rrb
 
 from vision3d.datasets import NuScenes3D
 from vision3d.datasets.nuscenes import CAMERA_NAMES
-from vision3d.transforms import RandomFlip3D, RandomTranslate3D
+from vision3d.transforms import RandomFlip3D, RandomRotate3D, RandomTranslate3D
 from vision3d.viz import log_sample
 
 
@@ -44,6 +45,11 @@ def main() -> None:
             "translate",
             "RandomTranslate3D(5.0)",
             RandomTranslate3D(translation_range=5.0, p=1.0),
+        ),
+        (
+            "rotate",
+            "RandomRotate3D(pi/4)",
+            RandomRotate3D(angle_range=math.pi / 4, p=1.0),
         ),
     ]
 
