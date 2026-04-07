@@ -62,17 +62,27 @@ class TestBox3dIouBev:
         iou = box3d_iou_bev(boxes, boxes, BoundingBox3DFormat.XYZLWH)
         torch.testing.assert_close(iou, torch.tensor([[1.0]]))
 
-    def test_rotated_box_uses_aabb(self) -> None:
-        # Unrotated box: center (0,0), l=4, w=2 → BEV [-2,2] x [-1,1]
-        # Same box rotated 90°: BEV [-1,1] x [-2,2]
-        # AABB of rotated: [-1,1] x [-2,2], area=2*4=8
-        # Intersection of AABB: [-1,1] x [-1,1] = 2*2 = 4
-        # Union: 8+8-4 = 12
-        # IoU: 4/12 = 1/3
+    def test_rotated_90_degrees(self) -> None:
+        # Box1: 4x2 at yaw=0, Box2: 4x2 at yaw=90°
+        # Both centered at origin. Intersection is a 2x2 square.
+        # Each area=8, intersection=4, union=12, IoU=1/3
         boxes1 = torch.tensor([[0.0, 0, 0, 4, 2, 2, 0]])
         boxes2 = torch.tensor([[0.0, 0, 0, 4, 2, 2, math.pi / 2]])
         iou = box3d_iou_bev(boxes1, boxes2, BoundingBox3DFormat.XYZLWHY)
-        torch.testing.assert_close(iou, torch.tensor([[1.0 / 3]]), atol=1e-5, rtol=1e-5)
+        torch.testing.assert_close(iou, torch.tensor([[1.0 / 3]]), atol=1e-4, rtol=1e-4)
+
+    def test_self_iou_rotated(self) -> None:
+        # Same box at 45° should have IoU=1 with itself
+        boxes = torch.tensor([[0.0, 0, 0, 4, 2, 2, math.pi / 4]])
+        iou = box3d_iou_bev(boxes, boxes, BoundingBox3DFormat.XYZLWHY)
+        torch.testing.assert_close(iou, torch.tensor([[1.0]]), atol=1e-4, rtol=1e-4)
+
+    def test_no_overlap_rotated(self) -> None:
+        # Two rotated boxes far apart
+        boxes1 = torch.tensor([[0.0, 0, 0, 2, 2, 2, 0.5]])
+        boxes2 = torch.tensor([[20.0, 0, 0, 2, 2, 2, -0.3]])
+        iou = box3d_iou_bev(boxes1, boxes2, BoundingBox3DFormat.XYZLWHY)
+        assert iou[0, 0].item() == 0.0
 
     def test_values_in_range(self) -> None:
         boxes1 = torch.rand(10, 7)
