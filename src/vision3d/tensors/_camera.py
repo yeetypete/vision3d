@@ -9,12 +9,14 @@ if TYPE_CHECKING:
     from typing import Any, Self
 
 
-# TODO: Add PerCameraTransform class
+# TODO(yeetypete): add PerCameraTransform wrapper for torchvision 2D transforms
+# (ColorJitter, GaussianBlur, Normalize, etc.). Geometric image transforms
+# (resize, crop) need dedicated implementations that also update CameraIntrinsics.
 class CameraImages(TVTensor):
     """:class:`torch.Tensor` subclass for multi-camera images with shape ``[N, C, H, W]``.
 
-    For 3D spatial transforms (flip, rotate, etc.) this type passes through unchanged.
-    Use :class:`PerCameraTransform` to apply torchvision 2D image transforms per camera.
+    For 3D spatial transforms (flip, rotate, etc.) this type passes through
+    unchanged.
 
     Args:
         data: Any data that can be turned into a tensor with :func:`torch.as_tensor`.
