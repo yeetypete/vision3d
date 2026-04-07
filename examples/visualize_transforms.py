@@ -18,6 +18,7 @@ import rerun.blueprint as rrb
 from vision3d.datasets import NuScenes3D
 from vision3d.datasets.nuscenes import CAMERA_NAMES
 from vision3d.transforms import (
+    CopyPaste3D,
     RandomFlip3D,
     RandomRotate3D,
     RandomScale3D,
@@ -61,6 +62,7 @@ def main() -> None:
             "RandomScale3D(0.5, 1.5)",
             RandomScale3D(scale_range=(0.5, 1.5), p=1.0),
         ),
+        ("copy_paste", "CopyPaste3D", None),
     ]
 
     # Build blueprint: one tab per transform, each with 3D + 6 camera views
@@ -99,6 +101,15 @@ def main() -> None:
     ds = NuScenes3D(args.root, version=args.version, split=args.split)
     inputs, targets = ds[args.frame]
 
+    # Prepare CopyPaste3D: populate database from neighboring frames
+    copy_paste = CopyPaste3D(
+        target_counts={"vehicle.car": 20, "human.pedestrian.adult": 10},
+        min_points=5,
+    )
+    for i in range(max(0, args.frame - 3), args.frame):
+        inp_i, tgt_i = ds[i]
+        copy_paste((inp_i,), (tgt_i,))
+
     # Build class label mapping
     label_to_id: dict[str, int] = {}
     if targets and "class_names" in targets:
@@ -109,6 +120,18 @@ def main() -> None:
     for prefix, name, transform in transforms:
         rr.log(prefix, rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 
+        if prefix == "copy_paste":
+            out_inputs, out_targets = copy_paste((inputs,), (targets,))
+            t_inputs, t_targets = out_inputs[0], out_targets[0]
+            if t_targets and "class_names" in t_targets:
+                for cn in t_targets["class_names"]:
+                    if cn not in label_to_id:
+                        label_to_id[cn] = len(label_to_id)
+        elif transform is None:
+            t_inputs, t_targets = inputs, targets
+        else:
+            t_inputs, t_targets = transform(inputs, targets)
+
         if label_to_id:
             annotation_context = [(i, label) for label, i in label_to_id.items()]
             rr.log(
@@ -116,11 +139,6 @@ def main() -> None:
                 rr.AnnotationContext(annotation_context),
                 static=True,
             )
-
-        if transform is None:
-            t_inputs, t_targets = inputs, targets
-        else:
-            t_inputs, t_targets = transform(inputs, targets)
 
         log_sample(t_inputs, t_targets, entity_prefix=prefix, label_to_id=label_to_id)
         print(f"  Logged: {name}")
