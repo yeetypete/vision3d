@@ -282,6 +282,10 @@ def _cam_to_lidar_boxes(
     h, w, l = boxes_cam[:, 3], boxes_cam[:, 4], boxes_cam[:, 5]
     ry = boxes_cam[:, 6]
 
+    # KITTI location is at the bottom center of the box in camera frame.
+    # Camera Y points down, so shift up by half height to get the geometric center.
+    y_cam = y_cam - h / 2
+
     # Transform center from camera to lidar using inverse extrinsics
     ones = torch.ones_like(x_cam)
     centers_cam = torch.stack([x_cam, y_cam, z_cam, ones], dim=-1)  # [N, 4]
