@@ -18,7 +18,12 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
-from vision3d.transforms import RandomFlip3D, RandomRotate3D, RandomTranslate3D
+from vision3d.transforms import (
+    RandomFlip3D,
+    RandomRotate3D,
+    RandomScale3D,
+    RandomTranslate3D,
+)
 from vision3d.transforms.functional import (
     flip_3d,
     flip_3d_bounding_boxes,
@@ -27,6 +32,9 @@ from vision3d.transforms.functional import (
     rotate_3d_bounding_boxes,
     rotate_3d_camera_extrinsics,
     rotate_3d_point_cloud,
+    scale_3d,
+    scale_3d_bounding_boxes,
+    scale_3d_point_cloud,
     translate_3d,
     translate_3d_bounding_boxes,
     translate_3d_camera_extrinsics,
@@ -861,6 +869,170 @@ class TestRandomRotate3DFusion:
     def test_all_types_preserved(self) -> None:
         sample = _make_fusion_sample()
         transform = RandomRotate3D(angle_range=0.5, p=1.0)
+        out = transform(sample)
+        assert isinstance(out["points"], PointCloud3D)
+        assert isinstance(out["boxes"], BoundingBoxes3D)
+        assert isinstance(out["images"], CameraImages)
+        assert isinstance(out["extrinsics"], CameraExtrinsics)
+        assert isinstance(out["intrinsics"], CameraIntrinsics)
+
+
+# Kernel tests
+class TestScale3DPointCloudKernel:
+    def test_correctness(self) -> None:
+        points = torch.rand(50, 3) * 200 - 100
+        actual = scale_3d_point_cloud(points, factor=2.0)
+        expected = points.clone()
+        expected[..., :3] *= 2.0
+        torch.testing.assert_close(actual, expected)
+
+    def test_preserves_features(self) -> None:
+        points = torch.rand(10, 6)
+        actual = scale_3d_point_cloud(points, factor=3.0)
+        torch.testing.assert_close(actual[:, 3:], points[:, 3:])
+
+    def test_does_not_modify_input(self) -> None:
+        points = torch.rand(10, 3)
+        original = points.clone()
+        scale_3d_point_cloud(points, factor=2.0)
+        torch.testing.assert_close(points, original)
+
+    def test_inverse(self) -> None:
+        points = torch.rand(10, 3)
+        roundtripped = scale_3d_point_cloud(
+            scale_3d_point_cloud(points, factor=2.0), factor=0.5
+        )
+        torch.testing.assert_close(roundtripped, points)
+
+
+class TestScale3DBoundingBoxesKernel:
+    @pytest.mark.parametrize("format", ALL_FORMATS)
+    def test_correctness(self, format: BoundingBox3DFormat) -> None:
+        bbox = make_bounding_boxes_3d(format=format, num_boxes=5)
+        raw = bbox.as_subclass(torch.Tensor)
+        actual = scale_3d_bounding_boxes(raw, format=format, factor=2.0)
+        expected = raw.clone()
+        expected[..., :6] *= 2.0
+        torch.testing.assert_close(actual, expected)
+
+    def test_angles_unchanged(self) -> None:
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR, num_boxes=3)
+        raw = bbox.as_subclass(torch.Tensor)
+        scaled = scale_3d_bounding_boxes(
+            raw, format=BoundingBox3DFormat.XYZLWHYPR, factor=2.0
+        )
+        torch.testing.assert_close(scaled[:, 6:], raw[:, 6:])
+
+    def test_does_not_modify_input(self) -> None:
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
+        original = bbox.clone()
+        scale_3d_bounding_boxes(
+            bbox.as_subclass(torch.Tensor),
+            format=BoundingBox3DFormat.XYZLWHYPR,
+            factor=2.0,
+        )
+        torch.testing.assert_close(bbox, original)
+
+    @pytest.mark.parametrize("format", ALL_FORMATS)
+    def test_inverse(self, format: BoundingBox3DFormat) -> None:
+        bbox = make_bounding_boxes_3d(format=format, num_boxes=3)
+        raw = bbox.as_subclass(torch.Tensor)
+        roundtripped = scale_3d_bounding_boxes(
+            scale_3d_bounding_boxes(raw, format=format, factor=2.0),
+            format=format,
+            factor=0.5,
+        )
+        torch.testing.assert_close(roundtripped, raw)
+
+
+# Functional tests
+class TestScale3DDispatch:
+    def test_dispatches_point_cloud(self) -> None:
+        pc = make_point_cloud_3d(num_points=10)
+        out = scale_3d(pc, factor=2.0)
+        assert isinstance(out, PointCloud3D)
+
+    @pytest.mark.parametrize("format", ALL_FORMATS)
+    def test_dispatches_bounding_boxes(self, format: BoundingBox3DFormat) -> None:
+        bbox = make_bounding_boxes_3d(format=format, num_boxes=3)
+        out = scale_3d(bbox, factor=2.0)
+        assert isinstance(out, BoundingBoxes3D)
+        assert out.format == format
+
+    def test_passthrough_camera_extrinsics(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=4)
+        out = scale_3d(ext, factor=2.0)
+        assert out is ext
+
+    def test_passthrough_plain_tensor(self) -> None:
+        labels = torch.tensor([0, 1, 2])
+        out = scale_3d(labels, factor=2.0)
+        assert out is labels
+
+
+# Transform tests
+class TestRandomScale3D:
+    def test_p_one_always_scales(self) -> None:
+        sample = _make_sample()
+        transform = RandomScale3D(scale_range=(0.5, 0.9), p=1.0)
+        out = transform(sample)
+        assert not torch.equal(out["points"], sample["points"])
+
+    def test_p_zero_never_scales(self) -> None:
+        sample = _make_sample()
+        transform = RandomScale3D(scale_range=(0.5, 1.5), p=0.0)
+        out = transform(sample)
+        assert torch.equal(out["points"], sample["points"])
+
+    def test_labels_passthrough(self) -> None:
+        sample = _make_sample()
+        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
+        out = transform(sample)
+        assert torch.equal(out["labels"], sample["labels"])
+
+    def test_preserves_types(self) -> None:
+        sample = _make_sample()
+        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
+        out = transform(sample)
+        assert isinstance(out["points"], PointCloud3D)
+        assert isinstance(out["boxes"], BoundingBoxes3D)
+
+    @pytest.mark.parametrize("format", ALL_FORMATS)
+    def test_preserves_format(self, format: BoundingBox3DFormat) -> None:
+        sample = _make_sample(format=format)
+        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
+        out = transform(sample)
+        assert out["boxes"].format == format
+
+    def test_negative_range_raises(self) -> None:
+        with pytest.raises(ValueError, match="positive"):
+            RandomScale3D(scale_range=(-1.0, 1.0))
+
+
+class TestRandomScale3DFusion:
+    def test_camera_data_passthrough(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomScale3D(scale_range=(0.5, 0.9), p=1.0)
+        out = transform(sample)
+        assert torch.equal(out["images"], sample["images"])
+        assert torch.equal(out["extrinsics"], sample["extrinsics"])
+        assert torch.equal(out["intrinsics"], sample["intrinsics"])
+
+    def test_images_passthrough(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
+        out = transform(sample)
+        assert torch.equal(out["images"], sample["images"])
+
+    def test_intrinsics_passthrough(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
+        out = transform(sample)
+        assert torch.equal(out["intrinsics"], sample["intrinsics"])
+
+    def test_all_types_preserved(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
         out = transform(sample)
         assert isinstance(out["points"], PointCloud3D)
         assert isinstance(out["boxes"], BoundingBoxes3D)

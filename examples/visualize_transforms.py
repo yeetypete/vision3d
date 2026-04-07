@@ -17,7 +17,12 @@ import rerun.blueprint as rrb
 
 from vision3d.datasets import NuScenes3D
 from vision3d.datasets.nuscenes import CAMERA_NAMES
-from vision3d.transforms import RandomFlip3D, RandomRotate3D, RandomTranslate3D
+from vision3d.transforms import (
+    RandomFlip3D,
+    RandomRotate3D,
+    RandomScale3D,
+    RandomTranslate3D,
+)
 from vision3d.viz import log_sample
 
 
@@ -50,6 +55,11 @@ def main() -> None:
             "rotate",
             "RandomRotate3D(pi/4)",
             RandomRotate3D(angle_range=math.pi / 4, p=1.0),
+        ),
+        (
+            "scale",
+            "RandomScale3D(0.5, 1.5)",
+            RandomScale3D(scale_range=(0.5, 1.5), p=1.0),
         ),
     ]
 

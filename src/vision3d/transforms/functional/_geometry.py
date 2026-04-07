@@ -395,3 +395,76 @@ def _rotate_3d_camera_extrinsics_kernel(
     extrinsics: Tensor, *, rotation_matrix: Tensor
 ) -> Tensor:
     return rotate_3d_camera_extrinsics(extrinsics, rotation_matrix=rotation_matrix)
+
+
+def scale_3d(inpt: Tensor, *, factor: float) -> Tensor:
+    """Scale a tensor by a uniform factor.
+
+    Dispatcher entry point. Type-specific kernels are registered below.
+
+    Args:
+        inpt: Input tensor.
+        factor: Scale factor.
+
+    Returns:
+        Scaled tensor.
+    """
+    return inpt
+
+
+def scale_3d_point_cloud(points: Tensor, *, factor: float) -> Tensor:
+    """Scale point cloud coordinates by ``factor``.
+
+    Args:
+        points: Point cloud tensor ``[..., 3+C]``.
+        factor: Scale factor.
+
+    Returns:
+        Scaled point cloud with the same shape.
+    """
+    points = points.clone()
+    points[..., :3] *= factor
+    return points
+
+
+def scale_3d_bounding_boxes(
+    boxes: Tensor, *, format: BoundingBox3DFormat, factor: float
+) -> Tensor:
+    """Scale 3D bounding boxes by ``factor``.
+
+    Scales both position and dimensions. Rotation angles are unchanged.
+
+    Args:
+        boxes: Bounding box tensor ``[..., K]``.
+        format: Format of the boxes.
+        factor: Scale factor.
+
+    Returns:
+        Scaled bounding boxes with the same shape.
+    """
+    boxes = boxes.clone()
+
+    if format is BoundingBox3DFormat.XYZXYZ:
+        boxes[..., :6] *= factor
+    else:
+        # Center+size formats: scale center (0:3) and dimensions (3:6)
+        boxes[..., :6] *= factor
+
+    return boxes
+
+
+@register_kernel(scale_3d, PointCloud3D)
+def _scale_3d_point_cloud_kernel(points: Tensor, *, factor: float) -> Tensor:
+    return scale_3d_point_cloud(points, factor=factor)
+
+
+@register_kernel(scale_3d, BoundingBoxes3D, tv_tensor_wrapper=False)
+def _scale_3d_bounding_boxes_dispatch(
+    inpt: BoundingBoxes3D, *, factor: float
+) -> TVTensor:
+    from vision3d.tensors import wrap
+
+    output = scale_3d_bounding_boxes(
+        inpt.as_subclass(torch.Tensor), format=inpt.format, factor=factor
+    )
+    return wrap(output, like=inpt)

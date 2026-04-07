@@ -6,7 +6,13 @@ from typing import Any, override
 import torch
 
 from ._transform import RandomTransform
-from .functional._geometry import _rotation_matrix, flip_3d, rotate_3d, translate_3d
+from .functional._geometry import (
+    _rotation_matrix,
+    flip_3d,
+    rotate_3d,
+    scale_3d,
+    translate_3d,
+)
 
 
 class RandomFlip3D(RandomTransform):
@@ -136,3 +142,47 @@ class RandomRotate3D(RandomTransform):
         return self._call_kernel(
             rotate_3d, inpt, rotation_matrix=params["rotation_matrix"]
         )
+
+
+class RandomScale3D(RandomTransform):
+    """Scale inputs by a random uniform factor with probability ``p``.
+
+    Dispatches to type-specific kernels for :class:`PointCloud3D`,
+    :class:`BoundingBoxes3D`, and :class:`CameraExtrinsics`.
+
+    Args:
+        scale_range: Scale factor range as ``(min, max)``.
+            Default: ``(0.95, 1.05)``.
+        p: Probability of applying the scaling. Default: ``0.5``.
+    """
+
+    def __init__(
+        self,
+        scale_range: tuple[float, float] = (0.95, 1.05),
+        p: float = 0.5,
+    ) -> None:
+        super().__init__(p=p)
+        if scale_range[0] <= 0 or scale_range[1] <= 0:
+            msg = "scale_range values must be positive."
+            raise ValueError(msg)
+        self.scale_range = scale_range
+
+    @override
+    def make_params(self, flat_inputs: list[Any]) -> dict[str, Any]:
+        """Sample a random scale factor.
+
+        Returns:
+            Dict with ``"factor"`` key.
+        """
+        lo, hi = self.scale_range
+        factor = lo + torch.rand(1).item() * (hi - lo)
+        return {"factor": factor}
+
+    @override
+    def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
+        """Apply the scaling to a single input.
+
+        Returns:
+            Scaled input.
+        """
+        return self._call_kernel(scale_3d, inpt, factor=params["factor"])
