@@ -131,6 +131,14 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
         calib = self._load_calib(base, frame_id)
         image = self._load_image(base, frame_id)
 
+        # Filter points to camera FOV using K @ extrinsics[:3, :]
+        img_h, img_w = image.shape[2], image.shape[3]
+        K = calib["intrinsics"][0]  # [3, 3]
+        ext = calib["extrinsics"][0]  # [4, 4]
+        lidar_to_img = K @ ext[:3, :]  # [3, 4]
+        fov_mask = _get_fov_mask(points[:, :3], lidar_to_img, img_h, img_w)
+        points = points[fov_mask]
+
         inputs: dict[str, Any] = {
             "points": PointCloud3D(points),
             "images": CameraImages(image),
@@ -207,7 +215,8 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
 
         # P2: 3x4 projection matrix for left color camera
         p2 = calib_data["P2"].reshape(3, 4)
-        intrinsics = torch.from_numpy(p2[:, :3]).unsqueeze(0)  # [1, 3, 3]
+        K = p2[:, :3]
+        intrinsics = torch.from_numpy(K).unsqueeze(0)  # [1, 3, 3]
 
         # R0_rect: 3x3 rectification rotation
         r0 = np.eye(4, dtype=np.float32)
@@ -217,13 +226,23 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
         velo_to_cam = np.eye(4, dtype=np.float32)
         velo_to_cam[:3, :] = calib_data["Tr_velo_to_cam"].reshape(3, 4)
 
-        # Lidar-to-camera extrinsic: R0_rect @ Tr_velo_to_cam
-        extrinsics = torch.from_numpy(r0 @ velo_to_cam).unsqueeze(0)  # [1, 4, 4]
+        # P2's 4th column encodes a stereo baseline offset in camera frame.
+        # Fold it into the extrinsic so that K @ extrinsics[:3, :] gives
+        # exact pixel-accurate projection (matching P2 @ R0 @ Tr_velo_to_cam).
+        baseline = np.eye(4, dtype=np.float32)
+        baseline[:3, 3] = np.linalg.solve(K, p2[:, 3])
+
+        extrinsics = torch.from_numpy(baseline @ r0 @ velo_to_cam).unsqueeze(
+            0
+        )  # [1, 4, 4]
 
         return {"extrinsics": extrinsics, "intrinsics": intrinsics}
 
     def _load_targets(
-        self, base: str, frame_id: str, calib: dict[str, torch.Tensor]
+        self,
+        base: str,
+        frame_id: str,
+        calib: dict[str, torch.Tensor],
     ) -> dict[str, Any]:
         """Parse KITTI label file and convert to lidar frame.
 
@@ -313,3 +332,38 @@ def _cam_to_lidar_boxes(
         ],
         dim=-1,
     )
+
+
+def _get_fov_mask(
+    points_3d: torch.Tensor,
+    proj_matrix: torch.Tensor,
+    img_h: int,
+    img_w: int,
+) -> torch.Tensor:
+    """Get boolean mask for points that project into the camera image.
+
+    Args:
+        points_3d: ``[N, 3]`` 3D points.
+        proj_matrix: ``[3, 4]`` projection matrix that maps ``points_3d`` to
+            image coordinates (e.g. ``P2`` for camera-frame points, or
+            ``P2 @ R0 @ Tr`` for lidar-frame points).
+        img_h: Image height in pixels.
+        img_w: Image width in pixels.
+
+    Returns:
+        Boolean mask ``[N]``. True for points with positive depth that project
+        within image bounds.
+    """
+    n = points_3d.shape[0]
+    ones = torch.ones(n, 1, dtype=points_3d.dtype)
+    pts_hom = torch.cat([points_3d, ones], dim=1)  # [N, 4]
+
+    # Project: [3, 4] @ [4, N] -> [3, N]
+    pts_img = (proj_matrix @ pts_hom.T).T  # [N, 3]
+
+    depth = pts_img[:, 2]
+    u = pts_img[:, 0] / depth.clamp(min=1e-6)
+    v = pts_img[:, 1] / depth.clamp(min=1e-6)
+
+    valid = (depth > 0) & (u >= 0) & (u < img_w) & (v >= 0) & (v < img_h)
+    return valid
