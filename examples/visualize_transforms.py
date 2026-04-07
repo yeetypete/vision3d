@@ -16,7 +16,7 @@ import rerun.blueprint as rrb
 
 from vision3d.datasets import NuScenes3D
 from vision3d.datasets.nuscenes import CAMERA_NAMES
-from vision3d.transforms import RandomFlip3D
+from vision3d.transforms import RandomFlip3D, RandomTranslate3D
 from vision3d.viz import log_sample
 
 
@@ -39,9 +39,12 @@ def main() -> None:
 
     transforms = [
         ("original", "Original", None),
-        ("flip_x", "Flip X", RandomFlip3D(axis="x", p=1.0)),
-        ("flip_y", "Flip Y", RandomFlip3D(axis="y", p=1.0)),
-        ("flip_z", "Flip Z", RandomFlip3D(axis="z", p=1.0)),
+        ("flip_z", "RandomFlip3D(axis='z')", RandomFlip3D(axis="z", p=1.0)),
+        (
+            "translate",
+            "RandomTranslate3D(5.0)",
+            RandomTranslate3D(translation_range=5.0, p=1.0),
+        ),
     ]
 
     # Build blueprint: one tab per transform, each with 3D + 6 camera views

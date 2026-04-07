@@ -16,11 +16,15 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
-from vision3d.transforms import RandomFlip3D
+from vision3d.transforms import RandomFlip3D, RandomTranslate3D
 from vision3d.transforms.functional import (
     flip_3d,
     flip_3d_bounding_boxes,
     flip_3d_point_cloud,
+    translate_3d,
+    translate_3d_bounding_boxes,
+    translate_3d_camera_extrinsics,
+    translate_3d_point_cloud,
 )
 
 ALL_FORMATS = list(BoundingBox3DFormat)
@@ -336,6 +340,251 @@ class TestRandomFlip3DFusion:
     def test_all_types_preserved(self) -> None:
         sample = _make_fusion_sample()
         transform = RandomFlip3D(axis="x", p=1.0)
+        out = transform(sample)
+        assert isinstance(out["points"], PointCloud3D)
+        assert isinstance(out["boxes"], BoundingBoxes3D)
+        assert isinstance(out["images"], CameraImages)
+        assert isinstance(out["extrinsics"], CameraExtrinsics)
+        assert isinstance(out["intrinsics"], CameraIntrinsics)
+
+
+# Reference implementations
+def _reference_translate_point_cloud(
+    points: torch.Tensor, offset: torch.Tensor
+) -> torch.Tensor:
+    out = points.clone()
+    out[..., :3] += offset
+    return out
+
+
+def _reference_translate_bounding_boxes(
+    boxes: torch.Tensor, format: BoundingBox3DFormat, offset: torch.Tensor
+) -> torch.Tensor:
+    out = boxes.clone()
+    if format is BoundingBox3DFormat.XYZXYZ:
+        out[..., :3] += offset
+        out[..., 3:6] += offset
+    else:
+        out[..., :3] += offset
+    return out
+
+
+# Kernel tests
+class TestTranslate3DPointCloudKernel:
+    @pytest.mark.parametrize(
+        "offset", [torch.tensor([1.0, 0, 0]), torch.tensor([0, -2.0, 3.0])]
+    )
+    def test_correctness(self, offset: torch.Tensor) -> None:
+        points = torch.rand(50, 3) * 200 - 100
+        actual = translate_3d_point_cloud(points, offset=offset)
+        expected = _reference_translate_point_cloud(points, offset)
+        torch.testing.assert_close(actual, expected)
+
+    def test_preserves_features(self) -> None:
+        points = torch.rand(10, 6)
+        offset = torch.tensor([1.0, 2.0, 3.0])
+        actual = translate_3d_point_cloud(points, offset=offset)
+        torch.testing.assert_close(actual[:, 3:], points[:, 3:])
+
+    def test_does_not_modify_input(self) -> None:
+        points = torch.rand(10, 3)
+        original = points.clone()
+        translate_3d_point_cloud(points, offset=torch.tensor([1.0, 2.0, 3.0]))
+        torch.testing.assert_close(points, original)
+
+    def test_inverse(self) -> None:
+        points = torch.rand(10, 3)
+        offset = torch.tensor([5.0, -3.0, 1.0])
+        roundtripped = translate_3d_point_cloud(
+            translate_3d_point_cloud(points, offset=offset), offset=-offset
+        )
+        torch.testing.assert_close(roundtripped, points)
+
+
+class TestTranslate3DBoundingBoxesKernel:
+    @pytest.mark.parametrize("format", ALL_FORMATS)
+    def test_correctness(self, format: BoundingBox3DFormat) -> None:
+        bbox = make_bounding_boxes_3d(format=format, num_boxes=5)
+        raw = bbox.as_subclass(torch.Tensor)
+        offset = torch.tensor([1.0, -2.0, 0.5])
+        actual = translate_3d_bounding_boxes(raw, format=format, offset=offset)
+        expected = _reference_translate_bounding_boxes(raw, format, offset)
+        torch.testing.assert_close(actual, expected)
+
+    def test_does_not_modify_input(self) -> None:
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
+        original = bbox.clone()
+        translate_3d_bounding_boxes(
+            bbox.as_subclass(torch.Tensor),
+            format=BoundingBox3DFormat.XYZLWHYPR,
+            offset=torch.tensor([1.0, 2.0, 3.0]),
+        )
+        torch.testing.assert_close(bbox, original)
+
+    @pytest.mark.parametrize("format", ALL_FORMATS)
+    def test_inverse(self, format: BoundingBox3DFormat) -> None:
+        bbox = make_bounding_boxes_3d(format=format, num_boxes=3)
+        raw = bbox.as_subclass(torch.Tensor)
+        offset = torch.tensor([5.0, -3.0, 1.0])
+        roundtripped = translate_3d_bounding_boxes(
+            translate_3d_bounding_boxes(raw, format=format, offset=offset),
+            format=format,
+            offset=-offset,
+        )
+        torch.testing.assert_close(roundtripped, raw)
+
+    def test_dimensions_unchanged(self) -> None:
+        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR, num_boxes=3)
+        raw = bbox.as_subclass(torch.Tensor)
+        offset = torch.tensor([10.0, 20.0, 30.0])
+        translated = translate_3d_bounding_boxes(
+            raw, format=BoundingBox3DFormat.XYZLWHYPR, offset=offset
+        )
+        # Dimensions (columns 3-6) and angles (columns 6-9) should be unchanged
+        torch.testing.assert_close(translated[:, 3:], raw[:, 3:])
+
+
+class TestTranslate3DCameraExtrinsicsKernel:
+    def test_correctness(self) -> None:
+        ext = torch.eye(4).unsqueeze(0)
+        offset = torch.tensor([1.0, 2.0, 3.0])
+        actual = translate_3d_camera_extrinsics(ext, offset=offset)
+        # With identity rotation: E'[:3,3] = E[:3,3] - I @ offset = -offset
+        expected = torch.eye(4).unsqueeze(0)
+        expected[0, :3, 3] = -offset
+        torch.testing.assert_close(actual, expected)
+
+    def test_inverse(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=4)
+        raw = ext.as_subclass(torch.Tensor)
+        offset = torch.tensor([5.0, -3.0, 1.0])
+        roundtripped = translate_3d_camera_extrinsics(
+            translate_3d_camera_extrinsics(raw, offset=offset), offset=-offset
+        )
+        torch.testing.assert_close(roundtripped, raw)
+
+    def test_does_not_modify_input(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=2)
+        original = ext.clone()
+        translate_3d_camera_extrinsics(
+            ext.as_subclass(torch.Tensor), offset=torch.tensor([1.0, 2.0, 3.0])
+        )
+        torch.testing.assert_close(ext, original)
+
+    def test_projection_consistent(self) -> None:
+        """Verify projection is unchanged after translate."""
+        ext = make_camera_extrinsics(num_cameras=1)
+        raw_ext = ext.as_subclass(torch.Tensor)[0]  # [4, 4]
+        K = torch.tensor([[500.0, 0, 320], [0, 500, 240], [0, 0, 1]])
+
+        point_lidar = torch.tensor([10.0, 5.0, 1.0, 1.0])
+        p_cam = raw_ext @ point_lidar
+        pixel_before = K @ p_cam[:3]
+        pixel_before = pixel_before[:2] / pixel_before[2]
+
+        offset = torch.tensor([2.0, -1.0, 0.5])
+        ext_translated = translate_3d_camera_extrinsics(
+            raw_ext.unsqueeze(0), offset=offset
+        )[0]
+        point_translated = point_lidar.clone()
+        point_translated[:3] += offset
+        p_cam_after = ext_translated @ point_translated
+        pixel_after = K @ p_cam_after[:3]
+        pixel_after = pixel_after[:2] / pixel_after[2]
+
+        torch.testing.assert_close(pixel_before, pixel_after)
+
+
+# Functional tests
+class TestTranslate3DDispatch:
+    def test_dispatches_point_cloud(self) -> None:
+        pc = make_point_cloud_3d(num_points=10)
+        offset = torch.tensor([1.0, 0, 0])
+        out = translate_3d(pc, offset=offset)
+        assert isinstance(out, PointCloud3D)
+
+    @pytest.mark.parametrize("format", ALL_FORMATS)
+    def test_dispatches_bounding_boxes(self, format: BoundingBox3DFormat) -> None:
+        bbox = make_bounding_boxes_3d(format=format, num_boxes=3)
+        offset = torch.tensor([1.0, 0, 0])
+        out = translate_3d(bbox, offset=offset)
+        assert isinstance(out, BoundingBoxes3D)
+        assert out.format == format
+
+    def test_dispatches_camera_extrinsics(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=4)
+        offset = torch.tensor([1.0, 0, 0])
+        out = translate_3d(ext, offset=offset)
+        assert isinstance(out, CameraExtrinsics)
+
+    def test_passthrough_plain_tensor(self) -> None:
+        labels = torch.tensor([0, 1, 2])
+        out = translate_3d(labels, offset=torch.tensor([1.0, 0, 0]))
+        assert out is labels
+
+
+# Transform tests
+class TestRandomTranslate3D:
+    def test_p_one_always_translates(self) -> None:
+        sample = _make_sample()
+        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
+        out = transform(sample)
+        assert not torch.equal(out["points"], sample["points"])
+
+    def test_p_zero_never_translates(self) -> None:
+        sample = _make_sample()
+        transform = RandomTranslate3D(translation_range=5.0, p=0.0)
+        out = transform(sample)
+        assert torch.equal(out["points"], sample["points"])
+
+    def test_labels_passthrough(self) -> None:
+        sample = _make_sample()
+        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
+        out = transform(sample)
+        assert torch.equal(out["labels"], sample["labels"])
+
+    def test_preserves_types(self) -> None:
+        sample = _make_sample()
+        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
+        out = transform(sample)
+        assert isinstance(out["points"], PointCloud3D)
+        assert isinstance(out["boxes"], BoundingBoxes3D)
+
+    @pytest.mark.parametrize("format", ALL_FORMATS)
+    def test_preserves_format(self, format: BoundingBox3DFormat) -> None:
+        sample = _make_sample(format=format)
+        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
+        out = transform(sample)
+        assert out["boxes"].format == format
+
+    def test_per_axis_range(self) -> None:
+        transform = RandomTranslate3D(translation_range=(1.0, 2.0, 3.0), p=1.0)
+        assert transform.translation_range == (1.0, 2.0, 3.0)
+
+
+class TestRandomTranslate3DFusion:
+    def test_extrinsics_updated(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
+        out = transform(sample)
+        assert isinstance(out["extrinsics"], CameraExtrinsics)
+        assert not torch.equal(out["extrinsics"], sample["extrinsics"])
+
+    def test_images_passthrough(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
+        out = transform(sample)
+        assert torch.equal(out["images"], sample["images"])
+
+    def test_intrinsics_passthrough(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
+        out = transform(sample)
+        assert torch.equal(out["intrinsics"], sample["intrinsics"])
+
+    def test_all_types_preserved(self) -> None:
+        sample = _make_fusion_sample()
+        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
         out = transform(sample)
         assert isinstance(out["points"], PointCloud3D)
         assert isinstance(out["boxes"], BoundingBoxes3D)

@@ -7,6 +7,7 @@ import torch
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
+    CameraExtrinsics,
     PointCloud3D,
 )
 
@@ -112,3 +113,102 @@ def _flip_3d_bounding_boxes_dispatch(inpt: BoundingBoxes3D, *, axis: str) -> TVT
         inpt.as_subclass(torch.Tensor), format=inpt.format, axis=axis
     )
     return wrap(output, like=inpt)
+
+
+def translate_3d(inpt: Tensor, *, offset: Tensor) -> Tensor:
+    """Translate a tensor by a 3D offset.
+
+    Dispatcher entry point. Type-specific kernels are registered below.
+
+    Args:
+        inpt: Input tensor.
+        offset: Translation ``[3]`` as ``(tx, ty, tz)``.
+
+    Returns:
+        Translated tensor.
+    """
+    return inpt
+
+
+def translate_3d_point_cloud(points: Tensor, *, offset: Tensor) -> Tensor:
+    """Translate point cloud coordinates by ``offset``.
+
+    Args:
+        points: Point cloud tensor ``[..., 3+C]``.
+        offset: Translation ``[3]`` as ``(tx, ty, tz)``.
+
+    Returns:
+        Translated point cloud with the same shape.
+    """
+    points = points.clone()
+    points[..., :3] += offset
+    return points
+
+
+def translate_3d_bounding_boxes(
+    boxes: Tensor, *, format: BoundingBox3DFormat, offset: Tensor
+) -> Tensor:
+    """Translate 3D bounding boxes by ``offset``.
+
+    Args:
+        boxes: Bounding box tensor ``[..., K]``.
+        format: Format of the boxes.
+        offset: Translation ``[3]`` as ``(tx, ty, tz)``.
+
+    Returns:
+        Translated bounding boxes with the same shape.
+    """
+    boxes = boxes.clone()
+
+    if format is BoundingBox3DFormat.XYZXYZ:
+        boxes[..., :3] += offset
+        boxes[..., 3:6] += offset
+    else:
+        # XYZLWH, XYZLWHY, XYZLWHYPR: first 3 are center
+        boxes[..., :3] += offset
+
+    return boxes
+
+
+def translate_3d_camera_extrinsics(extrinsics: Tensor, *, offset: Tensor) -> Tensor:
+    """Update camera extrinsics after translating the lidar frame.
+
+    The lidar-to-camera extrinsic translation changes because the lidar
+    origin moved by ``offset`` in the lidar frame.
+
+    Args:
+        extrinsics: Extrinsic matrices ``[..., 4, 4]``.
+        offset: Translation ``[3]`` as ``(tx, ty, tz)`` in lidar frame.
+
+    Returns:
+        Updated extrinsics with the same shape.
+    """
+    extrinsics = extrinsics.clone()
+    # E' = E @ T_inv where T_inv translates by -offset
+    # This is equivalent to: E'[:3, 3] -= E[:3, :3] @ offset
+    extrinsics[..., :3, 3] -= extrinsics[..., :3, :3] @ offset
+    return extrinsics
+
+
+@register_kernel(translate_3d, PointCloud3D)
+def _translate_3d_point_cloud_kernel(points: Tensor, *, offset: Tensor) -> Tensor:
+    return translate_3d_point_cloud(points, offset=offset)
+
+
+@register_kernel(translate_3d, BoundingBoxes3D, tv_tensor_wrapper=False)
+def _translate_3d_bounding_boxes_dispatch(
+    inpt: BoundingBoxes3D, *, offset: Tensor
+) -> TVTensor:
+    from vision3d.tensors import wrap
+
+    output = translate_3d_bounding_boxes(
+        inpt.as_subclass(torch.Tensor), format=inpt.format, offset=offset
+    )
+    return wrap(output, like=inpt)
+
+
+@register_kernel(translate_3d, CameraExtrinsics)
+def _translate_3d_camera_extrinsics_kernel(
+    extrinsics: Tensor, *, offset: Tensor
+) -> Tensor:
+    return translate_3d_camera_extrinsics(extrinsics, offset=offset)
