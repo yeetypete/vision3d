@@ -6,7 +6,6 @@ readme = "README.md"
 requires-python = ">=3.14"
 authors = [{ name = "Peter Siegel", email = "psiegel2000@icloud.com" }]
 dependencies = [
-  "opencv-python-headless>=4.6",
   "torch>=2.6",
   "torchvision>=0.21",
 ]

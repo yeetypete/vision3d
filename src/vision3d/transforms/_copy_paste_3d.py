@@ -5,10 +5,10 @@ from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, override
 
-import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
+from PIL import Image, ImageDraw
 from torch import Tensor, nn
 
 from vision3d.ops import (
@@ -105,7 +105,7 @@ def _fill_convex_polygon(
     width: int,
     device: torch.device,
 ) -> Tensor:
-    """Rasterise a convex polygon into a boolean mask using OpenCV.
+    """Rasterise a convex polygon into a boolean mask using Pillow.
 
     Args:
         vertices: CCW-ordered hull vertices ``(x, y)`` in crop-local coords.
@@ -116,10 +116,10 @@ def _fill_convex_polygon(
     Returns:
         Boolean mask ``[height, width]``.
     """
-    pts = np.round(np.array(vertices)).astype(np.int32)
-    mask_np = np.zeros((height, width), dtype=np.uint8)
-    cv2.fillConvexPoly(mask_np, pts, 1)
-    return torch.from_numpy(mask_np).bool().to(device)
+    img = Image.new("L", (width, height), 0)
+    ImageDraw.Draw(img).polygon(vertices, fill=1)
+    mask_np = np.frombuffer(img.tobytes(), dtype=np.uint8).reshape(height, width)
+    return torch.from_numpy(mask_np.copy()).bool().to(device)
 
 
 _HullMaskResult = tuple[Tensor, tuple[int, int, int, int], float]
