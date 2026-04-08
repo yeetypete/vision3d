@@ -26,8 +26,6 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 
-# Data structures
-
 
 @dataclass
 class CameraCrop:
@@ -61,9 +59,6 @@ class ObjectEntry:
     box: Tensor
     label: int
     camera_crops: list[CameraCrop | None] | None = field(default=None, repr=False)
-
-
-# Private 2-D geometry helpers
 
 
 def _convex_hull_2d(
@@ -244,9 +239,6 @@ def _batch_hull_masks(
     ]
 
 
-# Main transform
-
-
 class CopyPaste3D(nn.Module):
     """Batch-level 3D copy-paste data augmentation.
 
@@ -417,8 +409,6 @@ class CopyPaste3D(nn.Module):
                     bbox=(x_min, y_min, x_max, y_max),
                 )
         return result
-
-    # Paste
 
     def _paste_objects(
         self,
