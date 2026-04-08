@@ -102,8 +102,10 @@ def main() -> None:
     inputs, targets = ds[args.frame]
 
     # Prepare CopyPaste3D: populate database from neighboring frames
+    # TODO(yeetypete): use proper class label IDs once NuScenes dataset
+    # maps category names to fixed class indices instead of arange.
     copy_paste = CopyPaste3D(
-        target_counts={"vehicle.car": 20, "human.pedestrian.adult": 10},
+        target_counts={0: 20, 1: 10},
         min_points=5,
     )
     for i in range(max(0, args.frame - 3), args.frame):

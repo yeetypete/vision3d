@@ -1,7 +1,6 @@
 """3D copy-paste data augmentation with lazy object database."""
 
 import math
-import random
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, override
@@ -19,6 +18,7 @@ from vision3d.ops import (
     points_in_boxes_3d_indices,
     project_to_image,
 )
+from vision3d.ops._points_in_boxes_3d import _extract_box_params
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -51,15 +51,15 @@ class ObjectEntry:
     Attributes:
         points: Points in scene frame ``[M, 3+C]``.
         box: Full box tensor ``[K]`` in its original format.
-        class_name: The class name string.
-        camera_crops: Per-camera crops, or None when camera paste is
-            disabled.  ``camera_crops[i]`` is None if the object is not
+        label: Integer class label.
+        camera_crops: Per-camera crops, or None when no camera data is
+            available.  ``camera_crops[i]`` is None if the object is not
             visible in camera ``i``.
     """
 
     points: Tensor
     box: Tensor
-    class_name: str
+    label: int
     camera_crops: list[CameraCrop | None] | None = field(default=None, repr=False)
 
 
@@ -265,8 +265,8 @@ class CopyPaste3D(nn.Module):
     dataset to avoid cross-contamination.
 
     Args:
-        target_counts: Dict mapping class name to desired object count
-            per sample. E.g. ``{"Car": 15, "Pedestrian": 10}``.
+        target_counts: Dict mapping integer class label to desired object
+            count per sample. E.g. ``{0: 15, 1: 10}``.
         min_points: Minimum number of points an extracted object must
             have to be stored in the database. Default: ``5``.
         max_database_size: Maximum entries per class. None means
@@ -276,7 +276,7 @@ class CopyPaste3D(nn.Module):
 
     def __init__(
         self,
-        target_counts: dict[str, int],
+        target_counts: dict[int, int],
         min_points: int = 5,
         max_database_size: int | None = None,
         p: float = 1.0,
@@ -287,7 +287,7 @@ class CopyPaste3D(nn.Module):
         self.max_database_size = max_database_size
         self.p = p
 
-        self._database: dict[str, deque[ObjectEntry]] = defaultdict(
+        self._database: dict[int, deque[ObjectEntry]] = defaultdict(
             lambda: deque(maxlen=self.max_database_size)
         )
 
@@ -306,15 +306,12 @@ class CopyPaste3D(nn.Module):
         Returns:
             Modified ``(inputs, targets)`` tuples.
         """
-        # Extract objects from current batch into database
         for inp, tgt in zip(inputs, targets):
             self._extract_objects(inp, tgt)
 
-        # Skip pasting with probability 1-p
         if torch.rand(1).item() >= self.p:
             return inputs, targets
 
-        # Paste objects into each sample
         new_inputs = []
         new_targets = []
         for inp, tgt in zip(inputs, targets):
@@ -324,6 +321,8 @@ class CopyPaste3D(nn.Module):
 
         return tuple(new_inputs), tuple(new_targets)
 
+    # Extraction
+
     def _has_camera_data(self, inputs: dict[str, Any]) -> bool:
         return "images" in inputs and "extrinsics" in inputs and "intrinsics" in inputs
 
@@ -331,9 +330,9 @@ class CopyPaste3D(nn.Module):
         """Extract per-object point clouds and store in database."""
         points = inputs["points"]
         boxes = targets["boxes"]
-        class_names = targets.get("class_names", [])
+        labels = targets.get("labels", torch.zeros(0, dtype=torch.long))
 
-        if boxes.shape[0] == 0 or len(class_names) == 0:
+        if boxes.shape[0] == 0 or labels.shape[0] == 0:
             return
 
         raw_points = points.as_subclass(Tensor)
@@ -345,7 +344,7 @@ class CopyPaste3D(nn.Module):
         # First pass: find objects with enough points
         valid: list[tuple[int, Tensor]] = []
         for j in range(raw_boxes.shape[0]):
-            if j >= len(class_names):
+            if j >= labels.shape[0]:
                 break
             mask = indices == j
             obj_points = raw_points[mask]
@@ -361,13 +360,14 @@ class CopyPaste3D(nn.Module):
             )
 
         for j, obj_points in valid:
+            label = int(labels[j].item())
             entry = ObjectEntry(
                 points=obj_points.detach().cpu(),
                 box=raw_boxes[j].detach().cpu(),
-                class_name=class_names[j],
+                label=label,
                 camera_crops=camera_crops_map.get(j),
             )
-            self._database[class_names[j]].append(entry)
+            self._database[label].append(entry)
 
     def _extract_all_camera_crops(
         self,
@@ -401,7 +401,6 @@ class CopyPaste3D(nn.Module):
 
         valid_boxes = boxes[valid_indices]  # [V, K]
 
-        # Per-camera: one batched projection for all valid objects
         result: dict[int, list[CameraCrop | None]] = {
             j: [None] * n_cams for j in valid_indices
         }
@@ -424,6 +423,8 @@ class CopyPaste3D(nn.Module):
                 )
         return result
 
+    # Paste
+
     def _paste_objects(
         self,
         inputs: dict[str, Any],
@@ -436,48 +437,48 @@ class CopyPaste3D(nn.Module):
         """
         points = inputs["points"]
         boxes = targets["boxes"]
-        class_names = list(targets.get("class_names", []))
         labels = targets.get("labels", torch.zeros(0, dtype=torch.long))
         fmt = boxes.format
 
         raw_points = points.as_subclass(Tensor)
         raw_boxes = boxes.as_subclass(Tensor)
 
-        # Count existing objects per class
-        existing_counts: dict[str, int] = {}
-        for name in class_names:
-            existing_counts[name] = existing_counts.get(name, 0) + 1
+        # Count existing objects per label
+        existing_counts: dict[int, int] = {}
+        for lbl in labels.tolist():
+            existing_counts[lbl] = existing_counts.get(lbl, 0) + 1
 
         pasted_entries: list[ObjectEntry] = []
         pasted_boxes: list[Tensor] = []
         pasted_points: list[Tensor] = []
-        pasted_names: list[str] = []
+        pasted_labels: list[int] = []
 
         all_boxes = raw_boxes
 
-        for cls_name, target_count in self.target_counts.items():
-            n_existing = existing_counts.get(cls_name, 0)
+        for label_id, target_count in self.target_counts.items():
+            n_existing = existing_counts.get(label_id, 0)
             n_paste = max(0, target_count - n_existing)
-            db = self._database.get(cls_name)
+            db = self._database.get(label_id)
             if not db or n_paste == 0:
                 continue
 
-            # Sample candidates (shuffle to avoid always picking the same ones)
+            # Sample candidates (randperm for torch-seedable randomness)
             candidates = list(db)
-            random.shuffle(candidates)
+            perm = torch.randperm(len(candidates))
+            candidates = [candidates[i] for i in perm]
 
             for entry in candidates[:n_paste]:
-                # Check collision at the object's original position
+                box = entry.box.to(raw_boxes.device)
                 if all_boxes.shape[0] > 0:
-                    overlap = box3d_overlap(entry.box.unsqueeze(0), all_boxes, fmt)
+                    overlap = box3d_overlap(box.unsqueeze(0), all_boxes, fmt)
                     if overlap.any():
                         continue
 
                 pasted_entries.append(entry)
-                pasted_boxes.append(entry.box)
-                pasted_points.append(entry.points)
-                pasted_names.append(cls_name)
-                all_boxes = torch.cat([all_boxes, entry.box.unsqueeze(0)])
+                pasted_boxes.append(box)
+                pasted_points.append(entry.points.to(raw_points.device))
+                pasted_labels.append(entry.label)
+                all_boxes = torch.cat([all_boxes, box.unsqueeze(0)])
 
         if not pasted_boxes:
             return inputs, targets
@@ -489,23 +490,15 @@ class CopyPaste3D(nn.Module):
         )
         kept_points = raw_points[~remove_mask]
 
-        # Concatenate pasted points
-        all_pasted_points = torch.cat(pasted_points)
-        new_points = torch.cat([kept_points, all_pasted_points])
-
-        # Concatenate boxes and labels
+        # Concatenate
+        new_points = torch.cat([kept_points, torch.cat(pasted_points)])
         new_boxes = torch.cat([raw_boxes, pasted_boxes_tensor])
         new_labels = torch.cat(
             [
                 labels,
-                torch.arange(
-                    labels.shape[0],
-                    labels.shape[0] + len(pasted_names),
-                    dtype=labels.dtype,
-                ),
+                torch.tensor(pasted_labels, dtype=labels.dtype, device=labels.device),
             ]
         )
-        new_class_names = class_names + pasted_names
 
         new_inputs: dict[str, Any] = {
             **inputs,
@@ -515,8 +508,19 @@ class CopyPaste3D(nn.Module):
             **targets,
             "boxes": BoundingBoxes3D(new_boxes, format=fmt),
             "labels": new_labels,
-            "class_names": new_class_names,
         }
+
+        # Pass through class_names if present
+        if "class_names" in targets and pasted_entries:
+            # Look up names for pasted labels from existing mapping
+            label_to_name: dict[int, str] = {}
+            class_names = targets["class_names"]
+            for i, name in enumerate(class_names):
+                if i < labels.shape[0]:
+                    label_to_name[int(labels[i].item())] = name
+            new_targets["class_names"] = list(class_names) + [
+                label_to_name.get(lbl, str(lbl)) for lbl in pasted_labels
+            ]
 
         # Camera image paste
         if self._has_camera_data(inputs):
@@ -546,17 +550,23 @@ class CopyPaste3D(nn.Module):
         n_cams = images.shape[0]
         img_h, img_w = images.shape[2], images.shape[3]
 
-        # Pre-compute once outside the camera loop
+        # Pre-compute centers (format-aware) once outside the camera loop
         pasted_box_stack = torch.stack([e.box for e in pasted_entries])
-        pasted_centers = pasted_box_stack[:, :3]  # [P, 3]
-        p_ones = torch.ones(pasted_centers.shape[0], 1, dtype=pasted_centers.dtype)
-        pasted_centers_hom = torch.cat([pasted_centers, p_ones], dim=-1)  # [P, 4]
+        p_centers, _, _ = _extract_box_params(pasted_box_stack, fmt)
+        p_ones = torch.ones(
+            p_centers.shape[0], 1, dtype=p_centers.dtype, device=p_centers.device
+        )
+        pasted_centers_hom = torch.cat([p_centers, p_ones], dim=-1)  # [P, 4]
 
         has_existing = existing_boxes.shape[0] > 0
-        e_centers_hom = torch.zeros(0, 4, dtype=existing_boxes.dtype)
+        e_centers_hom = torch.zeros(
+            0, 4, dtype=existing_boxes.dtype, device=existing_boxes.device
+        )
         if has_existing:
-            e_centers = existing_boxes[:, :3]
-            e_ones = torch.ones(e_centers.shape[0], 1, dtype=e_centers.dtype)
+            e_centers, _, _ = _extract_box_params(existing_boxes, fmt)
+            e_ones = torch.ones(
+                e_centers.shape[0], 1, dtype=e_centers.dtype, device=e_centers.device
+            )
             e_centers_hom = torch.cat([e_centers, e_ones], dim=-1)
 
         any_pasted = False
