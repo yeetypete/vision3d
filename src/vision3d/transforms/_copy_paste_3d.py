@@ -493,18 +493,6 @@ class CopyPaste3D(nn.Module):
             "labels": new_labels,
         }
 
-        # Pass through class_names if present
-        if "class_names" in targets and pasted_entries:
-            # Look up names for pasted labels from existing mapping
-            label_to_name: dict[int, str] = {}
-            class_names = targets["class_names"]
-            for i, name in enumerate(class_names):
-                if i < labels.shape[0]:
-                    label_to_name[int(labels[i].item())] = name
-            new_targets["class_names"] = list(class_names) + [
-                label_to_name.get(lbl, str(lbl)) for lbl in pasted_labels
-            ]
-
         # Camera image paste
         if self._has_camera_data(inputs):
             new_images = self._paste_camera_images(

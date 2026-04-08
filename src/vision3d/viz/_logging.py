@@ -225,15 +225,20 @@ def log_sample(
         )
 
     if targets and "boxes" in targets:
-        class_names = targets.get("class_names")
         class_ids = None
-        if class_names and label_to_id is not None:
-            class_ids = [label_to_id[name] for name in class_names]
+        labels_list = None
+        if "labels" in targets:
+            class_ids = targets["labels"].tolist()
+        if "class_names" in targets:
+            labels_list = targets["class_names"]
+        elif label_to_id is not None and class_ids is not None:
+            id_to_label = {v: k for k, v in label_to_id.items()}
+            labels_list = [id_to_label.get(i, str(i)) for i in class_ids]
 
         log_boxes_3d(
             f"{entity_prefix}/boxes",
             targets["boxes"],
-            labels=class_names,
+            labels=labels_list,
             class_ids=class_ids,
         )
 
