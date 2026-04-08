@@ -19,16 +19,17 @@ def box3d_corners(
 
     Supports all rotation formats including full 9-DOF (yaw, pitch, roll).
 
-    Corner ordering follows the convention::
+    Corner ordering::
 
-        4 ---- 5       z  x
-        |\\      |\\      | /
-        | 7 ---- 6      |/
-        0 |--- 1 |      +--- y
-         \\|     \\|
-          3 ---- 2
+        4 -------- 5       z  x
+        |\         |\      |  /
+        | 7 -------| 6     | /
+        | |        | |     |/
+        0 |--------1 |     +------ y
+         \|         \|
+          3 -------- 2
 
-    Bottom face (z-): 0,1,2,3.  Top face (z+): 4,5,6,7.
+    Bottom face (z-): {0, 1, 2, 3}.  Top face (z+): {4, 5, 6, 7}.
 
     Args:
         boxes: 3D bounding boxes ``[N, K]``.
