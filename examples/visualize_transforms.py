@@ -44,6 +44,24 @@ def main() -> None:
     rr.script_add_args(parser)
     args = parser.parse_args()
 
+    ds = NuScenes3D(args.root, version=args.version, split=args.split)
+    inputs, targets = ds[args.frame]
+
+    # Label mapping from dataset (class index -> name)
+    label_to_id = ds.class_to_idx
+
+    # Target all classes for copy-paste
+    all_class_ids = list(range(len(ds.classes)))
+    copy_paste = CopyPaste3D(target_counts={c: 30 for c in all_class_ids}, min_points=5)
+
+    db_range = range(max(0, args.frame - 15), args.frame)
+    for i in db_range:
+        inp_i, tgt_i = ds[i]
+        copy_paste((inp_i,), (tgt_i,))
+    print(
+        f"  Database populated from {len(db_range)} frames, {len(ds.classes)} classes"
+    )
+
     transforms = [
         ("original", "Original", None),
         ("flip_z", "RandomFlip3D(axis='z')", RandomFlip3D(axis="z", p=1.0)),
@@ -62,7 +80,7 @@ def main() -> None:
             "RandomScale3D(0.5, 1.5)",
             RandomScale3D(scale_range=(0.5, 1.5), p=1.0),
         ),
-        ("copy_paste", "CopyPaste3D", None),
+        ("copy_paste", "CopyPaste3D", copy_paste),
     ]
 
     # Build blueprint: one tab per transform, each with 3D + 6 camera views
@@ -98,39 +116,14 @@ def main() -> None:
     rr.script_setup(args, "vision3d_transforms")
     rr.send_blueprint(blueprint)
 
-    ds = NuScenes3D(args.root, version=args.version, split=args.split)
-    inputs, targets = ds[args.frame]
-
-    # Prepare CopyPaste3D: populate database from neighboring frames
-    # TODO(yeetypete): use proper class label IDs once NuScenes dataset
-    # maps category names to fixed class indices instead of arange.
-    copy_paste = CopyPaste3D(
-        target_counts={0: 20, 1: 10},
-        min_points=5,
-    )
-    for i in range(max(0, args.frame - 3), args.frame):
-        inp_i, tgt_i = ds[i]
-        copy_paste((inp_i,), (tgt_i,))
-
-    # Build class label mapping
-    label_to_id: dict[str, int] = {}
-    if targets and "class_names" in targets:
-        for name in targets["class_names"]:
-            if name not in label_to_id:
-                label_to_id[name] = len(label_to_id)
-
     for prefix, name, transform in transforms:
         rr.log(prefix, rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 
-        if prefix == "copy_paste":
-            out_inputs, out_targets = copy_paste((inputs,), (targets,))
-            t_inputs, t_targets = out_inputs[0], out_targets[0]
-            if t_targets and "class_names" in t_targets:
-                for cn in t_targets["class_names"]:
-                    if cn not in label_to_id:
-                        label_to_id[cn] = len(label_to_id)
-        elif transform is None:
+        if transform is None:
             t_inputs, t_targets = inputs, targets
+        elif isinstance(transform, CopyPaste3D):
+            out_inputs, out_targets = transform((inputs,), (targets,))
+            t_inputs, t_targets = out_inputs[0], out_targets[0]
         else:
             t_inputs, t_targets = transform(inputs, targets)
 
@@ -143,7 +136,8 @@ def main() -> None:
             )
 
         log_sample(t_inputs, t_targets, entity_prefix=prefix, label_to_id=label_to_id)
-        print(f"  Logged: {name}")
+        n_boxes = t_targets["boxes"].shape[0] if t_targets else 0
+        print(f"  Logged: {name} ({n_boxes} boxes)")
 
     rr.script_teardown(args)
 
