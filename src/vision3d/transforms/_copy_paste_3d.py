@@ -124,7 +124,7 @@ def _fill_convex_polygon(
     pts = np.array(vertices, dtype=np.int32)
     mask_np = np.zeros((height, width), dtype=np.uint8)
     cv2.fillConvexPoly(mask_np, pts, 1)
-    return torch.from_numpy(mask_np.astype(bool)).to(device)
+    return torch.from_numpy(mask_np).bool().to(device)
 
 
 _HullMaskResult = tuple[Tensor, tuple[int, int, int, int], float]
