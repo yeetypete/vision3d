@@ -55,21 +55,16 @@ def main() -> None:
 
     end = min(args.frame + args.num_frames, len(ds))
 
-    # Build class label mapping across all frames for consistent coloring
-    label_to_id: dict[str, int] = {}
+    # Build class label mapping from dataset
+    label_to_id = ds.class_to_idx
     frames = []
     for i in range(args.frame, end):
         inputs, targets = ds[i]
         frames.append((inputs, targets))
-        if targets and "class_names" in targets:
-            for name in targets["class_names"]:
-                if name not in label_to_id:
-                    label_to_id[name] = len(label_to_id)
 
     # Log annotation context once
-    if label_to_id:
-        annotation_context = [(i, label) for label, i in label_to_id.items()]
-        rr.log("world/boxes", rr.AnnotationContext(annotation_context), static=True)
+    annotation_context = [(i, label) for label, i in label_to_id.items()]
+    rr.log("world/boxes", rr.AnnotationContext(annotation_context), static=True)
 
     # Log frames
     for i, (inputs, targets) in enumerate(frames, start=args.frame):

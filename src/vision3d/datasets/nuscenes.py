@@ -112,7 +112,6 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
             - ``"boxes"``: :class:`BoundingBoxes3D` in lidar frame,
               format ``XYZLWHY``.
             - ``"labels"``: :class:`torch.Tensor` of class indices.
-            - ``"class_names"``: list of class name strings.
         """
         sample = self._nusc.get("sample", self._sample_tokens[index])
 
@@ -195,11 +194,10 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
 
         Returns:
             Dict with ``"boxes"`` (:class:`BoundingBoxes3D`, XYZLWHY format),
-            ``"labels"`` (int tensor), and ``"class_names"`` (list of strings).
+            ``"labels"`` (int tensor).
         """
         global_to_lidar = torch.linalg.inv(lidar_to_global)
 
-        class_names: list[str] = []
         label_ids: list[int] = []
         boxes: list[list[float]] = []
 
@@ -208,7 +206,6 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
             det_name = category_to_detection_name(ann["category_name"])
             if det_name is None:
                 continue
-            class_names.append(det_name)
             label_ids.append(self.class_to_idx[det_name])
 
             # Center: global -> lidar
@@ -241,7 +238,6 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
                     torch.zeros(0, 7), format=BoundingBox3DFormat.XYZLWHY
                 ),
                 "labels": torch.zeros(0, dtype=torch.int64),
-                "class_names": [],
             }
 
         return {
@@ -250,7 +246,6 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
                 format=BoundingBox3DFormat.XYZLWHY,
             ),
             "labels": torch.tensor(label_ids, dtype=torch.int64),
-            "class_names": class_names,
         }
 
 

@@ -127,7 +127,6 @@ class TestKitti3DGetItem:
         assert targets is not None
         assert isinstance(targets["boxes"], BoundingBoxes3D)
         assert isinstance(targets["labels"], torch.Tensor)
-        assert isinstance(targets["class_names"], list)
 
     def test_target_none_test(self, kitti_root: Path) -> None:
         ds = Kitti3D(kitti_root, train=False)
@@ -156,7 +155,6 @@ class TestKitti3DGetItem:
         _, targets = ds[0]
         assert targets is not None
         assert targets["boxes"].shape[0] == 1  # 1 Pedestrian in frame 000000
-        assert len(targets["class_names"]) == 1
 
     def test_boxes_are_in_lidar_frame(self, kitti_root: Path) -> None:
         ds = Kitti3D(kitti_root, train=True)

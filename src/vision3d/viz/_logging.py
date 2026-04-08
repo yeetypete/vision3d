@@ -208,7 +208,7 @@ def log_sample(
     Args:
         inputs: Dict with ``"points"``, ``"images"``, ``"extrinsics"``,
             ``"intrinsics"`` keys.
-        targets: Optional dict with ``"boxes"``, ``"class_names"`` keys.
+        targets: Optional dict with ``"boxes"``, ``"labels"`` keys.
         entity_prefix: Rerun entity path prefix.
         label_to_id: Mapping from class name to class ID for consistent
             coloring. Build this across all frames before logging.
@@ -229,9 +229,7 @@ def log_sample(
         labels_list = None
         if "labels" in targets:
             class_ids = targets["labels"].tolist()
-        if "class_names" in targets:
-            labels_list = targets["class_names"]
-        elif label_to_id is not None and class_ids is not None:
+        if label_to_id is not None and class_ids is not None:
             id_to_label = {v: k for k, v in label_to_id.items()}
             labels_list = [id_to_label.get(i, str(i)) for i in class_ids]
 

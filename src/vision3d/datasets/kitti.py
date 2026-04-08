@@ -134,7 +134,6 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
             - ``"boxes"``: :class:`BoundingBoxes3D` in lidar frame,
               format ``XYZLWHY``.
             - ``"labels"``: :class:`torch.Tensor` of class indices.
-            - ``"class_names"``: list of class name strings.
         """
         frame_id = self._frame_ids[index]
         base = os.path.join(self._raw_folder, self._location)
@@ -260,10 +259,9 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
 
         Returns:
             Dict with ``"boxes"`` (:class:`BoundingBoxes3D`, XYZLWHY format),
-            ``"labels"`` (int tensor), and ``"class_names"`` (list of strings).
+            ``"labels"`` (int tensor).
         """
         path = os.path.join(base, self.labels_dir_name, f"{frame_id}.txt")
-        class_names: list[str] = []
         label_ids: list[int] = []
         boxes_cam: list[list[float]] = []
 
@@ -271,7 +269,6 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
             for line in csv.reader(f, delimiter=" "):
                 if not line or line[0] == "DontCare":
                     continue
-                class_names.append(line[0])
                 label_ids.append(self.class_to_idx.get(line[0], -1))
                 # KITTI label: h, w, l, x, y, z, rotation_y (camera frame)
                 h, w, l = float(line[8]), float(line[9]), float(line[10])
@@ -285,7 +282,6 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
                     torch.zeros(0, 7), format=BoundingBox3DFormat.XYZLWHY
                 ),
                 "labels": torch.zeros(0, dtype=torch.int64),
-                "class_names": [],
             }
 
         boxes_cam_t = torch.tensor(boxes_cam, dtype=torch.float32)
@@ -294,7 +290,6 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
         return {
             "boxes": BoundingBoxes3D(boxes_lidar, format=BoundingBox3DFormat.XYZLWHY),
             "labels": torch.tensor(label_ids, dtype=torch.int64),
-            "class_names": class_names,
         }
 
 
