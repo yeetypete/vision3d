@@ -34,9 +34,13 @@ def project_to_image(
     # Project to pixel: [3, 3] @ [3, N] -> [3, N] -> [N, 3]
     pts_img = (intrinsics @ pts_cam_3d.T).T  # [N, 3]
 
-    safe_depth = depth.clamp(min=1e-6)
-    u = pts_img[:, 0] / safe_depth
-    v = pts_img[:, 1] / safe_depth
+    u = pts_img[:, 0] / depth
+    v = pts_img[:, 1] / depth
+
+    # Points behind the camera (depth <= 0) get NaN pixel coordinates
+    behind = depth <= 0
+    u = u.masked_fill(behind, torch.nan)
+    v = v.masked_fill(behind, torch.nan)
 
     uv = torch.stack([u, v], dim=-1)  # [N, 2]
     return uv, depth

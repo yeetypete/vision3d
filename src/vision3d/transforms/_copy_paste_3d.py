@@ -14,7 +14,7 @@ from torch import Tensor, nn
 
 from vision3d.ops import (
     box3d_corners,
-    box3d_overlap_bev,
+    box3d_overlap,
     points_in_boxes_3d,
     points_in_boxes_3d_indices,
     project_to_image,
@@ -121,7 +121,7 @@ def _fill_convex_polygon(
     Returns:
         Boolean mask ``[height, width]``.
     """
-    pts = np.array(vertices, dtype=np.int32)
+    pts = np.round(np.array(vertices)).astype(np.int32)
     mask_np = np.zeros((height, width), dtype=np.uint8)
     cv2.fillConvexPoly(mask_np, pts, 1)
     return torch.from_numpy(mask_np).bool().to(device)
@@ -469,7 +469,7 @@ class CopyPaste3D(nn.Module):
             for entry in candidates[:n_paste]:
                 # Check collision at the object's original position
                 if all_boxes.shape[0] > 0:
-                    overlap = box3d_overlap_bev(entry.box.unsqueeze(0), all_boxes, fmt)
+                    overlap = box3d_overlap(entry.box.unsqueeze(0), all_boxes, fmt)
                     if overlap.any():
                         continue
 

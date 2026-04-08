@@ -6,7 +6,7 @@ import pytest
 import torch
 from common_utils import make_bounding_boxes_3d
 
-from vision3d.ops import box3d_overlap_bev, points_in_boxes_3d
+from vision3d.ops import box3d_overlap, points_in_boxes_3d
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -256,7 +256,7 @@ class TestLidarPaste:
 
         boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
         if boxes.shape[0] > 1:
-            overlap = box3d_overlap_bev(boxes, boxes, BoundingBox3DFormat.XYZLWHY)
+            overlap = box3d_overlap(boxes, boxes, BoundingBox3DFormat.XYZLWHY)
             overlap.fill_diagonal_(False)
             assert not overlap.any()
 
