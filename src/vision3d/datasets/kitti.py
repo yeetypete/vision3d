@@ -66,6 +66,18 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
     labels_dir_name: ClassVar[str] = "label_2"
     calib_dir_name: ClassVar[str] = "calib"
 
+    classes: ClassVar[list[str]] = [
+        "Car",
+        "Pedestrian",
+        "Cyclist",
+        "Van",
+        "Truck",
+        "Person_sitting",
+        "Tram",
+        "Misc",
+    ]
+    class_to_idx: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(classes)}
+
     def __init__(
         self,
         root: str | os.PathLike[str],
@@ -252,6 +264,7 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
         """
         path = os.path.join(base, self.labels_dir_name, f"{frame_id}.txt")
         class_names: list[str] = []
+        label_ids: list[int] = []
         boxes_cam: list[list[float]] = []
 
         with open(path) as f:
@@ -259,6 +272,7 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
                 if not line or line[0] == "DontCare":
                     continue
                 class_names.append(line[0])
+                label_ids.append(self.class_to_idx.get(line[0], -1))
                 # KITTI label: h, w, l, x, y, z, rotation_y (camera frame)
                 h, w, l = float(line[8]), float(line[9]), float(line[10])
                 x, y, z = float(line[11]), float(line[12]), float(line[13])
@@ -279,7 +293,7 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
 
         return {
             "boxes": BoundingBoxes3D(boxes_lidar, format=BoundingBox3DFormat.XYZLWHY),
-            "labels": torch.arange(len(class_names), dtype=torch.int64),
+            "labels": torch.tensor(label_ids, dtype=torch.int64),
             "class_names": class_names,
         }
 

@@ -5,6 +5,8 @@ from typing import Any, ClassVar, override
 
 import numpy as np
 import torch
+from nuscenes.eval.detection.constants import DETECTION_NAMES
+from nuscenes.eval.detection.utils import category_to_detection_name
 from PIL import Image
 from torch.utils.data import Dataset
 
@@ -47,6 +49,9 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
     """
 
     camera_names: ClassVar[list[str]] = CAMERA_NAMES
+
+    classes: ClassVar[list[str]] = list(DETECTION_NAMES)
+    class_to_idx: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(classes)}
 
     def __init__(
         self,
@@ -195,11 +200,16 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
         global_to_lidar = torch.linalg.inv(lidar_to_global)
 
         class_names: list[str] = []
+        label_ids: list[int] = []
         boxes: list[list[float]] = []
 
         for ann_token in sample["anns"]:
             ann = self._nusc.get("sample_annotation", ann_token)
-            class_names.append(ann["category_name"])
+            det_name = category_to_detection_name(ann["category_name"])
+            if det_name is None:
+                continue
+            class_names.append(det_name)
+            label_ids.append(self.class_to_idx[det_name])
 
             # Center: global -> lidar
             center_global = torch.tensor(
@@ -239,7 +249,7 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
                 torch.tensor(boxes, dtype=torch.float32),
                 format=BoundingBox3DFormat.XYZLWHY,
             ),
-            "labels": torch.arange(len(class_names), dtype=torch.int64),
+            "labels": torch.tensor(label_ids, dtype=torch.int64),
             "class_names": class_names,
         }
 
