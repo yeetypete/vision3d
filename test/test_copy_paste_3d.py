@@ -17,9 +17,15 @@ from vision3d.tensors import (
 )
 from vision3d.transforms import CopyPaste3D
 
-# Labels: 0 = Car, 1 = Ped
 CAR = 0
 PED = 1
+
+ALL_FORMATS = [
+    BoundingBox3DFormat.XYZLWHY,
+    BoundingBox3DFormat.XYZLWH,
+    BoundingBox3DFormat.XYZXYZ,
+    BoundingBox3DFormat.XYZLWHYPR,
+]
 
 
 def _make_batch(
@@ -140,8 +146,7 @@ def _populate_and_paste(
 class TestDatabase:
     def test_first_batch_populates(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        batch = _make_batch(batch_size=2, num_boxes=3)
-        cp(*batch)
+        cp(*_make_batch(batch_size=2, num_boxes=3))
         assert len(cp._database[CAR]) > 0
 
     def test_database_grows_across_batches(self) -> None:
@@ -164,36 +169,90 @@ class TestDatabase:
 
     def test_multi_class_database(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10, PED: 10}, min_points=1)
-        batch = _make_batch(batch_size=2, num_boxes=4, labels=[CAR, PED, CAR, PED])
-        cp(*batch)
+        cp(*_make_batch(batch_size=2, num_boxes=4, labels=[CAR, PED, CAR, PED]))
         assert len(cp._database[CAR]) > 0
         assert len(cp._database[PED]) > 0
 
 
-# Lidar-only pasting
-class TestLidarPaste:
-    def test_second_batch_pastes(self) -> None:
+# Core paste correctness — parametrized across all bbox formats
+class TestPasteCorrectness:
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_paste_increases_box_count(self, fmt: BoundingBox3DFormat) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        cp(*_make_batch(batch_size=2, num_boxes=3))
-        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=2))
-        assert out_targets[0]["boxes"].shape[0] > 2
+        cp(*_make_batch(batch_size=2, num_boxes=3, format=fmt))
+        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=1, format=fmt))
+        assert out_targets[0]["boxes"].shape[0] > 1
 
-    def test_box_count_increases(self) -> None:
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_preserves_format(self, fmt: BoundingBox3DFormat) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        cp(*_make_batch(batch_size=2, num_boxes=5))
-        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=2))
-        assert out_targets[0]["boxes"].shape[0] >= 2
+        cp(*_make_batch(batch_size=2, num_boxes=3, format=fmt))
+        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=1, format=fmt))
+        assert out_targets[0]["boxes"].format == fmt
 
-    def test_scene_points_removed_in_paste_region(self) -> None:
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_no_3d_overlap_after_paste(self, fmt: BoundingBox3DFormat) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        cp(*_make_batch(batch_size=2, num_boxes=3))
-        batch2 = _make_batch(batch_size=1, num_boxes=1)
+        cp(*_make_batch(batch_size=2, num_boxes=3, format=fmt))
+        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=2, format=fmt))
+
+        boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        if boxes.shape[0] > 1:
+            overlap = box3d_overlap(boxes, boxes, fmt)
+            overlap.fill_diagonal_(False)
+            assert not overlap.any()
+
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_labels_count_matches_boxes(self, fmt: BoundingBox3DFormat) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(*_make_batch(batch_size=2, num_boxes=3, format=fmt))
+        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=1, format=fmt))
+        assert out_targets[0]["labels"].shape[0] == out_targets[0]["boxes"].shape[0]
+
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_pasted_labels_are_correct_class_ids(
+        self, fmt: BoundingBox3DFormat
+    ) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(*_make_batch(batch_size=2, num_boxes=3, format=fmt))
+        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=1, format=fmt))
+        pasted_labels = out_targets[0]["labels"][1:]
+        if pasted_labels.shape[0] > 0:
+            assert (pasted_labels == CAR).all()
+
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_concatenation_order_boxes(self, fmt: BoundingBox3DFormat) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(*_make_batch(batch_size=2, num_boxes=3, format=fmt))
+        batch2 = _make_batch(batch_size=1, num_boxes=2, format=fmt)
+        original_boxes = batch2[1][0]["boxes"].as_subclass(torch.Tensor).clone()
+        _, out_targets = cp(*batch2)
+
+        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        if out_boxes.shape[0] > 2:
+            assert torch.allclose(out_boxes[:2], original_boxes)
+
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_concatenation_order_labels(self, fmt: BoundingBox3DFormat) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(*_make_batch(batch_size=2, num_boxes=3, format=fmt))
+        batch2 = _make_batch(batch_size=1, num_boxes=2, format=fmt)
+        original_labels = batch2[1][0]["labels"].clone()
+        _, out_targets = cp(*batch2)
+        assert torch.equal(
+            out_targets[0]["labels"][: len(original_labels)], original_labels
+        )
+
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_scene_points_removed(self, fmt: BoundingBox3DFormat) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(*_make_batch(batch_size=2, num_boxes=3, format=fmt))
+        batch2 = _make_batch(batch_size=1, num_boxes=1, format=fmt)
         original_points = batch2[0][0]["points"].clone()
         out_inputs, out_targets = cp(*batch2)
 
         if out_targets[0]["boxes"].shape[0] > 1:
             pasted_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)[1:]
-            fmt = out_targets[0]["boxes"].format
             inside = points_in_boxes_3d(original_points, pasted_boxes, fmt)
             original_in_paste_region = inside.any(dim=1).sum()
             out_pts = out_inputs[0]["points"].as_subclass(torch.Tensor)
@@ -202,61 +261,34 @@ class TestLidarPaste:
                 or original_in_paste_region == 0
             )
 
-    def test_concatenation_order_boxes_original_first(self) -> None:
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_preserves_point_cloud_type(self, fmt: BoundingBox3DFormat) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        cp(*_make_batch(batch_size=2, num_boxes=3))
-        batch2 = _make_batch(batch_size=1, num_boxes=2)
-        original_boxes = batch2[1][0]["boxes"].as_subclass(torch.Tensor).clone()
-        _, out_targets = cp(*batch2)
+        inp, _ = _populate_and_paste(cp, lambda **kw: _make_batch(format=fmt, **kw))
+        assert isinstance(inp["points"], PointCloud3D)
 
-        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
-        if out_boxes.shape[0] > 2:
-            assert torch.allclose(out_boxes[:2], original_boxes)
-
-    def test_concatenation_order_labels(self) -> None:
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_preserves_bounding_boxes_type(self, fmt: BoundingBox3DFormat) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        cp(*_make_batch(batch_size=2, num_boxes=3))
-        batch2 = _make_batch(batch_size=1, num_boxes=2)
-        original_labels = batch2[1][0]["labels"].clone()
-        _, out_targets = cp(*batch2)
+        _, tgt = _populate_and_paste(cp, lambda **kw: _make_batch(format=fmt, **kw))
+        assert isinstance(tgt["boxes"], BoundingBoxes3D)
+        assert tgt["boxes"].format == fmt
 
-        out_labels = out_targets[0]["labels"]
-        assert torch.equal(out_labels[: len(original_labels)], original_labels)
 
-    def test_pasted_labels_are_correct_class_ids(self) -> None:
-        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        cp(*_make_batch(batch_size=2, num_boxes=3))
-        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=1))
-
-        # All pasted labels should be CAR (0), not incrementing indices
-        pasted_labels = out_targets[0]["labels"][1:]
-        if pasted_labels.shape[0] > 0:
-            assert (pasted_labels == CAR).all()
-
+# Probability
+class TestProbability:
     def test_p_zero_no_paste(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, p=0.0)
         cp(*_make_batch(batch_size=2, num_boxes=3))
         _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=2))
         assert out_targets[0]["boxes"].shape[0] == 2
 
-    def test_no_3d_overlap_after_paste(self) -> None:
-        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        cp(*_make_batch(batch_size=2, num_boxes=3))
-        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=2))
-
-        boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
-        if boxes.shape[0] > 1:
-            overlap = box3d_overlap(boxes, boxes, BoundingBox3DFormat.XYZLWHY)
-            overlap.fill_diagonal_(False)
-            assert not overlap.any()
-
 
 # Multi-class
 class TestMultiClass:
     def test_multi_class_paste(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10, PED: 10}, min_points=1)
-        batch1 = _make_batch(batch_size=2, num_boxes=4, labels=[CAR, PED, CAR, PED])
-        cp(*batch1)
+        cp(*_make_batch(batch_size=2, num_boxes=4, labels=[CAR, PED, CAR, PED]))
 
         batch2 = _make_batch(batch_size=1, num_boxes=2, labels=[CAR, PED])
         _, out_targets = cp(*batch2)
@@ -267,64 +299,15 @@ class TestMultiClass:
     def test_multi_class_labels_correct(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10, PED: 10}, min_points=1)
         cp(*_make_batch(batch_size=2, num_boxes=4, labels=[CAR, PED, CAR, PED]))
-
-        batch2 = _make_batch(batch_size=1, num_boxes=2, labels=[CAR, PED])
-        _, out_targets = cp(*batch2)
-
-        out_labels = out_targets[0]["labels"]
-        # Every label should be a valid class ID
-        for lbl in out_labels.tolist():
+        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=2, labels=[CAR, PED]))
+        for lbl in out_targets[0]["labels"].tolist():
             assert lbl in (CAR, PED)
 
     def test_class_not_in_database_skipped(self) -> None:
         cp = CopyPaste3D(target_counts={99: 10}, min_points=1)
-        cp(*_make_batch(batch_size=2, num_boxes=3))  # only label 0 in database
+        cp(*_make_batch(batch_size=2, num_boxes=3))
         _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=2))
         assert out_targets[0]["boxes"].shape[0] == 2
-
-
-# Type preservation
-class TestTypePreservation:
-    def test_preserves_point_cloud_type(self) -> None:
-        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        inp, _ = _populate_and_paste(cp, _make_batch)
-        assert isinstance(inp["points"], PointCloud3D)
-
-    def test_preserves_bounding_boxes_type(self) -> None:
-        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        _, tgt = _populate_and_paste(cp, _make_batch)
-        assert isinstance(tgt["boxes"], BoundingBoxes3D)
-        assert tgt["boxes"].format == BoundingBox3DFormat.XYZLWHY
-
-    def test_preserves_camera_images_type(self) -> None:
-        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        inp, tgt = _populate_and_paste(cp, _make_camera_batch)
-        if tgt["boxes"].shape[0] > 1:
-            assert isinstance(inp["images"], CameraImages)
-
-    def test_labels_count_matches_boxes(self) -> None:
-        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        _, tgt = _populate_and_paste(cp, _make_batch)
-        assert tgt["labels"].shape[0] == tgt["boxes"].shape[0]
-
-
-# Format parametrization
-class TestFormatSupport:
-    @pytest.mark.parametrize(
-        "fmt",
-        [
-            BoundingBox3DFormat.XYZLWHY,
-            BoundingBox3DFormat.XYZLWH,
-            BoundingBox3DFormat.XYZXYZ,
-            BoundingBox3DFormat.XYZLWHYPR,
-        ],
-    )
-    def test_paste_with_format(self, fmt: BoundingBox3DFormat) -> None:
-        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        cp(*_make_batch(batch_size=2, num_boxes=3, format=fmt))
-        _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=1, format=fmt))
-        assert out_targets[0]["boxes"].format == fmt
-        assert out_targets[0]["boxes"].shape[0] >= 1
 
 
 # Camera crop extraction
@@ -332,7 +315,6 @@ class TestCameraExtract:
     def test_extracts_camera_crops(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_camera_batch(batch_size=1, num_boxes=2))
-
         assert len(cp._database[CAR]) > 0
         entry = cp._database[CAR][0]
         assert entry.camera_crops is not None
@@ -341,7 +323,6 @@ class TestCameraExtract:
     def test_camera_crop_has_valid_mask(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_camera_batch(batch_size=1, num_boxes=1))
-
         entry = cp._database[CAR][0]
         assert entry.camera_crops is not None
         crop_data = entry.camera_crops[0]
@@ -354,14 +335,12 @@ class TestCameraExtract:
     def test_no_camera_crops_without_images(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_batch(batch_size=1, num_boxes=2))
-
         for entry in cp._database[CAR]:
             assert entry.camera_crops is None
 
     def test_crop_pixel_values_match_source_image(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_camera_batch(batch_size=1, num_boxes=1, image_fill=0.75))
-
         entry = cp._database[CAR][0]
         assert entry.camera_crops is not None
         crop_data = entry.camera_crops[0]
@@ -371,7 +350,6 @@ class TestCameraExtract:
     def test_multi_camera_extracts(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_camera_batch(batch_size=1, num_boxes=1, num_cameras=3))
-
         entry = cp._database[CAR][0]
         assert entry.camera_crops is not None
         assert len(entry.camera_crops) == 3
@@ -382,54 +360,48 @@ class TestCameraPaste:
     def test_images_modified_after_paste(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_camera_batch(batch_size=2, num_boxes=3))
-
-        batch2 = _make_camera_batch(batch_size=1, num_boxes=1)
-        out_inputs, out_targets = cp(*batch2)
-
+        out_inputs, out_targets = cp(*_make_camera_batch(batch_size=1, num_boxes=1))
         if out_targets[0]["boxes"].shape[0] > 1:
             assert isinstance(out_inputs[0]["images"], CameraImages)
 
     def test_paste_writes_exact_pixel_values(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        batch1 = _make_camera_batch(batch_size=2, num_boxes=3, image_fill=0.9)
-        cp(*batch1)
-
-        batch2 = _make_camera_batch(batch_size=1, num_boxes=1, image_fill=0.1)
-        out_inputs, out_targets = cp(*batch2)
-
+        cp(*_make_camera_batch(batch_size=2, num_boxes=3, image_fill=0.9))
+        out_inputs, out_targets = cp(
+            *_make_camera_batch(batch_size=1, num_boxes=1, image_fill=0.1)
+        )
         if out_targets[0]["boxes"].shape[0] > 1:
             images = out_inputs[0]["images"]
             assert (images > 0.8).any(), "Pasted crop pixels should appear"
             assert (images < 0.2).any(), "Original pixels should remain"
-            is_source = images > 0.8
-            is_target = images < 0.2
-            assert (is_source | is_target).all(), (
-                "Only source or target values expected"
-            )
+            assert ((images > 0.8) | (images < 0.2)).all()
 
     def test_does_not_mutate_input_images(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_camera_batch(batch_size=2, num_boxes=3, image_fill=0.9))
-
         batch2 = _make_camera_batch(batch_size=1, num_boxes=1, image_fill=0.1)
         original_images = batch2[0][0]["images"].clone()
         cp(*batch2)
-
         assert torch.equal(batch2[0][0]["images"], original_images)
 
     def test_paste_with_multiple_cameras(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_camera_batch(batch_size=2, num_boxes=3, num_cameras=3))
-
-        batch2 = _make_camera_batch(batch_size=1, num_boxes=1, num_cameras=3)
-        out_inputs, _ = cp(*batch2)
-
+        out_inputs, _ = cp(
+            *_make_camera_batch(batch_size=1, num_boxes=1, num_cameras=3)
+        )
         assert out_inputs[0]["images"].shape[0] == 3
 
+    def test_preserves_camera_images_type(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        inp, tgt = _populate_and_paste(cp, _make_camera_batch)
+        if tgt["boxes"].shape[0] > 1:
+            assert isinstance(inp["images"], CameraImages)
 
-# Lidar-only mode (no camera data)
-class TestLidarOnlyMode:
-    def test_works_without_camera_data(self) -> None:
+
+# Cross-modal
+class TestCrossModal:
+    def test_lidar_only_works(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_batch(batch_size=2, num_boxes=3))
         out_inputs, _ = cp(*_make_batch(batch_size=1, num_boxes=1))
@@ -442,26 +414,18 @@ class TestLidarOnlyMode:
         for entry in cp._database[CAR]:
             assert entry.camera_crops is None
 
-    def test_lidar_paste_into_camera_sample_no_image_paste(self) -> None:
+    def test_lidar_db_paste_into_camera_sample(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_batch(batch_size=2, num_boxes=3))
-
         batch2 = _make_camera_batch(batch_size=1, num_boxes=1, image_fill=0.5)
         original_images = batch2[0][0]["images"].clone()
         out_inputs, _ = cp(*batch2)
-
         assert torch.equal(out_inputs[0]["images"], original_images)
 
-
-# Camera-only extraction, lidar-only paste target
-class TestCameraToLidarCrossModes:
     def test_camera_db_paste_into_lidar_only(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_camera_batch(batch_size=2, num_boxes=3))
-
-        batch2 = _make_batch(batch_size=1, num_boxes=1)
-        out_inputs, out_targets = cp(*batch2)
-
+        out_inputs, out_targets = cp(*_make_batch(batch_size=1, num_boxes=1))
         assert isinstance(out_inputs[0]["points"], PointCloud3D)
         assert "images" not in out_inputs[0]
         assert out_targets[0]["boxes"].shape[0] >= 1
@@ -479,6 +443,4 @@ class TestDeterminism:
             _, out_targets = cp(*_make_batch(batch_size=1, num_boxes=2))
             return out_targets[0]["boxes"].shape[0]
 
-        r1 = run_with_seed(42)
-        r2 = run_with_seed(42)
-        assert r1 == r2
+        assert run_with_seed(42) == run_with_seed(42)
