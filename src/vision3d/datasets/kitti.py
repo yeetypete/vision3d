@@ -68,11 +68,11 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
 
     classes: ClassVar[list[str]] = [
         "Car",
+        "Pedestrian",
+        "Cyclist",
         "Van",
         "Truck",
-        "Pedestrian",
         "Person_sitting",
-        "Cyclist",
         "Tram",
         "Misc",
     ]
