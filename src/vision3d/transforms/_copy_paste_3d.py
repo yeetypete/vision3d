@@ -308,8 +308,6 @@ class CopyPaste3D(nn.Module):
 
         return tuple(new_inputs), tuple(new_targets)
 
-    # Extraction
-
     def _has_camera_data(self, inputs: dict[str, Any]) -> bool:
         return "images" in inputs and "extrinsics" in inputs and "intrinsics" in inputs
 
