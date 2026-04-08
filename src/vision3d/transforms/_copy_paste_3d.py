@@ -178,26 +178,21 @@ def _hull_mask_from_projected(
     uv_list: list[list[float]] = uv.tolist()
     depth_list: list[float] = depth.tolist()
 
-    # Filter to positive depth, clamp to image bounds
-    clamped: list[tuple[float, float]] = []
+    visible: list[tuple[float, float]] = []
     depth_sum = 0.0
-    max_u = float(img_w - 1)
-    max_v = float(img_h - 1)
     for i in range(len(depth_list)):
         if depth_list[i] > 0:
-            u = min(max(uv_list[i][0], 0.0), max_u)
-            v = min(max(uv_list[i][1], 0.0), max_v)
-            clamped.append((u, v))
+            visible.append((uv_list[i][0], uv_list[i][1]))
             depth_sum += depth_list[i]
 
-    if len(clamped) < 3:
+    if len(visible) < 3:
         return None
 
-    hull = _convex_hull_2d(clamped)
+    hull = _convex_hull_2d(visible)
     if len(hull) < 3:
         return None
 
-    # Bounding rect (clipped to image)
+    # Bounding rect of hull, clipped to image
     hull_xs = [p[0] for p in hull]
     hull_ys = [p[1] for p in hull]
     x_min = max(math.floor(min(hull_xs)), 0)
@@ -214,7 +209,7 @@ def _hull_mask_from_projected(
     local_hull = [(x - x_min, y - y_min) for x, y in hull]
     mask = _fill_convex_polygon(local_hull, crop_h, crop_w, uv.device)
 
-    mean_depth = depth_sum / len(clamped)
+    mean_depth = depth_sum / len(visible)
     return mask, (x_min, y_min, x_max, y_max), mean_depth
 
 
