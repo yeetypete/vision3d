@@ -196,5 +196,7 @@ for _fn, _img_fn in [
     (_F.gaussian_noise, _F.gaussian_noise_image),
     (_F.to_dtype, _F.to_dtype_image),
     (_F.erase, _F.erase_image),
+    (_F.grayscale_to_rgb, _F.grayscale_to_rgb_image),
+    (_F.jpeg, _F.jpeg_image),
 ]:
     _register_kernel(_fn, CameraImages)(_make_camera_kernel(_img_fn))
