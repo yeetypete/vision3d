@@ -154,7 +154,9 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
             "points": PointCloud3D(points),
             "images": CameraImages(image),
             "extrinsics": CameraExtrinsics(calib["extrinsics"]),
-            "intrinsics": CameraIntrinsics(calib["intrinsics"]),
+            "intrinsics": CameraIntrinsics(
+                calib["intrinsics"], image_size=(img_h, img_w)
+            ),
         }
 
         targets = None

@@ -128,24 +128,25 @@ class TestCameraIntrinsicsConstruction:
         assert intr.shape == (6, 3, 3)
 
     def test_single_camera(self) -> None:
-        intr = CameraIntrinsics(torch.eye(3))
+        intr = CameraIntrinsics(torch.eye(3), image_size=(480, 640))
         assert intr.shape == (3, 3)
+        assert intr.image_size == (480, 640)
 
     def test_rejects_wrong_shape(self) -> None:
         with pytest.raises(ValueError, match="3, 3"):
-            CameraIntrinsics(torch.rand(6, 4, 4))
+            CameraIntrinsics(torch.rand(6, 4, 4), image_size=(480, 640))
 
     def test_rejects_1d(self) -> None:
         with pytest.raises(ValueError, match="3, 3"):
-            CameraIntrinsics(torch.rand(9))
+            CameraIntrinsics(torch.rand(9), image_size=(480, 640))
 
     def test_rejects_integer(self) -> None:
         with pytest.raises(ValueError, match="floating point"):
-            CameraIntrinsics(torch.eye(3, dtype=torch.int32))
+            CameraIntrinsics(torch.eye(3, dtype=torch.int32), image_size=(480, 640))
 
     def test_wrapping_no_copy(self) -> None:
         tensor = torch.eye(3).unsqueeze(0)
-        intr = CameraIntrinsics(tensor)
+        intr = CameraIntrinsics(tensor, image_size=(480, 640))
         assert intr.data_ptr() == tensor.data_ptr()
 
 

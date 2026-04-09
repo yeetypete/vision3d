@@ -152,4 +152,4 @@ def make_camera_intrinsics(
     K[:, 1, 1] = 500.0  # fy
     K[:, 0, 2] = 320.0  # cx
     K[:, 1, 2] = 240.0  # cy
-    return CameraIntrinsics(K)
+    return CameraIntrinsics(K, image_size=(480, 640))

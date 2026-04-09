@@ -88,7 +88,10 @@ def _make_camera_batch(
     K[1, 1] = 500.0
     K[0, 2] = float(img_w) / 2
     K[1, 2] = float(img_h) / 2
-    intrinsics = CameraIntrinsics(K.unsqueeze(0).expand(num_cameras, -1, -1).clone())
+    intrinsics = CameraIntrinsics(
+        K.unsqueeze(0).expand(num_cameras, -1, -1).clone(),
+        image_size=(img_h, img_w),
+    )
 
     inputs = []
     targets = []

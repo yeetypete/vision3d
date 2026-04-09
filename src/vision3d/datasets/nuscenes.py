@@ -166,7 +166,10 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
             "points": PointCloud3D(points),
             "images": CameraImages(torch.stack(images_list)),
             "extrinsics": CameraExtrinsics(torch.stack(extrinsics_list)),
-            "intrinsics": CameraIntrinsics(torch.stack(intrinsics_list)),
+            "intrinsics": CameraIntrinsics(
+                torch.stack(intrinsics_list),
+                image_size=(images_list[0].shape[-2], images_list[0].shape[-1]),
+            ),
         }
 
         # Annotations (in global frame -> convert to lidar frame)

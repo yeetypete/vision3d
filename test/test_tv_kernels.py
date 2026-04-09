@@ -1,10 +1,11 @@
-"""Tests for CameraImages kernel registrations on torchvision v2 transforms."""
+"""Tests for CameraImages/CameraIntrinsics kernel registrations on torchvision v2 transforms."""
 
 import pytest
 import torch
 from torchvision.transforms import v2
+from torchvision.transforms.v2 import functional as F
 
-from vision3d.tensors import CameraImages
+from vision3d.tensors import CameraImages, CameraIntrinsics
 
 
 @pytest.fixture
@@ -116,12 +117,137 @@ class TestGrayscale:
 
 class TestSameParamsAllCameras:
     def test_color_jitter_same_across_cameras(self) -> None:
-        # All cameras have the same pixel values — after jitter they should
-        # still all be identical (same params applied to all)
         uniform = CameraImages(torch.full((3, 3, 32, 32), 0.5))
         t = v2.ColorJitter(brightness=0.5)
         torch.manual_seed(42)
         output = t(uniform)
-        # Each camera should have the same values
         assert torch.equal(output[0], output[1])
         assert torch.equal(output[1], output[2])
+
+
+# Geometric transforms
+@pytest.fixture
+def intrinsics() -> CameraIntrinsics:
+    K = torch.eye(3).unsqueeze(0).expand(2, -1, -1).clone()
+    K[:, 0, 0] = 500.0  # fx
+    K[:, 1, 1] = 500.0  # fy
+    K[:, 0, 2] = 320.0  # cx
+    K[:, 1, 2] = 240.0  # cy
+    return CameraIntrinsics(K, image_size=(480, 640))
+
+
+class TestResizeIntrinsics:
+    def test_preserves_type(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.resize(intrinsics, size=[240, 320])
+        assert isinstance(output, CameraIntrinsics)
+
+    def test_half_size(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.resize(intrinsics, size=[240, 320])
+        # fx, cx scale by 320/640 = 0.5
+        assert output[0, 0, 0].isclose(torch.tensor(250.0))  # fx
+        assert output[0, 0, 2].isclose(torch.tensor(160.0))  # cx
+        # fy, cy scale by 240/480 = 0.5
+        assert output[0, 1, 1].isclose(torch.tensor(250.0))  # fy
+        assert output[0, 1, 2].isclose(torch.tensor(120.0))  # cy
+
+    def test_updates_image_size(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.resize(intrinsics, size=[240, 320])
+        assert isinstance(output, CameraIntrinsics)
+        assert output.image_size == (240, 320)
+
+    def test_double_size(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.resize(intrinsics, size=[960, 1280])
+        assert output[0, 0, 0].isclose(torch.tensor(1000.0))  # fx * 2
+        assert output[0, 1, 1].isclose(torch.tensor(1000.0))  # fy * 2
+
+    def test_resize_images_preserves_type(self, camera_images: CameraImages) -> None:
+        output = F.resize(camera_images, size=[32, 40])
+        assert isinstance(output, CameraImages)
+        assert output.shape == (6, 3, 32, 40)
+
+
+class TestCropIntrinsics:
+    def test_preserves_type(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.crop(intrinsics, top=10, left=20, height=100, width=200)
+        assert isinstance(output, CameraIntrinsics)
+
+    def test_shifts_principal_point(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.crop(intrinsics, top=40, left=20, height=400, width=600)
+        assert output[0, 0, 2].isclose(torch.tensor(300.0))  # cx - 20
+        assert output[0, 1, 2].isclose(torch.tensor(200.0))  # cy - 40
+        # fx, fy unchanged
+        assert output[0, 0, 0].isclose(torch.tensor(500.0))
+        assert output[0, 1, 1].isclose(torch.tensor(500.0))
+
+    def test_updates_image_size(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.crop(intrinsics, top=10, left=20, height=100, width=200)
+        assert isinstance(output, CameraIntrinsics)
+        assert output.image_size == (100, 200)
+
+
+class TestPadIntrinsics:
+    def test_preserves_type(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.pad(intrinsics, padding=[10, 20, 10, 20])
+        assert isinstance(output, CameraIntrinsics)
+
+    def test_shifts_principal_point(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.pad(intrinsics, padding=[10, 20, 10, 20])
+        assert output[0, 0, 2].isclose(torch.tensor(330.0))  # cx + 10
+        assert output[0, 1, 2].isclose(torch.tensor(260.0))  # cy + 20
+        # fx, fy unchanged
+        assert output[0, 0, 0].isclose(torch.tensor(500.0))
+        assert output[0, 1, 1].isclose(torch.tensor(500.0))
+
+    def test_updates_image_size(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.pad(intrinsics, padding=[10, 20, 10, 20])
+        assert isinstance(output, CameraIntrinsics)
+        assert output.image_size == (520, 660)  # 480+20+20, 640+10+10
+
+    def test_two_element_padding(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.pad(intrinsics, padding=[10, 20])
+        assert output[0, 0, 2].isclose(torch.tensor(330.0))  # cx + 10
+        assert output[0, 1, 2].isclose(torch.tensor(260.0))  # cy + 20
+
+
+class TestCenterCropIntrinsics:
+    def test_preserves_type(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.center_crop(intrinsics, output_size=[200, 300])
+        assert isinstance(output, CameraIntrinsics)
+
+    def test_symmetric_crop(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.center_crop(intrinsics, output_size=[240, 320])
+        # Crop removes (480-240)/2=120 from top, (640-320)/2=160 from left
+        assert output[0, 0, 2].isclose(torch.tensor(160.0))  # cx - 160
+        assert output[0, 1, 2].isclose(torch.tensor(120.0))  # cy - 120
+
+    def test_updates_image_size(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.center_crop(intrinsics, output_size=[200, 300])
+        assert isinstance(output, CameraIntrinsics)
+        assert output.image_size == (200, 300)
+
+
+class TestResizedCropIntrinsics:
+    def test_preserves_type(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.resized_crop(
+            intrinsics, top=0, left=0, height=240, width=320, size=[480, 640]
+        )
+        assert isinstance(output, CameraIntrinsics)
+
+    def test_crop_then_resize(self, intrinsics: CameraIntrinsics) -> None:
+        # Crop top-left 240x320, then resize back to 480x640
+        output = F.resized_crop(
+            intrinsics, top=0, left=0, height=240, width=320, size=[480, 640]
+        )
+        # Crop: cx stays 320, cy stays 240 (top=0, left=0)
+        # Resize: scale by 640/320=2 and 480/240=2
+        assert output[0, 0, 0].isclose(torch.tensor(1000.0))  # fx * 2
+        assert output[0, 0, 2].isclose(torch.tensor(640.0))  # cx * 2
+        assert output[0, 1, 1].isclose(torch.tensor(1000.0))  # fy * 2
+        assert output[0, 1, 2].isclose(torch.tensor(480.0))  # cy * 2
+
+    def test_updates_image_size(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.resized_crop(
+            intrinsics, top=0, left=0, height=240, width=320, size=[100, 200]
+        )
+        assert isinstance(output, CameraIntrinsics)
+        assert output.image_size == (100, 200)
