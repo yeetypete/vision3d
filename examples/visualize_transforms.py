@@ -133,6 +133,8 @@ def main() -> None:
         elif isinstance(transform, CopyPaste3D):
             out_inputs, out_targets = transform((inputs,), (targets,))
             t_inputs, t_targets = out_inputs[0], out_targets[0]
+        elif isinstance(transform, v2.Transform):
+            t_inputs, t_targets = transform(inputs), targets
         else:
             t_inputs, t_targets = transform(inputs, targets)
 
