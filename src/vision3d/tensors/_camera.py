@@ -1,17 +1,17 @@
 """Camera-related TVTensor types."""
 
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Any, override
 
 import torch
+from torch import Tensor
+from torchvision import tv_tensors
 from torchvision.tv_tensors import TVTensor
 
 if TYPE_CHECKING:
-    from typing import Any, Self
+    from collections.abc import Callable
+    from typing import Self
 
 
-# TODO(yeetypete): add PerCameraTransform wrapper for torchvision 2D transforms
-# (ColorJitter, GaussianBlur, Normalize, etc.). Geometric image transforms
-# (resize, crop) need dedicated implementations that also update CameraIntrinsics.
 class CameraImages(TVTensor):
     """:class:`torch.Tensor` subclass for multi-camera images with shape ``[N, C, H, W]``.
 
@@ -158,3 +158,43 @@ class CameraIntrinsics(TVTensor):
     @override
     def __repr__(self, *, tensor_contents: Any = None) -> str:
         return self._make_repr()
+
+
+# Register CameraImages kernels for torchvision v2 photometric transforms.
+from torchvision.transforms.v2 import functional as _F
+from torchvision.transforms.v2.functional import (
+    register_kernel as _register_kernel,
+)
+
+
+def _make_camera_kernel(
+    image_fn: Callable[..., Tensor],
+) -> Callable[..., CameraImages]:
+    def kernel(inpt: CameraImages, *args: Any, **kwargs: Any) -> CameraImages:
+        output = image_fn(inpt.as_subclass(Tensor), *args, **kwargs)
+        return tv_tensors.wrap(output, like=inpt)
+
+    return kernel
+
+
+for _fn, _img_fn in [
+    (_F.adjust_brightness, _F.adjust_brightness_image),
+    (_F.adjust_contrast, _F.adjust_contrast_image),
+    (_F.adjust_saturation, _F.adjust_saturation_image),
+    (_F.adjust_hue, _F.adjust_hue_image),
+    (_F.adjust_gamma, _F.adjust_gamma_image),
+    (_F.adjust_sharpness, _F.adjust_sharpness_image),
+    (_F.rgb_to_grayscale, _F.rgb_to_grayscale_image),
+    (_F.permute_channels, _F.permute_channels_image),
+    (_F.posterize, _F.posterize_image),
+    (_F.solarize, _F.solarize_image),
+    (_F.autocontrast, _F.autocontrast_image),
+    (_F.equalize, _F.equalize_image),
+    (_F.invert, _F.invert_image),
+    (_F.normalize, _F.normalize_image),
+    (_F.gaussian_blur, _F.gaussian_blur_image),
+    (_F.gaussian_noise, _F.gaussian_noise_image),
+    (_F.to_dtype, _F.to_dtype_image),
+    (_F.erase, _F.erase_image),
+]:
+    _register_kernel(_fn, CameraImages)(_make_camera_kernel(_img_fn))
