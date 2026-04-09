@@ -14,6 +14,7 @@ import math
 
 import rerun as rr
 import rerun.blueprint as rrb
+from torchvision.transforms import v2
 
 from vision3d.datasets import NuScenes3D
 from vision3d.datasets.nuscenes import CAMERA_NAMES
@@ -64,6 +65,7 @@ def main() -> None:
 
     transforms = [
         ("original", "Original", None),
+        # 3D spatial
         ("flip_z", "RandomFlip3D(axis='z')", RandomFlip3D(axis="z", p=1.0)),
         (
             "translate",
@@ -80,6 +82,13 @@ def main() -> None:
             "RandomScale3D(0.5, 1.5)",
             RandomScale3D(scale_range=(0.5, 1.5), p=1.0),
         ),
+        (
+            "color_jitter",
+            "ColorJitter",
+            v2.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1),
+        ),
+        ("gaussian_blur", "GaussianBlur", v2.GaussianBlur(kernel_size=15, sigma=5.0)),
+        ("grayscale", "Grayscale", v2.Grayscale()),
         ("copy_paste", "CopyPaste3D", copy_paste),
     ]
 
