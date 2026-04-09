@@ -85,10 +85,10 @@ def main() -> None:
         (
             "color_jitter",
             "ColorJitter",
-            v2.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1),
+            v2.ColorJitter(brightness=0.8, contrast=0.8, saturation=0.8, hue=0.4),
         ),
-        ("gaussian_blur", "GaussianBlur", v2.GaussianBlur(kernel_size=15, sigma=5.0)),
-        ("grayscale", "Grayscale", v2.Grayscale()),
+        ("gaussian_blur", "GaussianBlur", v2.GaussianBlur(kernel_size=31, sigma=10.0)),
+        ("solarize", "Solarize", v2.RandomSolarize(threshold=0.5, p=1.0)),
         ("copy_paste", "CopyPaste3D", copy_paste),
     ]
 
