@@ -203,7 +203,7 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
         if os.path.exists(path):
             img = np.array(Image.open(path).convert("RGB"))
             # [H, W, 3] -> [1, 3, H, W]
-            return torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float()
+            return torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
         return torch.zeros(1, 3, 1, 1)
 
     def _load_calib(self, base: str, frame_id: str) -> dict[str, torch.Tensor]:
