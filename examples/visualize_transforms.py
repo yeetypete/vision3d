@@ -89,6 +89,11 @@ def main() -> None:
         ),
         ("gaussian_blur", "GaussianBlur", v2.GaussianBlur(kernel_size=31, sigma=10.0)),
         ("solarize", "Solarize", v2.RandomSolarize(threshold=0.5, p=1.0)),
+        # Geometric image (updates CameraIntrinsics)
+        ("resize_half", "Resize(half)", v2.Resize(size=[450, 800])),
+        ("center_crop", "CenterCrop(600x800)", v2.CenterCrop(size=[600, 800])),
+        ("pad", "Pad(100)", v2.Pad(padding=100)),
+        # Copy-paste
         ("copy_paste", "CopyPaste3D", copy_paste),
     ]
 
