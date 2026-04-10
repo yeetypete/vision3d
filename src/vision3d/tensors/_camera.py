@@ -227,6 +227,7 @@ def _make_camera_kernel(
     return kernel
 
 
+# Register photometric transforms
 for _fn, _img_fn in [
     (_F.adjust_brightness, _F.adjust_brightness_image),
     (_F.adjust_contrast, _F.adjust_contrast_image),
@@ -251,8 +252,7 @@ for _fn, _img_fn in [
 ]:
     _register_kernel(_fn, CameraImages)(_make_camera_kernel(_img_fn))
 
-
-# Geometric transforms
+# Register geometric transforms
 for _fn, _img_fn in [
     (_F.resize, _F.resize_image),
     (_F.crop, _F.crop_image),
