@@ -10,11 +10,10 @@ from torchvision.transforms.v2 import functional as _F
 from torchvision.transforms.v2.functional import (
     register_kernel as _register_kernel,
 )
-
-# TODO: avoid private imports from functional and implement inline
 from torchvision.transforms.v2.functional._geometry import (
     _center_crop_parse_output_size,
     _compute_resized_output_size,
+    _parse_pad_padding,
 )
 from torchvision.tv_tensors import TVTensor
 
@@ -294,7 +293,6 @@ def _crop_intrinsics(
 def _center_crop_intrinsics(
     inpt: CameraIntrinsics, output_size: list[int]
 ) -> CameraIntrinsics:
-
     crop_h, crop_w = _center_crop_parse_output_size(output_size)
     old_h, old_w = inpt.image_size
     top = (old_h - crop_h) // 2
@@ -306,14 +304,7 @@ def _center_crop_intrinsics(
 def _pad_intrinsics(
     inpt: CameraIntrinsics, padding: int | list[int], **kwargs: Any
 ) -> CameraIntrinsics:
-    if isinstance(padding, int):
-        left = top = right = bottom = padding
-    elif len(padding) == 2:
-        left, top, right, bottom = padding[0], padding[1], padding[0], padding[1]
-    elif len(padding) == 4:
-        left, top, right, bottom = padding
-    else:
-        left = top = right = bottom = padding[0]
+    left, right, top, bottom = _parse_pad_padding(padding)
     K = inpt.as_subclass(Tensor).clone()
     K[..., 0, 2] += left  # cx
     K[..., 1, 2] += top  # cy
