@@ -165,9 +165,10 @@ class TestResizeIntrinsics:
         assert isinstance(output, CameraImages)
         assert output.shape == (6, 3, 32, 40)
 
-    def test_resize_shorter_edge_int(self, intrinsics: CameraIntrinsics) -> None:
+    def test_resize_shorter_edge(self, intrinsics: CameraIntrinsics) -> None:
         # 480x640 with shorter edge -> 240: scale = 0.5, longer = 320.
-        output = F.resize(intrinsics, size=240)
+        output = F.resize(intrinsics, size=[240])
+        assert isinstance(output, CameraIntrinsics)
         assert output.image_size == (240, 320)
         assert output[0, 0, 0].isclose(torch.tensor(250.0))  # fx * 0.5
         assert output[0, 1, 1].isclose(torch.tensor(250.0))  # fy * 0.5
@@ -175,6 +176,7 @@ class TestResizeIntrinsics:
     def test_resize_max_size_only(self, intrinsics: CameraIntrinsics) -> None:
         # size=None + max_size=320: scale longer (640) -> 320, scale = 0.5.
         output = F.resize(intrinsics, size=None, max_size=320)
+        assert isinstance(output, CameraIntrinsics)
         assert output.image_size == (240, 320)
         assert output[0, 0, 0].isclose(torch.tensor(250.0))
 
@@ -222,13 +224,15 @@ class TestPadIntrinsics:
         assert output[0, 1, 2].isclose(torch.tensor(260.0))  # cy + 20
 
     def test_int_padding(self, intrinsics: CameraIntrinsics) -> None:
-        output = F.pad(intrinsics, padding=15)
+        output = F.pad(intrinsics, padding=15)  # pyrefly: ignore[bad-argument-type]
+        assert isinstance(output, CameraIntrinsics)
         assert output[0, 0, 2].isclose(torch.tensor(335.0))  # cx + 15
         assert output[0, 1, 2].isclose(torch.tensor(255.0))  # cy + 15
         assert output.image_size == (510, 670)  # 480+30, 640+30
 
     def test_one_element_padding(self, intrinsics: CameraIntrinsics) -> None:
         output = F.pad(intrinsics, padding=[15])
+        assert isinstance(output, CameraIntrinsics)
         assert output[0, 0, 2].isclose(torch.tensor(335.0))  # cx + 15
         assert output[0, 1, 2].isclose(torch.tensor(255.0))  # cy + 15
         assert output.image_size == (510, 670)
