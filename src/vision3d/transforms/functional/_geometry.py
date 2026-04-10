@@ -468,3 +468,23 @@ def _scale_3d_bounding_boxes_dispatch(
         inpt.as_subclass(torch.Tensor), format=inpt.format, factor=factor
     )
     return wrap(output, like=inpt)
+
+
+def scale_3d_camera_extrinsics(extrinsics: Tensor, *, factor: float) -> Tensor:
+    """Update camera extrinsics after scaling the lidar frame.
+
+    Args:
+        extrinsics: Extrinsic matrices ``[..., 4, 4]``.
+        factor: Scale factor applied to the lidar frame.
+
+    Returns:
+        Updated extrinsics with the same shape.
+    """
+    extrinsics = extrinsics.clone()
+    extrinsics[..., :3, 3] *= factor
+    return extrinsics
+
+
+@register_kernel(scale_3d, CameraExtrinsics)
+def _scale_3d_camera_extrinsics_kernel(extrinsics: Tensor, *, factor: float) -> Tensor:
+    return scale_3d_camera_extrinsics(extrinsics, factor=factor)
