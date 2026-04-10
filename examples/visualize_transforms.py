@@ -79,8 +79,8 @@ def main() -> None:
         ),
         (
             "scale",
-            "RandomScale3D(0.5, 1.5)",
-            RandomScale3D(scale_range=(0.5, 1.5), p=1.0),
+            "RandomScale3D(0.25, 4.0)",
+            RandomScale3D(scale_range=(0.25, 4.0), p=1.0),
         ),
         (
             "color_jitter",
