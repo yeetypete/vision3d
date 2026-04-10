@@ -166,7 +166,10 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
             "points": PointCloud3D(points),
             "images": CameraImages(torch.stack(images_list)),
             "extrinsics": CameraExtrinsics(torch.stack(extrinsics_list)),
-            "intrinsics": CameraIntrinsics(torch.stack(intrinsics_list)),
+            "intrinsics": CameraIntrinsics(
+                torch.stack(intrinsics_list),
+                image_size=(images_list[0].shape[-2], images_list[0].shape[-1]),
+            ),
         }
 
         # Annotations (in global frame -> convert to lidar frame)
@@ -185,7 +188,7 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
     def _load_image(self, cam_data: dict[str, Any]) -> torch.Tensor:
         path = os.path.join(self.root, cam_data["filename"])
         img = np.array(Image.open(path).convert("RGB"))
-        return torch.from_numpy(img).permute(2, 0, 1).float()
+        return torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
 
     def _load_annotations(
         self, sample: dict[str, Any], lidar_to_global: torch.Tensor

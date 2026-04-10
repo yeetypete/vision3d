@@ -34,6 +34,7 @@ from vision3d.transforms.functional import (
     rotate_3d_point_cloud,
     scale_3d,
     scale_3d_bounding_boxes,
+    scale_3d_camera_extrinsics,
     scale_3d_point_cloud,
     translate_3d,
     translate_3d_bounding_boxes,
@@ -945,6 +946,62 @@ class TestScale3DBoundingBoxesKernel:
         torch.testing.assert_close(roundtripped, raw)
 
 
+class TestScale3DCameraExtrinsicsKernel:
+    def test_correctness(self) -> None:
+        ext = torch.eye(4).unsqueeze(0)
+        ext[0, :3, 3] = torch.tensor([1.0, 2.0, 3.0])
+        actual = scale_3d_camera_extrinsics(ext, factor=2.0)
+        expected = torch.eye(4).unsqueeze(0)
+        expected[0, :3, 3] = torch.tensor([2.0, 4.0, 6.0])
+        torch.testing.assert_close(actual, expected)
+
+    def test_rotation_unchanged(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=4)
+        raw = ext.as_subclass(torch.Tensor)
+        scaled = scale_3d_camera_extrinsics(raw, factor=2.5)
+        torch.testing.assert_close(scaled[..., :3, :3], raw[..., :3, :3])
+
+    def test_inverse(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=4)
+        raw = ext.as_subclass(torch.Tensor)
+        roundtripped = scale_3d_camera_extrinsics(
+            scale_3d_camera_extrinsics(raw, factor=2.0), factor=0.5
+        )
+        torch.testing.assert_close(roundtripped, raw)
+
+    def test_does_not_modify_input(self) -> None:
+        ext = make_camera_extrinsics(num_cameras=2)
+        original = ext.clone()
+        scale_3d_camera_extrinsics(ext.as_subclass(torch.Tensor), factor=2.0)
+        torch.testing.assert_close(ext, original)
+
+    def test_projection_consistent(self) -> None:
+        """Verify projection is unchanged after scaling lidar frame.
+
+        Scaling the world uniformly should not change pixel coordinates:
+        the camera point and its depth scale together, and ``K @ p / depth``
+        is invariant under that uniform scale.
+        """
+        ext = make_camera_extrinsics(num_cameras=1)
+        raw_ext = ext.as_subclass(torch.Tensor)[0]  # [4, 4]
+        K = torch.tensor([[500.0, 0, 320], [0, 500, 240], [0, 0, 1]])
+
+        point_lidar = torch.tensor([10.0, 5.0, 1.0, 1.0])
+        p_cam = raw_ext @ point_lidar
+        pixel_before = K @ p_cam[:3]
+        pixel_before = pixel_before[:2] / pixel_before[2]
+
+        factor = 3.0
+        ext_scaled = scale_3d_camera_extrinsics(raw_ext.unsqueeze(0), factor=factor)[0]
+        point_scaled = point_lidar.clone()
+        point_scaled[:3] *= factor
+        p_cam_after = ext_scaled @ point_scaled
+        pixel_after = K @ p_cam_after[:3]
+        pixel_after = pixel_after[:2] / pixel_after[2]
+
+        torch.testing.assert_close(pixel_before, pixel_after)
+
+
 # Functional tests
 class TestScale3DDispatch:
     def test_dispatches_point_cloud(self) -> None:
@@ -959,10 +1016,10 @@ class TestScale3DDispatch:
         assert isinstance(out, BoundingBoxes3D)
         assert out.format == format
 
-    def test_passthrough_camera_extrinsics(self) -> None:
+    def test_dispatches_camera_extrinsics(self) -> None:
         ext = make_camera_extrinsics(num_cameras=4)
         out = scale_3d(ext, factor=2.0)
-        assert out is ext
+        assert isinstance(out, CameraExtrinsics)
 
     def test_passthrough_plain_tensor(self) -> None:
         labels = torch.tensor([0, 1, 2])
@@ -1010,13 +1067,17 @@ class TestRandomScale3D:
 
 
 class TestRandomScale3DFusion:
-    def test_camera_data_passthrough(self) -> None:
+    def test_extrinsics_updated(self) -> None:
         sample = _make_fusion_sample()
+        raw = sample["extrinsics"].as_subclass(torch.Tensor).clone()
+        raw[..., :3, 3] = torch.tensor([1.0, 2.0, 3.0])
+        original_extrinsics = CameraExtrinsics(raw)
+        sample["extrinsics"] = original_extrinsics
+
         transform = RandomScale3D(scale_range=(0.5, 0.9), p=1.0)
         out = transform(sample)
-        assert torch.equal(out["images"], sample["images"])
-        assert torch.equal(out["extrinsics"], sample["extrinsics"])
-        assert torch.equal(out["intrinsics"], sample["intrinsics"])
+        assert isinstance(out["extrinsics"], CameraExtrinsics)
+        assert not torch.equal(out["extrinsics"], original_extrinsics)
 
     def test_images_passthrough(self) -> None:
         sample = _make_fusion_sample()

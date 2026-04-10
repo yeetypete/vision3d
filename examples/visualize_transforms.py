@@ -14,6 +14,7 @@ import math
 
 import rerun as rr
 import rerun.blueprint as rrb
+from torchvision.transforms import v2
 
 from vision3d.datasets import NuScenes3D
 from vision3d.datasets.nuscenes import CAMERA_NAMES
@@ -64,6 +65,7 @@ def main() -> None:
 
     transforms = [
         ("original", "Original", None),
+        # 3D spatial
         ("flip_z", "RandomFlip3D(axis='z')", RandomFlip3D(axis="z", p=1.0)),
         (
             "translate",
@@ -77,9 +79,21 @@ def main() -> None:
         ),
         (
             "scale",
-            "RandomScale3D(0.5, 1.5)",
-            RandomScale3D(scale_range=(0.5, 1.5), p=1.0),
+            "RandomScale3D(0.25, 4.0)",
+            RandomScale3D(scale_range=(0.25, 4.0), p=1.0),
         ),
+        (
+            "color_jitter",
+            "ColorJitter",
+            v2.ColorJitter(brightness=0.8, contrast=0.8, saturation=0.8, hue=0.4),
+        ),
+        ("gaussian_blur", "GaussianBlur", v2.GaussianBlur(kernel_size=31, sigma=10.0)),
+        ("solarize", "Solarize", v2.RandomSolarize(threshold=0.5, p=1.0)),
+        # Geometric image (updates CameraIntrinsics)
+        ("resize_half", "Resize(half)", v2.Resize(size=[450, 800])),
+        ("center_crop", "CenterCrop(600x800)", v2.CenterCrop(size=[600, 800])),
+        ("pad", "Pad(100)", v2.Pad(padding=100)),
+        # Copy-paste
         ("copy_paste", "CopyPaste3D", copy_paste),
     ]
 
@@ -124,6 +138,8 @@ def main() -> None:
         elif isinstance(transform, CopyPaste3D):
             out_inputs, out_targets = transform((inputs,), (targets,))
             t_inputs, t_targets = out_inputs[0], out_targets[0]
+        elif isinstance(transform, v2.Transform):
+            t_inputs, t_targets = transform(inputs), targets
         else:
             t_inputs, t_targets = transform(inputs, targets)
 
