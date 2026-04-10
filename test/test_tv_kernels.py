@@ -165,6 +165,19 @@ class TestResizeIntrinsics:
         assert isinstance(output, CameraImages)
         assert output.shape == (6, 3, 32, 40)
 
+    def test_resize_shorter_edge_int(self, intrinsics: CameraIntrinsics) -> None:
+        # 480x640 with shorter edge -> 240: scale = 0.5, longer = 320.
+        output = F.resize(intrinsics, size=240)
+        assert output.image_size == (240, 320)
+        assert output[0, 0, 0].isclose(torch.tensor(250.0))  # fx * 0.5
+        assert output[0, 1, 1].isclose(torch.tensor(250.0))  # fy * 0.5
+
+    def test_resize_max_size_only(self, intrinsics: CameraIntrinsics) -> None:
+        # size=None + max_size=320: scale longer (640) -> 320, scale = 0.5.
+        output = F.resize(intrinsics, size=None, max_size=320)
+        assert output.image_size == (240, 320)
+        assert output[0, 0, 0].isclose(torch.tensor(250.0))
+
 
 class TestCropIntrinsics:
     def test_preserves_type(self, intrinsics: CameraIntrinsics) -> None:
@@ -207,6 +220,22 @@ class TestPadIntrinsics:
         output = F.pad(intrinsics, padding=[10, 20])
         assert output[0, 0, 2].isclose(torch.tensor(330.0))  # cx + 10
         assert output[0, 1, 2].isclose(torch.tensor(260.0))  # cy + 20
+
+    def test_int_padding(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.pad(intrinsics, padding=15)
+        assert output[0, 0, 2].isclose(torch.tensor(335.0))  # cx + 15
+        assert output[0, 1, 2].isclose(torch.tensor(255.0))  # cy + 15
+        assert output.image_size == (510, 670)  # 480+30, 640+30
+
+    def test_one_element_padding(self, intrinsics: CameraIntrinsics) -> None:
+        output = F.pad(intrinsics, padding=[15])
+        assert output[0, 0, 2].isclose(torch.tensor(335.0))  # cx + 15
+        assert output[0, 1, 2].isclose(torch.tensor(255.0))  # cy + 15
+        assert output.image_size == (510, 670)
+
+    def test_invalid_padding_length_raises(self, intrinsics: CameraIntrinsics) -> None:
+        with pytest.raises(ValueError, match="1, 2, or 4"):
+            F.pad(intrinsics, padding=[1, 2, 3])
 
 
 class TestCenterCropIntrinsics:
@@ -251,3 +280,38 @@ class TestResizedCropIntrinsics:
         )
         assert isinstance(output, CameraIntrinsics)
         assert output.image_size == (100, 200)
+
+
+class TestJointDispatch:
+    """End-to-end checks via v2.Transform on a sample containing both
+    CameraImages and CameraIntrinsics. These verify that the image kernel
+    and the intrinsics kernel stay shape-consistent — if torchvision ever
+    changes resize semantics in a way that drifts from our intrinsics
+    update, these fail loudly.
+    """
+
+    @pytest.fixture
+    def sample(self) -> dict[str, CameraImages | CameraIntrinsics]:
+        K = torch.eye(3).unsqueeze(0).expand(2, -1, -1).clone()
+        K[:, 0, 0] = 500.0
+        K[:, 1, 1] = 500.0
+        K[:, 0, 2] = 320.0
+        K[:, 1, 2] = 240.0
+        return {
+            "images": CameraImages(torch.rand(2, 3, 480, 640)),
+            "intrinsics": CameraIntrinsics(K, image_size=(480, 640)),
+        }
+
+    def test_resize(self, sample: dict[str, CameraImages | CameraIntrinsics]) -> None:
+        out = v2.Resize(size=[240, 320])(sample)
+        assert out["images"].shape[-2:] == out["intrinsics"].image_size
+
+    def test_center_crop(
+        self, sample: dict[str, CameraImages | CameraIntrinsics]
+    ) -> None:
+        out = v2.CenterCrop(size=[200, 300])(sample)
+        assert out["images"].shape[-2:] == out["intrinsics"].image_size
+
+    def test_pad(self, sample: dict[str, CameraImages | CameraIntrinsics]) -> None:
+        out = v2.Pad(padding=[10, 20, 30, 40])(sample)
+        assert out["images"].shape[-2:] == out["intrinsics"].image_size
