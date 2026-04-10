@@ -158,6 +158,15 @@ class CameraIntrinsics(TVTensor):
         *,
         image_size: tuple[int, int],
     ) -> CameraIntrinsics:
+        if (
+            not isinstance(image_size, tuple)
+            or len(image_size) != 2
+            or not all(isinstance(d, int) and d > 0 for d in image_size)
+        ):
+            raise ValueError(
+                f"image_size must be a tuple of two positive ints (h, w), "
+                f"got {image_size!r}"
+            )
         intrinsics = tensor.as_subclass(cls)
         intrinsics.image_size = image_size
         return intrinsics

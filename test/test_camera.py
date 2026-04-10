@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import torch
@@ -148,6 +148,22 @@ class TestCameraIntrinsicsConstruction:
         tensor = torch.eye(3).unsqueeze(0)
         intr = CameraIntrinsics(tensor, image_size=(480, 640))
         assert intr.data_ptr() == tensor.data_ptr()
+
+    @pytest.mark.parametrize(
+        "image_size",
+        [
+            (480,),  # wrong length
+            (480, 640, 3),  # wrong length
+            (480.0, 640.0),  # not ints
+            (0, 640),  # non-positive
+            (480, -1),  # non-positive
+            [480, 640],  # not a tuple
+            480,  # not a tuple
+        ],
+    )
+    def test_rejects_invalid_image_size(self, image_size: Any) -> None:
+        with pytest.raises(ValueError, match="image_size"):
+            CameraIntrinsics(torch.eye(3), image_size=image_size)
 
 
 class TestCameraIntrinsicsTorchFunction:
