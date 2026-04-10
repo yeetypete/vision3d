@@ -4,7 +4,18 @@ from typing import TYPE_CHECKING, Any, override
 
 import torch
 from torch import Tensor
+from torch.utils._pytree import tree_flatten
 from torchvision import tv_tensors
+from torchvision.transforms.v2 import functional as _F
+from torchvision.transforms.v2.functional import (
+    register_kernel as _register_kernel,
+)
+
+# TODO: avoid private imports from functional and implement inline
+from torchvision.transforms.v2.functional._geometry import (
+    _center_crop_parse_output_size,
+    _compute_resized_output_size,
+)
 from torchvision.tv_tensors import TVTensor
 
 if TYPE_CHECKING:
@@ -181,7 +192,6 @@ class CameraIntrinsics(TVTensor):
         args: Any = (),
         kwargs: Any = None,
     ) -> CameraIntrinsics:
-        from torch.utils._pytree import tree_flatten
 
         flat_params, _ = tree_flatten(
             tuple(args) + (tuple(kwargs.values()) if kwargs else ())
@@ -196,13 +206,6 @@ class CameraIntrinsics(TVTensor):
     @override
     def __repr__(self, *, tensor_contents: Any = None) -> str:
         return self._make_repr(image_size=self.image_size)
-
-
-# Register CameraImages kernels for torchvision v2 photometric transforms.
-from torchvision.transforms.v2 import functional as _F
-from torchvision.transforms.v2.functional import (
-    register_kernel as _register_kernel,
-)
 
 
 def _make_camera_kernel(
@@ -250,10 +253,6 @@ for _fn, _img_fn in [
 ]:
     _register_kernel(_fn, CameraImages)(_make_camera_kernel(_img_fn))
 
-from torchvision.transforms.v2.functional._geometry import (
-    _compute_resized_output_size,
-)
-
 
 @_register_kernel(_F.resize, CameraIntrinsics)
 def _resize_intrinsics(
@@ -286,9 +285,6 @@ def _crop_intrinsics(
 def _center_crop_intrinsics(
     inpt: CameraIntrinsics, output_size: list[int]
 ) -> CameraIntrinsics:
-    from torchvision.transforms.v2.functional._geometry import (
-        _center_crop_parse_output_size,
-    )
 
     crop_h, crop_w = _center_crop_parse_output_size(output_size)
     old_h, old_w = inpt.image_size
