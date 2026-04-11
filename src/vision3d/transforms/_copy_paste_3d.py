@@ -251,6 +251,15 @@ class CopyPaste3D(nn.Module):
     not individual samples. Each instance should be used with only one
     dataset to avoid cross-contamination.
 
+    :class:`CopyPaste3D` **must** be the first
+    transform in any pipeline, before any 3D spatial transform
+    (:class:`RandomFlip3D`, :class:`RandomRotate3D`,
+    :class:`RandomScale3D`, :class:`RandomTranslate3D`). Pasted objects
+    are extracted and re-inserted in the source-frame geometry of the
+    scene they came from; if a scene transform has already mutated the
+    frame, the pasted objects will disagree with the rest of the scene
+    and the resulting boxes/points will be inconsistent.
+
     Args:
         target_counts: Dict mapping integer class label to desired object
             count per sample. E.g. ``{0: 15, 1: 10}``.
