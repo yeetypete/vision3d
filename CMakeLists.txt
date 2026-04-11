@@ -32,7 +32,7 @@ find_package(Torch REQUIRED)
 
 set(_csrc src/vision3d/ops/csrc)
 add_library(vision3d_ops SHARED
-  ${_csrc}/register.cpp
+  ${_csrc}/iou_box3d.cpp
   ${_csrc}/iou_box3d/iou_box3d_cpu.cpp
 )
 target_include_directories(vision3d_ops PRIVATE ${_csrc})

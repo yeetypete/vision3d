@@ -7,6 +7,7 @@
  */
 
 #include <torch/extension.h>
+#include <torch/library.h>
 #include <list>
 #include <tuple>
 #include "iou_box3d/iou_utils.h"
@@ -116,4 +117,8 @@ std::tuple<at::Tensor, at::Tensor> IoUBox3DCpu(
     }
   }
   return std::make_tuple(vols, ious);
+}
+
+TORCH_LIBRARY_IMPL(vision3d, CPU, m) {
+  m.impl(TORCH_SELECTIVE_NAME("vision3d::iou_box3d"), TORCH_FN(IoUBox3DCpu));
 }

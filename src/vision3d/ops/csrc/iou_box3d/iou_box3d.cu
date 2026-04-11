@@ -9,9 +9,11 @@
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
+#include <torch/library.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "iou_box3d/iou_box3d.h"
 #include "iou_box3d/iou_utils.cuh"
 
 // Parallelize over N*M computations which can each be done
@@ -172,4 +174,8 @@ std::tuple<at::Tensor, at::Tensor> IoUBox3DCuda(
   AT_CUDA_CHECK(cudaGetLastError());
 
   return std::make_tuple(vols, ious);
+}
+
+TORCH_LIBRARY_IMPL(vision3d, CUDA, m) {
+  m.impl(TORCH_SELECTIVE_NAME("vision3d::iou_box3d"), TORCH_FN(IoUBox3DCuda));
 }
