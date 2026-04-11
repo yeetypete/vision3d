@@ -438,30 +438,47 @@ class CopyPaste3D(nn.Module):
 
         all_boxes = raw_boxes
 
+        device = raw_boxes.device
+
         for label_id, target_count in self.target_counts.items():
-            n_existing = existing_counts.get(label_id, 0)
-            n_paste = max(0, target_count - n_existing)
+            n_paste = max(0, target_count - existing_counts.get(label_id, 0))
             db = self._database.get(label_id)
             if not db or n_paste == 0:
                 continue
 
-            # Sample candidates (randperm for torch-seedable randomness)
-            candidates = list(db)
-            perm = torch.randperm(len(candidates))
-            candidates = [candidates[i] for i in perm]
+            perm = torch.randperm(len(db)).tolist()
+            candidates = [db[i] for i in perm[:n_paste]]
+            cand_boxes = torch.stack([c.box for c in candidates]).to(device)
 
-            for entry in candidates[:n_paste]:
-                box = entry.box.to(raw_boxes.device)
-                if all_boxes.shape[0] > 0:
-                    overlap = box3d_overlap(box.unsqueeze(0), all_boxes, fmt)
-                    if overlap.any():
-                        continue
+            # Candidates vs existing scene boxes.
+            if all_boxes.shape[0] > 0:
+                safe = ~box3d_overlap(cand_boxes, all_boxes, fmt).any(dim=1)
+            else:
+                safe = torch.ones(cand_boxes.shape[0], dtype=torch.bool, device=device)
 
+            # Candidates vs each other.
+            cc = box3d_overlap(cand_boxes, cand_boxes, fmt)
+            cc.fill_diagonal_(False)
+
+            safe_cpu = safe.cpu()
+            cc_cpu = cc.cpu()
+            accepted_k: list[int] = []
+            for k in range(len(candidates)):
+                if not safe_cpu[k].item():
+                    continue
+                if cc_cpu[k, accepted_k].any().item():
+                    continue
+                accepted_k.append(k)
+
+            if not accepted_k:
+                continue
+            for k in accepted_k:
+                entry = candidates[k]
                 pasted_entries.append(entry)
-                pasted_boxes.append(box)
+                pasted_boxes.append(cand_boxes[k])
                 pasted_points.append(entry.points.to(raw_points.device))
                 pasted_labels.append(entry.label)
-                all_boxes = torch.cat([all_boxes, box.unsqueeze(0)])
+            all_boxes = torch.cat([all_boxes, cand_boxes[accepted_k]])
 
         if not pasted_boxes:
             return inputs, targets
