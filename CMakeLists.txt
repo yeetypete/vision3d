@@ -1,6 +1,10 @@
-# CMakeLists.txt for editor `build/compile_commands.json`` generation for clangd.
+# CMakeLists.txt for editor ``build/compile_commands.json`` generation
+# for clangd. Run ``cmake -B build`` at the repo root to generate the file.
 
 cmake_minimum_required(VERSION 3.18)
+# CMP0104 OLD: don't auto-populate CMAKE_CUDA_ARCHITECTURES. Torch
+# cuda.cmake warns if it's set and wants TORCH_CUDA_ARCH_LIST instead.
+cmake_policy(SET CMP0104 OLD)
 project(vision3d_ops LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -11,9 +15,6 @@ add_definitions(-DWITH_CUDA)
 find_package(CUDAToolkit QUIET)
 if(CUDAToolkit_FOUND AND NOT DEFINED CMAKE_CUDA_COMPILER)
   set(CMAKE_CUDA_COMPILER "${CUDAToolkit_NVCC_EXECUTABLE}")
-endif()
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-  set(CMAKE_CUDA_ARCHITECTURES native)
 endif()
 
 set(Python3_ROOT_DIR "${CMAKE_SOURCE_DIR}/.venv" CACHE PATH "")
