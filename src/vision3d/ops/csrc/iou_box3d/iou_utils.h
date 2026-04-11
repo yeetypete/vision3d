@@ -73,8 +73,10 @@ using face_verts = std::vector<std::vector<vec3<float>>>;
 //    vec3<T> (x, y, x) vertex coordinates
 //
 template <typename Box>
-inline vec3<float>
-ExtractVertsPlane(const Box& box, const int plane_idx, const int vert_idx) {
+inline vec3<float> ExtractVertsPlane(
+    const Box& box,
+    const int plane_idx,
+    const int vert_idx) {
   return vec3<float>(
       box[_PLANES[plane_idx][vert_idx]][0],
       box[_PLANES[plane_idx][vert_idx]][1],
@@ -90,8 +92,10 @@ ExtractVertsPlane(const Box& box, const int plane_idx, const int vert_idx) {
 //    vec3<T> (x, y, x) vertex coordinates
 //
 template <typename Box>
-inline vec3<float>
-ExtractVertsTri(const Box& box, const int tri_idx, const int vert_idx) {
+inline vec3<float> ExtractVertsTri(
+    const Box& box,
+    const int tri_idx,
+    const int vert_idx) {
   return vec3<float>(
       box[_TRIS[tri_idx][vert_idx]][0],
       box[_TRIS[tri_idx][vert_idx]][1],

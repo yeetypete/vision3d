@@ -66,8 +66,10 @@ __device__ inline float dot(const float2& a, const float2& b) {
 //    tuple of gradients for each of the input points:
 //      (float2 grad_a, float2 grad_b)
 //
-__device__ inline thrust::tuple<float2, float2>
-DotBackward(const float2& a, const float2& b, const float& grad_dot) {
+__device__ inline thrust::tuple<float2, float2> DotBackward(
+    const float2& a,
+    const float2& b,
+    const float& grad_dot) {
   return thrust::make_tuple(grad_dot * b, grad_dot * a);
 }
 
@@ -114,8 +116,10 @@ __device__ inline float3 cross(const float3& a, const float3& b) {
       a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x);
 }
 
-__device__ inline thrust::tuple<float3, float3>
-cross_backward(const float3& a, const float3& b, const float3& grad_cross) {
+__device__ inline thrust::tuple<float3, float3> cross_backward(
+    const float3& a,
+    const float3& b,
+    const float3& grad_cross) {
   const float grad_ax = -grad_cross.y * b.z + grad_cross.z * b.y;
   const float grad_ay = grad_cross.x * b.z - grad_cross.z * b.x;
   const float grad_az = -grad_cross.x * b.y + grad_cross.y * b.x;

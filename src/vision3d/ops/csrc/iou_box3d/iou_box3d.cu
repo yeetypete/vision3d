@@ -9,10 +9,10 @@
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
-#include <torch/library.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <torch/library.h>
 #include "iou_box3d/iou_box3d.h"
 #include "iou_box3d/iou_utils.cuh"
 

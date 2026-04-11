@@ -365,8 +365,10 @@ __device__ inline float3 PolyhedronCenter(
 // Returns
 //    bool: whether or not the point is inside the plane
 //
-__device__ inline bool
-IsInside(const FaceVerts& plane, const float3& normal, const float3& point) {
+__device__ inline bool IsInside(
+    const FaceVerts& plane,
+    const float3& normal,
+    const float3& point) {
   // The center of the plane
   const float3 plane_ctr = FaceCenter({plane.v0, plane.v1, plane.v2, plane.v3});
 
