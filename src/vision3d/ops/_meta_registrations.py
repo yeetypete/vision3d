@@ -1,10 +1,4 @@
-"""Meta (fake tensor) registrations for vision3d custom ops.
-
-Registers shape-only implementations of ops exposed through the
-``vision3d`` TORCH_LIBRARY namespace. PyTorch's tracer (``torch.compile``,
-``torch.export``, ``torch.fx``) calls these during symbolic tracing instead
-of the real CPU/CUDA kernels.
-"""
+"""Meta (fake tensor) registrations for vision3d custom ops."""
 
 import torch
 

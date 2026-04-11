@@ -219,20 +219,10 @@ class TestBox3dIouProperties:
 
 
 class TestBox3dIouMetaRegistration:
-    """Verify the meta (fake tensor) registration for ``vision3d::iou_box3d``.
-
-    Meta impls let ``torch.compile`` / ``torch.export`` trace through the
-    op without running the real CPU/CUDA kernel — they return shape-only
-    outputs computed purely from input shapes and dtypes.
-    """
-
     @staticmethod
     def _ensure_loaded() -> None:
-        # Force the extension (and the meta registration it triggers) to
-        # be loaded. ``box3d_iou``'s lazy loader imports
-        # ``vision3d.ops._meta_registrations`` immediately after
-        # ``torch.utils.cpp_extension.load`` returns, which is what wires
-        # the ``@register_fake`` hook into PyTorch's dispatcher.
+        # Touch box3d_iou so ``vision3d.ops`` imports (and
+        # ``_meta_registrations`` runs) before FakeTensorMode is entered.
         box3d_iou(
             torch.tensor([[-1.0, -1, -1, 1, 1, 1]]),
             torch.tensor([[-1.0, -1, -1, 1, 1, 1]]),
