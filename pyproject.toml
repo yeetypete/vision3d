@@ -26,8 +26,11 @@ dev = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.11.3,<0.12.0"]
-build-backend = "uv_build"
+requires = ["setuptools", "torch>=2.6"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+no-build-isolation-package = ["vision3d"]
 
 [tool.pyrefly]
 min-severity = "ignore"
@@ -67,5 +70,8 @@ convention = "google"
 [tool.ruff.format]
 docstring-code-format = true
 
-[pytest]
-addopts = ["--import-mode=importlib"]
+[tool.pytest.ini_options]
+filterwarnings = [
+  # Unrelated warning from ``@torch.jit.script_method`` in torch/utils/mkldnn.py.
+  "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
+]
