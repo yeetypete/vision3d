@@ -69,3 +69,9 @@ convention = "google"
 
 [tool.ruff.format]
 docstring-code-format = true
+
+[tool.pytest.ini_options]
+filterwarnings = [
+  # Unrelated warning from ``@torch.jit.script_method`` in torch/utils/mkldnn.py.
+  "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
+]
