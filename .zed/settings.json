@@ -1,4 +1,7 @@
 {
+  "file_types": {
+    "C++": ["cu", "cuh"],
+  },
   "languages": {
     "Python": {
       "code_actions_on_format": {
