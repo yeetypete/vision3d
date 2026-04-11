@@ -320,19 +320,17 @@ class CopyPaste3D(nn.Module):
         if boxes.shape[0] == 0 or labels.shape[0] == 0:
             return
 
-        raw_points = points.as_subclass(Tensor)
-        raw_boxes = boxes.as_subclass(Tensor)
         fmt = boxes.format
 
-        indices = points_in_boxes_3d_indices(raw_points, raw_boxes, fmt)
+        indices = points_in_boxes_3d_indices(points, boxes, fmt)
 
         # First pass: find objects with enough points
         valid: list[tuple[int, Tensor]] = []
-        for j in range(raw_boxes.shape[0]):
+        for j in range(boxes.shape[0]):
             if j >= labels.shape[0]:
                 break
             mask = indices == j
-            obj_points = raw_points[mask]
+            obj_points = points[mask]
             if obj_points.shape[0] >= self.min_points:
                 valid.append((j, obj_points))
 
@@ -341,14 +339,14 @@ class CopyPaste3D(nn.Module):
         camera_crops_map: dict[int, list[CameraCrop | None]] = {}
         if has_cameras and valid:
             camera_crops_map = self._extract_all_camera_crops(
-                raw_boxes, fmt, inputs, [j for j, _ in valid]
+                boxes, fmt, inputs, [j for j, _ in valid]
             )
 
         for j, obj_points in valid:
             label = int(labels[j].item())
             entry = ObjectEntry(
                 points=obj_points.detach().cpu(),
-                box=raw_boxes[j].detach().cpu(),
+                box=boxes[j].detach().cpu(),
                 label=label,
                 camera_crops=camera_crops_map.get(j),
             )
@@ -423,9 +421,6 @@ class CopyPaste3D(nn.Module):
         labels = targets.get("labels", torch.zeros(0, dtype=torch.long))
         fmt = boxes.format
 
-        raw_points = points.as_subclass(Tensor)
-        raw_boxes = boxes.as_subclass(Tensor)
-
         # Count existing objects per label
         existing_counts: dict[int, int] = {}
         for lbl in labels.tolist():
@@ -436,9 +431,9 @@ class CopyPaste3D(nn.Module):
         pasted_points: list[Tensor] = []
         pasted_labels: list[int] = []
 
-        all_boxes = raw_boxes
+        all_boxes = boxes
 
-        device = raw_boxes.device
+        device = boxes.device
 
         for label_id, target_count in self.target_counts.items():
             n_paste = max(0, target_count - existing_counts.get(label_id, 0))
@@ -476,7 +471,7 @@ class CopyPaste3D(nn.Module):
                 entry = candidates[k]
                 pasted_entries.append(entry)
                 pasted_boxes.append(cand_boxes[k])
-                pasted_points.append(entry.points.to(raw_points.device))
+                pasted_points.append(entry.points.to(points.device))
                 pasted_labels.append(entry.label)
             all_boxes = torch.cat([all_boxes, cand_boxes[accepted_k]])
 
@@ -485,14 +480,12 @@ class CopyPaste3D(nn.Module):
 
         # Remove scene points inside pasted box regions
         pasted_boxes_tensor = torch.stack(pasted_boxes)
-        remove_mask = points_in_boxes_3d(raw_points, pasted_boxes_tensor, fmt).any(
-            dim=1
-        )
-        kept_points = raw_points[~remove_mask]
+        remove_mask = points_in_boxes_3d(points, pasted_boxes_tensor, fmt).any(dim=1)
+        kept_points = points[~remove_mask]
 
         # Concatenate
         new_points = torch.cat([kept_points, torch.cat(pasted_points)])
-        new_boxes = torch.cat([raw_boxes, pasted_boxes_tensor])
+        new_boxes = torch.cat([boxes, pasted_boxes_tensor])
         new_labels = torch.cat(
             [
                 labels,
@@ -512,9 +505,7 @@ class CopyPaste3D(nn.Module):
 
         # Camera image paste
         if self._has_camera_data(inputs):
-            new_images = self._paste_camera_images(
-                inputs, raw_boxes, fmt, pasted_entries
-            )
+            new_images = self._paste_camera_images(inputs, boxes, fmt, pasted_entries)
             if new_images is not None:
                 new_inputs["images"] = new_images
 
