@@ -18,7 +18,7 @@ def _get_extension_path(lib_name: str) -> str:
     extfinder = importlib.machinery.FileFinder(lib_dir, loader_details)
     ext_specs = extfinder.find_spec(lib_name)
     if ext_specs is None or ext_specs.origin is None:
-        msg = f"Could not find module '{lib_name}' in {lib_dir}. "
+        msg = f"Could not find module '{lib_name}' in {lib_dir}."
         raise ImportError(msg)
     return ext_specs.origin
 
