@@ -10,6 +10,7 @@ from nuscenes.eval.detection.utils import category_to_detection_name
 from PIL import Image
 from torch.utils.data import Dataset
 
+from vision3d.datasets._types import FusionInputs, SampleTargets
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -30,7 +31,7 @@ CAMERA_NAMES: list[str] = [
 ]
 
 
-class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
+class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     """`nuScenes <https://www.nuscenes.org/>`_ 3D object detection dataset.
 
     Returns samples in the **global frame** with annotations as
@@ -89,7 +90,7 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
         return len(self._sample_tokens)
 
     @override
-    def __getitem__(self, index: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets]:
         """Load a single sample.
 
         Args:
@@ -162,7 +163,7 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
             lidar_to_cam = torch.linalg.inv(cam_to_global) @ lidar_to_global
             extrinsics_list.append(lidar_to_cam)
 
-        inputs: dict[str, Any] = {
+        inputs: FusionInputs = {
             "points": PointCloud3D(points),
             "images": CameraImages(torch.stack(images_list)),
             "extrinsics": CameraExtrinsics(torch.stack(extrinsics_list)),
@@ -192,7 +193,7 @@ class NuScenes3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
 
     def _load_annotations(
         self, sample: dict[str, Any], lidar_to_global: torch.Tensor
-    ) -> dict[str, Any]:
+    ) -> SampleTargets:
         """Load annotations and convert from global to lidar frame.
 
         Returns:

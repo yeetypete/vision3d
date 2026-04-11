@@ -70,11 +70,14 @@ class CameraImages(TVTensor):
 class CameraExtrinsics(TVTensor):
     """:class:`torch.Tensor` subclass for camera extrinsic matrices with shape ``[N, 4, 4]``.
 
-    Each matrix transforms a point from lidar frame to camera frame
-    (lidar-to-camera convention).
+    Each matrix transforms a point from the dataset's *source frame*
+    to camera frame. The source frame is dataset-defined: lidar for
+    lidar-equipped datasets (KITTI, nuScenes, Waymo), ego/world for
+    camera-only datasets.
 
-    3D spatial transforms (flip, rotate, etc.) update these matrices to keep
-    the lidar-to-camera mapping consistent after the lidar frame changes.
+    3D spatial transforms (flip, rotate, etc.) update these matrices
+    to keep the source-to-camera mapping consistent after the source
+    frame changes.
 
     Args:
         data: Any data that can be turned into a tensor with :func:`torch.as_tensor`.
