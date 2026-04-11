@@ -216,3 +216,69 @@ class TestBox3dIouProperties:
         iou = box3d_iou(box, box, format)
         assert iou.shape == (1, 1)
         assert abs(iou.item() - 1.0) < _IDENTITY_TOL
+
+
+class TestBox3dIouMetaRegistration:
+    """Verify the meta (fake tensor) registration for ``vision3d::iou_box3d``.
+
+    Meta impls let ``torch.compile`` / ``torch.export`` trace through the
+    op without running the real CPU/CUDA kernel — they return shape-only
+    outputs computed purely from input shapes and dtypes.
+    """
+
+    @staticmethod
+    def _ensure_loaded() -> None:
+        # Force the extension (and the meta registration it triggers) to
+        # be loaded. ``box3d_iou``'s lazy loader imports
+        # ``vision3d.ops._meta_registrations`` immediately after
+        # ``torch.utils.cpp_extension.load`` returns, which is what wires
+        # the ``@register_fake`` hook into PyTorch's dispatcher.
+        box3d_iou(
+            torch.tensor([[-1.0, -1, -1, 1, 1, 1]]),
+            torch.tensor([[-1.0, -1, -1, 1, 1, 1]]),
+            BoundingBox3DFormat.XYZXYZ,
+        )
+
+    def test_fake_tensor_mode_propagates_shapes(self) -> None:
+        from torch._subclasses.fake_tensor import FakeTensorMode
+
+        self._ensure_loaded()
+        with FakeTensorMode():
+            fake_b1 = torch.empty(5, 8, 3)
+            fake_b2 = torch.empty(7, 8, 3)
+            vol, iou = torch.ops.vision3d.iou_box3d(fake_b1, fake_b2)
+            assert vol.shape == (5, 7)
+            assert iou.shape == (5, 7)
+            assert vol.dtype == torch.float32
+            assert iou.dtype == torch.float32
+
+    def test_fake_tensor_output_dtype_is_float32(self) -> None:
+        from torch._subclasses.fake_tensor import FakeTensorMode
+
+        self._ensure_loaded()
+        with FakeTensorMode():
+            fake_b1 = torch.empty(2, 8, 3, dtype=torch.float64)
+            fake_b2 = torch.empty(3, 8, 3, dtype=torch.float64)
+            vol, iou = torch.ops.vision3d.iou_box3d(fake_b1, fake_b2)
+            assert vol.dtype == torch.float32
+            assert iou.dtype == torch.float32
+
+    def test_fake_tensor_rejects_wrong_shape(self) -> None:
+        from torch._subclasses.fake_tensor import FakeTensorMode
+
+        self._ensure_loaded()
+        with FakeTensorMode():
+            # Wrong trailing dim (4 instead of 3).
+            bad = torch.empty(2, 8, 4)
+            ok = torch.empty(3, 8, 3)
+            with pytest.raises(RuntimeError, match="boxes1 must be"):
+                torch.ops.vision3d.iou_box3d(bad, ok)
+
+    def test_torch_compile_end_to_end(self) -> None:
+        self._ensure_loaded()
+        compiled = torch.compile(box3d_iou, fullgraph=False, dynamic=False)
+        b1 = torch.tensor([[0.0, 0, 0, 1, 1, 1]])
+        b2 = torch.tensor([[0.5, 0, 0, 1, 1, 1]])
+        iou_eager = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWH)
+        iou_compiled = compiled(b1, b2, BoundingBox3DFormat.XYZLWH)
+        torch.testing.assert_close(iou_compiled, iou_eager)

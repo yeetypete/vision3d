@@ -80,6 +80,10 @@ def _ensure_extension_loaded() -> None:
             is_python_module=False,
             verbose=False,
         )
+        # Load the meta (fake tensor) registration here so
+        # ``torch.compile`` / ``torch.export`` work from the first call.
+        from vision3d.ops import _meta_registrations  # noqa: F401
+
         _ext_loaded = True
 
 

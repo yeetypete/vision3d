@@ -33,6 +33,7 @@ std::tuple<at::Tensor, at::Tensor> iou_box3d(
 }
 
 TORCH_LIBRARY_FRAGMENT(vision3d, m) {
+  m.set_python_module("vision3d.ops._meta_registrations");
   m.def(TORCH_SELECTIVE_SCHEMA(
       "vision3d::iou_box3d(Tensor boxes1, Tensor boxes2) -> (Tensor, Tensor)"));
 }
