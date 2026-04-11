@@ -42,7 +42,7 @@ class TestBox3dIouAxisAligned:
         assert abs(iou.item() - 1.0 / 3.0) < _VALUE_TOL
 
     def test_quarter_overlap_xy(self) -> None:
-        # Offset by 0.5 in both x and y → intersection is 0.5x0.5x1 = 0.25.
+        # Offset by 0.5 in both x and y -> intersection is 0.5x0.5x1 = 0.25.
         # Union = 1 + 1 - 0.25 = 1.75. IoU = 0.25/1.75 = 1/7.
         b1 = torch.tensor([[0.0, 0, 0, 1, 1, 1]])
         b2 = torch.tensor([[0.5, 0.5, 0, 1, 1, 1]])
@@ -102,7 +102,7 @@ class TestBox3dIouYawRotated:
         assert abs(iou.item() - expected) < _VALUE_TOL
 
     def test_no_z_overlap(self) -> None:
-        # Same XY, but Z ranges disjoint → IoU = 0.
+        # Same XY, but Z ranges disjoint -> IoU = 0.
         b1 = torch.tensor([[0.0, 0, 0, 1, 1, 1, 0.0]])
         b2 = torch.tensor([[0.0, 0, 5, 1, 1, 1, 0.0]])
         iou = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWHY)
