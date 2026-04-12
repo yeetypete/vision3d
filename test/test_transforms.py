@@ -1,7 +1,9 @@
 import math
+from typing import Any
 
 import pytest
 import torch
+import torch.testing
 from common_utils import (
     make_bounding_boxes_3d,
     make_camera_extrinsics,
@@ -56,16 +58,18 @@ _REF_NEGATE_YPR: dict[str, list[int]] = {
 
 
 # Reference implementations
-def _reference_flip_point_cloud(points: torch.Tensor, axis: str) -> torch.Tensor:
+def _reference_flip_point_cloud[N, C](
+    points: torch.Tensor[N, C], axis: str
+) -> torch.Tensor[N, C]:
     idx = {"x": 0, "y": 1, "z": 2}[axis]
     out = points.clone()
     out[..., idx] = -out[..., idx]
     return out
 
 
-def _reference_flip_bounding_boxes(
-    boxes: torch.Tensor, format: BoundingBox3DFormat, axis: str
-) -> torch.Tensor:
+def _reference_flip_bounding_boxes[N, K](
+    boxes: torch.Tensor[N, K], format: BoundingBox3DFormat, axis: str
+) -> torch.Tensor[N, K]:
     idx = {"x": 0, "y": 1, "z": 2}[axis]
     out = boxes.clone()
 
@@ -121,7 +125,11 @@ class TestFlip3DPointCloudKernel:
 
     def test_batch_dims(self) -> None:
         points = torch.rand(2, 10, 4)
-        actual = flip_3d_point_cloud(points, axis="y")
+        # flip_3d_point_cloud is typed as [N, C] but supports batch dims at
+        # runtime via reshape.  Flatten before calling to satisfy pyrefly, then
+        # reshape back for the assertion.
+        flat = points.reshape(-1, 4)
+        actual = flip_3d_point_cloud(flat, axis="y").reshape(2, 10, 4)
         assert actual.shape == (2, 10, 4)
         torch.testing.assert_close(actual[..., 1], -points[..., 1])
         torch.testing.assert_close(actual[..., 0], points[..., 0])
@@ -252,7 +260,7 @@ class TestFlip3DDispatch:
 # Transform tests
 def _make_sample(
     format: BoundingBox3DFormat = BoundingBox3DFormat.XYZLWHYPR,
-) -> dict[str, torch.Tensor]:
+) -> dict[str, Any]:
     return {
         "points": make_point_cloud_3d(num_points=20),
         "boxes": make_bounding_boxes_3d(format=format, num_boxes=3),
@@ -262,7 +270,7 @@ def _make_sample(
 
 def _make_fusion_sample(
     format: BoundingBox3DFormat = BoundingBox3DFormat.XYZLWHYPR,
-) -> dict[str, torch.Tensor]:
+) -> dict[str, Any]:
     return {
         "points": make_point_cloud_3d(num_points=20),
         "boxes": make_bounding_boxes_3d(format=format, num_boxes=3),
@@ -364,17 +372,17 @@ class TestRandomFlip3DFusion:
 
 
 # Reference implementations
-def _reference_translate_point_cloud(
-    points: torch.Tensor, offset: torch.Tensor
-) -> torch.Tensor:
+def _reference_translate_point_cloud[N, C](
+    points: torch.Tensor[N, C], offset: torch.Tensor[3]
+) -> torch.Tensor[N, C]:
     out = points.clone()
     out[..., :3] += offset
     return out
 
 
-def _reference_translate_bounding_boxes(
-    boxes: torch.Tensor, format: BoundingBox3DFormat, offset: torch.Tensor
-) -> torch.Tensor:
+def _reference_translate_bounding_boxes[N, K](
+    boxes: torch.Tensor[N, K], format: BoundingBox3DFormat, offset: torch.Tensor[3]
+) -> torch.Tensor[N, K]:
     out = boxes.clone()
     if format is BoundingBox3DFormat.XYZXYZ:
         out[..., :3] += offset
@@ -389,7 +397,7 @@ class TestTranslate3DPointCloudKernel:
     @pytest.mark.parametrize(
         "offset", [torch.tensor([1.0, 0, 0]), torch.tensor([0, -2.0, 3.0])]
     )
-    def test_correctness(self, offset: torch.Tensor) -> None:
+    def test_correctness(self, offset: torch.Tensor[3]) -> None:
         points = torch.rand(50, 3) * 200 - 100
         actual = translate_3d_point_cloud(points, offset=offset)
         expected = _reference_translate_point_cloud(points, offset)
@@ -612,7 +620,7 @@ Z_AXIS = torch.tensor([0.0, 0.0, 1.0])
 X_AXIS = torch.tensor([1.0, 0.0, 0.0])
 
 
-def _make_z_rotation(angle: float) -> torch.Tensor:
+def _make_z_rotation(angle: float) -> torch.Tensor[3, 3]:
     c, s = math.cos(angle), math.sin(angle)
     return torch.tensor([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=torch.float32)
 

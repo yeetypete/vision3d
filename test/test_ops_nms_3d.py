@@ -35,7 +35,7 @@ def _box_at(
     raise ValueError(fmt)
 
 
-def _stack(rows: list[list[float]]) -> torch.Tensor:
+def _stack[N, K](rows: list[list[float]]) -> torch.Tensor[N, K]:
     return torch.tensor(rows, dtype=torch.float32)
 
 

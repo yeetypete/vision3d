@@ -35,11 +35,12 @@ from vision3d.viz import log_sample
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from typing import Any
 
     from vision3d.datasets import SampleInputs, SampleTargets
 
     type _Pipeline = Callable[
-        [SampleInputs, SampleTargets], tuple[SampleInputs, SampleTargets]
+        [SampleInputs, SampleTargets[Any]], tuple[SampleInputs, SampleTargets[Any]]
     ]
 
 
@@ -75,17 +76,17 @@ def main() -> None:
     db_range = range(max(0, args.frame - 15), args.frame)
     for i in db_range:
         inp_i, tgt_i = ds[i]
-        copy_paste((inp_i,), (tgt_i,))
+        copy_paste((dict(inp_i),), (dict(tgt_i),))
     print(
         f"  Database populated from {len(db_range)} frames, {len(ds.classes)} classes"
     )
 
     # Wrap CopyPaste3D's batch signature for single-sample viz.
     def copy_paste_one(
-        inputs: SampleInputs, targets: SampleTargets
-    ) -> tuple[SampleInputs, SampleTargets]:
-        ci, ct = copy_paste((inputs,), (targets,))
-        return ci[0], ct[0]
+        inputs: SampleInputs, targets: SampleTargets[Any]
+    ) -> tuple[SampleInputs, SampleTargets[Any]]:
+        ci, ct = copy_paste((dict(inputs),), (dict(targets),))
+        return ci[0], ct[0]  # type: ignore[return-value]
 
     composition = v2.Compose(
         [

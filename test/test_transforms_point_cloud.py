@@ -1,5 +1,7 @@
 """Tests for point cloud transforms."""
 
+from typing import Any
+
 import torch
 from common_utils import make_bounding_boxes_3d, make_point_cloud_3d
 
@@ -15,7 +17,7 @@ from vision3d.transforms.functional import (
 )
 
 
-def _make_sample() -> dict[str, torch.Tensor]:
+def _make_sample() -> dict[str, Any]:
     return {
         "points": make_point_cloud_3d(num_points=100),
         "boxes": make_bounding_boxes_3d(

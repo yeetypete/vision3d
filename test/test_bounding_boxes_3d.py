@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import torch
+import torch.cuda
 from common_utils import make_bounding_boxes_3d
 from torchvision import tv_tensors
 
@@ -84,7 +85,7 @@ class TestConstruction:
     )
     def test_new_requires_grad(
         self,
-        data: list[list[float]] | torch.Tensor,
+        data: list[list[float]] | torch.Tensor[1, 9],
         input_requires_grad: bool | None,
         expected_requires_grad: bool,
     ) -> None:

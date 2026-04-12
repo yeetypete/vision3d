@@ -1,5 +1,7 @@
 """Tests for MeanAveragePrecision3D."""
 
+from typing import Any
+
 import pytest
 import torch
 
@@ -364,12 +366,12 @@ class TestInputValidation:
     def test_length_mismatch_raises(self) -> None:
         m = MeanAveragePrecision3D(class_ids=[CAR])
         fmt = BoundingBox3DFormat.XYZLWHY
-        pred: Prediction3D = {
+        pred: Prediction3D[Any] = {
             "boxes": _empty_boxes(fmt),
             "scores": torch.zeros(0),
             "labels": torch.zeros(0, dtype=torch.long),
         }
-        target: Target3D = {
+        target: Target3D[Any] = {
             "boxes": _empty_boxes(fmt),
             "labels": torch.zeros(0, dtype=torch.long),
         }

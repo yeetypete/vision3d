@@ -45,7 +45,7 @@ class TestConstruction:
     )
     def test_new_requires_grad(
         self,
-        data: list[list[float]] | torch.Tensor,
+        data: list[list[float]] | torch.Tensor[1, 3],
         input_requires_grad: bool | None,
         expected_requires_grad: bool,
     ) -> None:

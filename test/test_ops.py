@@ -1,5 +1,6 @@
 import pytest
 import torch
+import torch.testing
 
 from vision3d.ops import box3d_convert
 from vision3d.tensors import BoundingBox3DFormat

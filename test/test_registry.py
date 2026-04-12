@@ -11,13 +11,13 @@ class TestRegisterKernel:
         class MyTensor(TVTensor):
             pass
 
-        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+        def my_functional[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             return inpt
 
         kernel_was_called = False
 
         @register_kernel(my_functional, MyTensor)
-        def my_kernel(inpt: torch.Tensor) -> torch.Tensor:
+        def my_kernel[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             nonlocal kernel_was_called
             kernel_was_called = True
             return inpt
@@ -31,7 +31,7 @@ class TestRegisterKernel:
         class MyTensor(TVTensor):
             pass
 
-        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+        def my_functional[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             return inpt
 
         register_kernel(my_functional, MyTensor)(lambda x: x)
@@ -45,13 +45,13 @@ class TestRegisterKernel:
         class CustomTVTensor(TVTensor):
             pass
 
-        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+        def my_functional[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             return inpt
 
         received_type = None
 
         @register_kernel(my_functional, CustomTVTensor)
-        def my_kernel(inpt: torch.Tensor) -> torch.Tensor:
+        def my_kernel[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             nonlocal received_type
             received_type = type(inpt)
             return inpt
@@ -69,13 +69,13 @@ class TestRegisterKernel:
         class CustomTVTensor(TVTensor):
             pass
 
-        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+        def my_functional[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             return inpt
 
         received_type = None
 
         @register_kernel(my_functional, CustomTVTensor, tv_tensor_wrapper=False)
-        def my_kernel(inpt: torch.Tensor) -> torch.Tensor:
+        def my_kernel[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             nonlocal received_type
             received_type = type(inpt)
             return inpt
@@ -89,7 +89,7 @@ class TestRegisterKernel:
 
 class TestGetKernel:
     def test_passthrough_for_plain_tensor(self) -> None:
-        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+        def my_functional[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             return inpt
 
         t = torch.rand(3, 3)
@@ -101,7 +101,7 @@ class TestGetKernel:
         class UnknownTensor(TVTensor):
             pass
 
-        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+        def my_functional[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             return inpt
 
         t = UnknownTensor(torch.rand(3, 3))
@@ -116,13 +116,13 @@ class TestGetKernel:
         class ChildTensor(ParentTensor):
             pass
 
-        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+        def my_functional[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             return inpt
 
         parent_called = False
 
         @register_kernel(my_functional, ParentTensor, tv_tensor_wrapper=False)
-        def parent_kernel(inpt: torch.Tensor) -> torch.Tensor:
+        def parent_kernel[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             nonlocal parent_called
             parent_called = True
             return inpt
@@ -139,20 +139,20 @@ class TestGetKernel:
         class ChildTensor(ParentTensor):
             pass
 
-        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+        def my_functional[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             return inpt
 
         child_called = False
         parent_called = False
 
         @register_kernel(my_functional, ParentTensor, tv_tensor_wrapper=False)
-        def parent_kernel(inpt: torch.Tensor) -> torch.Tensor:
+        def parent_kernel[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             nonlocal parent_called
             parent_called = True
             return inpt
 
         @register_kernel(my_functional, ChildTensor, tv_tensor_wrapper=False)
-        def child_kernel(inpt: torch.Tensor) -> torch.Tensor:
+        def child_kernel[*S](inpt: torch.Tensor[*S]) -> torch.Tensor[*S]:
             nonlocal child_called
             child_called = True
             return inpt

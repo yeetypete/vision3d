@@ -8,6 +8,7 @@ import math
 
 import pytest
 import torch
+import torch.testing
 
 from vision3d.ops import box3d_iou
 from vision3d.tensors import BoundingBox3DFormat
