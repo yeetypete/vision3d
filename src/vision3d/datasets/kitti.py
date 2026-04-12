@@ -2,7 +2,7 @@
 
 import csv
 import os
-from typing import Any, ClassVar, override
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, override
 
 import numpy as np
 import torch
@@ -11,7 +11,17 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.datasets.utils import download_and_extract_archive
 
+if TYPE_CHECKING:
+    from torch import Tensor
+
 from vision3d.datasets import FusionInputs, SampleTargets
+
+
+class _KittiCalib(TypedDict):
+    extrinsics: Tensor[1, 4, 4]
+    intrinsics: Tensor[1, 3, 3]
+
+
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -22,7 +32,7 @@ from vision3d.tensors import (
 )
 
 
-class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets[Any] | None]]):
+class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
     """`KITTI 3D <http://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=3d>`_ Dataset.
 
     Returns samples in **lidar frame** (X-forward, Y-left, Z-up), converting
@@ -113,7 +123,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets[Any] | None]]):
         return len(self._frame_ids)
 
     @override
-    def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets[Any] | None]:
+    def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets | None]:
         """Load a single frame.
 
         Args:
@@ -212,9 +222,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets[Any] | None]]):
             return torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
         return torch.zeros(1, 3, 1, 1)  # pyrefly: ignore[bad-return]
 
-    def _load_calib(
-        self, base: str, frame_id: str
-    ) -> dict[str, torch.Tensor[Any, Any, Any]]:
+    def _load_calib(self, base: str, frame_id: str) -> _KittiCalib:
         """Parse KITTI calibration file.
 
         Returns:
@@ -261,8 +269,8 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets[Any] | None]]):
         self,
         base: str,
         frame_id: str,
-        calib: dict[str, torch.Tensor[Any, Any, Any]],
-    ) -> SampleTargets[Any]:
+        calib: _KittiCalib,
+    ) -> SampleTargets:
         """Parse KITTI label file and convert to lidar frame.
 
         Returns:

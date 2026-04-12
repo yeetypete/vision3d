@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 import torch
 from torch import Tensor
@@ -53,7 +53,7 @@ class _DetectionStatsKey:
 
 
 @dataclass
-class _DetectionStats[N]:
+class _DetectionStats:
     """Per-bucket accumulator for AP computation.
 
     Attributes:
@@ -65,8 +65,8 @@ class _DetectionStats[N]:
         num_gt: Total ground-truth boxes seen for this bucket.
     """
 
-    scores: list[Tensor[N]] = field(default_factory=list)
-    is_tp: list[Tensor[N]] = field(default_factory=list)
+    scores: list[Tensor] = field(default_factory=list)
+    is_tp: list[Tensor] = field(default_factory=list)
     num_gt: int = 0
 
 
@@ -135,12 +135,12 @@ class MeanAveragePrecision3D:
         self.iou_thresholds = tuple(iou_thresholds)
         self.ap_interpolation = ap_interpolation
         self.range_bins = tuple(range_bins) if range_bins is not None else None
-        self._state: dict[_DetectionStatsKey, _DetectionStats[Any]] = {}
+        self._state: dict[_DetectionStatsKey, _DetectionStats] = {}
 
     def update(
         self,
-        preds: list[Prediction3D[Any]],
-        targets: list[Target3D[Any]],
+        preds: list[Prediction3D],
+        targets: list[Target3D],
     ) -> None:
         """Accumulate one or more frames of predictions vs ground truth.
 
@@ -160,7 +160,7 @@ class MeanAveragePrecision3D:
         for pred, target in zip(preds, targets):
             self._update_frame(pred, target)
 
-    def _update_frame(self, pred: Prediction3D[Any], target: Target3D[Any]) -> None:
+    def _update_frame(self, pred: Prediction3D, target: Target3D) -> None:
         pred_boxes = pred["boxes"]
         pred_scores = pred["scores"]
         pred_labels = pred["labels"]

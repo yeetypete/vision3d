@@ -36,7 +36,7 @@ CAMERA_NAMES: list[str] = [
 ]
 
 
-class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets[Any]]]):
+class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     """`nuScenes <https://www.nuscenes.org/>`_ 3D object detection dataset.
 
     Returns samples in the **global frame** with annotations as
@@ -95,7 +95,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets[Any]]]):
         return len(self._sample_tokens)
 
     @override
-    def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets[Any]]:
+    def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets]:
         """Load a single sample.
 
         Args:
@@ -198,7 +198,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets[Any]]]):
 
     def _load_annotations(
         self, sample: dict[str, Any], lidar_to_global: torch.Tensor[4, 4]
-    ) -> SampleTargets[Any]:
+    ) -> SampleTargets:
         """Load annotations and convert from global to lidar frame.
 
         Returns:

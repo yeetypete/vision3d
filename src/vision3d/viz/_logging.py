@@ -203,7 +203,7 @@ def _log_single_camera[N, C, H, W](
 
 def log_sample(
     inputs: SampleInputs,
-    targets: SampleTargets[Any] | None = None,
+    targets: SampleTargets | None = None,
     *,
     entity_prefix: str = "world",
     label_to_id: dict[str, int] | None = None,

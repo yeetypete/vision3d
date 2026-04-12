@@ -56,7 +56,7 @@ class FusionInputs(SampleInputs):
     intrinsics: Required[CameraIntrinsics]
 
 
-class SampleTargets[N](TypedDict):
+class SampleTargets(TypedDict):
     """Per-frame ground-truth annotations.
 
     Attributes:
@@ -65,4 +65,4 @@ class SampleTargets[N](TypedDict):
     """
 
     boxes: BoundingBoxes3D
-    labels: Tensor[N]
+    labels: Tensor

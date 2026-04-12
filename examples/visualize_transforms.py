@@ -35,12 +35,11 @@ from vision3d.viz import log_sample
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from typing import Any
 
     from vision3d.datasets import SampleInputs, SampleTargets
 
     type _Pipeline = Callable[
-        [SampleInputs, SampleTargets[Any]], tuple[SampleInputs, SampleTargets[Any]]
+        [SampleInputs, SampleTargets], tuple[SampleInputs, SampleTargets]
     ]
 
 
@@ -83,8 +82,8 @@ def main() -> None:
 
     # Wrap CopyPaste3D's batch signature for single-sample viz.
     def copy_paste_one(
-        inputs: SampleInputs, targets: SampleTargets[Any]
-    ) -> tuple[SampleInputs, SampleTargets[Any]]:
+        inputs: SampleInputs, targets: SampleTargets
+    ) -> tuple[SampleInputs, SampleTargets]:
         ci, ct = copy_paste((dict(inputs),), (dict(targets),))
         return ci[0], ct[0]  # type: ignore[return-value]
 

@@ -33,7 +33,7 @@ from vision3d.transforms._transform import Transform
 
 
 @dataclass
-class CameraCrop[C, CropH, CropW]:
+class CameraCrop:
     """Image crop and convex-hull mask for one camera view of an object.
 
     Attributes:
@@ -42,13 +42,13 @@ class CameraCrop[C, CropH, CropW]:
         bbox: Bounding box in image coords ``(x_min, y_min, x_max, y_max)``.
     """
 
-    crop: Tensor[C, CropH, CropW]
-    mask: Tensor[CropH, CropW]
+    crop: Tensor
+    mask: Tensor
     bbox: tuple[int, int, int, int]
 
 
 @dataclass
-class ObjectEntry[M, C, K]:
+class ObjectEntry:
     """A single object extracted from a scene.
 
     Attributes:
@@ -61,12 +61,10 @@ class ObjectEntry[M, C, K]:
             visible in camera ``i``.
     """
 
-    points: Tensor[M, C] | None
-    box: Tensor[K]
+    points: Tensor | None
+    box: Tensor
     label: int
-    camera_crops: list[CameraCrop[Any, Any, Any] | None] | None = field(
-        default=None, repr=False
-    )
+    camera_crops: list[CameraCrop | None] | None = field(default=None, repr=False)
 
 
 def _convex_hull_2d(
@@ -300,7 +298,7 @@ class CopyPaste3D(Transform):
         self.max_database_size = max_database_size
         self.p = p
 
-        self._database: dict[int, deque[ObjectEntry[Any, Any, Any]]] = defaultdict(
+        self._database: dict[int, deque[ObjectEntry]] = defaultdict(
             lambda: deque(maxlen=self.max_database_size)
         )
 
@@ -478,7 +476,7 @@ class CopyPaste3D(Transform):
 
         # Batch camera crop extraction for all valid objects at once
         has_cameras = self._has_camera_data(inputs)
-        camera_crops_map: dict[int, list[CameraCrop[Any, Any, Any] | None]] = {}
+        camera_crops_map: dict[int, list[CameraCrop | None]] = {}
         if has_cameras and valid:
             camera_crops_map = self._extract_all_camera_crops(
                 boxes, fmt, inputs, [j for j, _ in valid]
@@ -500,7 +498,7 @@ class CopyPaste3D(Transform):
         fmt: BoundingBox3DFormat,
         inputs: dict[str, Any],
         valid_indices: list[int],
-    ) -> dict[int, list[CameraCrop[Any, Any, Any] | None]]:
+    ) -> dict[int, list[CameraCrop | None]]:
         """Extract image crops for multiple objects from all camera views.
 
         Uses batched projection per camera to avoid per-object overhead.
@@ -526,7 +524,7 @@ class CopyPaste3D(Transform):
 
         valid_boxes = boxes[valid_indices]  # [V, K]
 
-        result: dict[int, list[CameraCrop[Any, Any, Any] | None]] = {
+        result: dict[int, list[CameraCrop | None]] = {
             j: [None] * n_cams for j in valid_indices
         }
         for cam_idx in range(n_cams):
@@ -568,7 +566,7 @@ class CopyPaste3D(Transform):
         for lbl in labels.tolist():
             existing_counts[lbl] = existing_counts.get(lbl, 0) + 1
 
-        pasted_entries: list[ObjectEntry[Any, Any, Any]] = []
+        pasted_entries: list[ObjectEntry] = []
         pasted_boxes: list[Tensor[Any]] = []
         pasted_points: list[Tensor[Any, Any]] = []
         pasted_labels: list[int] = []
@@ -665,7 +663,7 @@ class CopyPaste3D(Transform):
         inputs: dict[str, Any],
         existing_boxes: Tensor[N, K],
         fmt: BoundingBox3DFormat,
-        pasted_entries: list[ObjectEntry[Any, Any, Any]],
+        pasted_entries: list[ObjectEntry],
     ) -> CameraImages | None:
         """Paste object image crops into camera views with depth-aware occlusion.
 
