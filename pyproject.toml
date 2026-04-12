@@ -26,11 +26,8 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools", "torch>=2.6"]
+requires = ["setuptools<82", "torch>=2.6"]
 build-backend = "setuptools.build_meta"
-
-[tool.uv]
-no-build-isolation-package = ["vision3d"]
 
 [tool.pyrefly]
 min-severity = "ignore"
