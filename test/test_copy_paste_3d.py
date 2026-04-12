@@ -455,3 +455,36 @@ class TestDeterminism:
             return out_targets[0]["boxes"].shape[0]
 
         assert run_with_seed(42) == run_with_seed(42)
+
+
+# Validation
+class TestValidation:
+    def test_p_out_of_range_raises(self) -> None:
+        with pytest.raises(ValueError, match="`p` should be a float"):
+            CopyPaste3D(target_counts={CAR: 10}, p=1.5)
+
+    def test_p_negative_raises(self) -> None:
+        with pytest.raises(ValueError, match="`p` should be a float"):
+            CopyPaste3D(target_counts={CAR: 10}, p=-0.1)
+
+    def test_min_points_zero_raises(self) -> None:
+        with pytest.raises(ValueError, match="`min_points` should be a positive"):
+            CopyPaste3D(target_counts={CAR: 10}, min_points=0)
+
+    def test_max_database_size_zero_raises(self) -> None:
+        with pytest.raises(
+            ValueError, match="`max_database_size` should be a positive"
+        ):
+            CopyPaste3D(target_counts={CAR: 10}, max_database_size=0)
+
+    def test_forward_no_point_clouds_raises(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10})
+        boxes = BoundingBoxes3D(torch.zeros(1, 7), format=BoundingBox3DFormat.XYZLWHY)
+        with pytest.raises(TypeError, match="PointCloud3D"):
+            cp({"boxes": boxes, "labels": torch.tensor([0])})
+
+    def test_forward_mismatched_sample_counts(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10})
+        batch = _make_batch(batch_size=2, num_boxes=2)
+        with pytest.raises(TypeError, match="equal numbers"):
+            cp(batch[0], batch[1][:1])

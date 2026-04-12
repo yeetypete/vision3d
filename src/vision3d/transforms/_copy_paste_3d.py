@@ -9,7 +9,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image, ImageDraw
-from torch import Tensor, nn
+from torch import Tensor
+from torch.utils._pytree import tree_flatten, tree_unflatten
+from torchvision.tv_tensors import TVTensor
 
 from vision3d.ops import (
     box3d_corners,
@@ -22,9 +24,12 @@ from vision3d.ops._points_in_boxes_3d import _extract_box_params
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
+    CameraExtrinsics,
     CameraImages,
+    CameraIntrinsics,
     PointCloud3D,
 )
+from vision3d.transforms._transform import Transform
 
 
 @dataclass
@@ -239,7 +244,7 @@ def _batch_hull_masks(
     ]
 
 
-class CopyPaste3D(nn.Module):
+class CopyPaste3D(Transform):
     """Batch-level 3D copy-paste data augmentation.
 
     Maintains a lazy object database that grows as batches pass through.
@@ -278,6 +283,15 @@ class CopyPaste3D(nn.Module):
         p: float = 1.0,
     ) -> None:
         super().__init__()
+        if not (0.0 <= p <= 1.0):
+            msg = "`p` should be a float in [0.0, 1.0]."
+            raise ValueError(msg)
+        if min_points < 1:
+            msg = "`min_points` should be a positive integer."
+            raise ValueError(msg)
+        if max_database_size is not None and max_database_size < 1:
+            msg = "`max_database_size` should be a positive integer or None."
+            raise ValueError(msg)
         self.target_counts = target_counts
         self.min_points = min_points
         self.max_database_size = max_database_size
@@ -288,34 +302,138 @@ class CopyPaste3D(nn.Module):
         )
 
     @override
-    def forward(
-        self,
-        inputs: tuple[dict[str, Any], ...],
-        targets: tuple[dict[str, Any], ...],
-    ) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+    def forward(self, *inputs: Any) -> Any:
         """Apply copy-paste augmentation to a collated batch.
 
-        Args:
-            inputs: Tuple of input dicts from collation.
-            targets: Tuple of target dicts from collation.
+        Accepts any pytree structure containing :class:`PointCloud3D`,
+        :class:`BoundingBoxes3D`, and optionally camera tensors and
+        plain-tensor labels.
 
         Returns:
-            Modified ``(inputs, targets)`` tuples.
+            The same pytree structure with modified leaves.
         """
-        for inp, tgt in zip(inputs, targets):
+        flat_inputs, spec = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
+
+        batch_inputs, batch_targets = self._extract_samples(flat_inputs)
+
+        for inp, tgt in zip(batch_inputs, batch_targets):
             self._extract_objects(inp, tgt)
 
         if torch.rand(1).item() >= self.p:
-            return inputs, targets
+            return tree_unflatten(flat_inputs, spec)
 
-        new_inputs = []
-        new_targets = []
-        for inp, tgt in zip(inputs, targets):
+        output_inputs = []
+        output_targets = []
+        for inp, tgt in zip(batch_inputs, batch_targets):
             new_inp, new_tgt = self._paste_objects(inp, tgt)
-            new_inputs.append(new_inp)
-            new_targets.append(new_tgt)
+            output_inputs.append(new_inp)
+            output_targets.append(new_tgt)
 
-        return tuple(new_inputs), tuple(new_targets)
+        self._insert_outputs(flat_inputs, output_inputs, output_targets)
+        return tree_unflatten(flat_inputs, spec)
+
+    def _extract_samples(
+        self, flat_inputs: list[Any]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Group flat pytree leaves into per-sample input and target dicts.
+
+        Returns:
+            ``(batch_inputs, batch_targets)``: Lists of per-sample dicts.
+
+        Raises:
+            TypeError: If required types are missing or counts don't match.
+        """
+        points: list[PointCloud3D] = []
+        boxes: list[BoundingBoxes3D] = []
+        images: list[CameraImages] = []
+        extrinsics: list[CameraExtrinsics] = []
+        intrinsics: list[CameraIntrinsics] = []
+        labels: list[Tensor] = []
+
+        for obj in flat_inputs:
+            if isinstance(obj, PointCloud3D):
+                points.append(obj)
+            elif isinstance(obj, BoundingBoxes3D):
+                boxes.append(obj)
+            elif isinstance(obj, CameraImages):
+                images.append(obj)
+            elif isinstance(obj, CameraExtrinsics):
+                extrinsics.append(obj)
+            elif isinstance(obj, CameraIntrinsics):
+                intrinsics.append(obj)
+            elif isinstance(obj, Tensor) and not isinstance(obj, TVTensor):
+                labels.append(obj)
+
+        n = len(points)
+        if n == 0:
+            raise TypeError(
+                f"{type(self).__name__}() requires input sample to contain "
+                f"at least one PointCloud3D."
+            )
+        if len(boxes) != n:
+            raise TypeError(
+                f"{type(self).__name__}() requires equal numbers of "
+                f"PointCloud3D ({n}) and BoundingBoxes3D ({len(boxes)})."
+            )
+
+        has_cameras = len(images) > 0
+        has_labels = len(labels) > 0
+
+        batch_inputs: list[dict[str, Any]] = []
+        batch_targets: list[dict[str, Any]] = []
+        for i in range(n):
+            inp: dict[str, Any] = {"points": points[i]}
+            if has_cameras:
+                inp["images"] = images[i]
+                inp["extrinsics"] = extrinsics[i]
+                inp["intrinsics"] = intrinsics[i]
+
+            tgt: dict[str, Any] = {"boxes": boxes[i]}
+            if has_labels:
+                tgt["labels"] = labels[i]
+
+            batch_inputs.append(inp)
+            batch_targets.append(tgt)
+
+        return batch_inputs, batch_targets
+
+    def _insert_outputs(
+        self,
+        flat_inputs: list[Any],
+        output_inputs: list[dict[str, Any]],
+        output_targets: list[dict[str, Any]],
+    ) -> None:
+        """Replace modified leaves in *flat_inputs* in-place.
+
+        Uses per-type counters to walk through the flat list and replace
+        each leaf with the corresponding value from the output dicts,
+        following the pattern of torchvision's
+        ``SimpleCopyPaste._insert_outputs``.
+        """
+        c_pts = 0
+        c_img = 0
+        c_box = 0
+        c_lbl = 0
+
+        for i, obj in enumerate(flat_inputs):
+            if isinstance(obj, PointCloud3D):
+                flat_inputs[i] = output_inputs[c_pts]["points"]
+                c_pts += 1
+            elif isinstance(obj, CameraImages):
+                new_img = output_inputs[c_img].get("images")
+                if new_img is not None:
+                    flat_inputs[i] = new_img
+                c_img += 1
+            elif isinstance(obj, BoundingBoxes3D):
+                flat_inputs[i] = output_targets[c_box]["boxes"]
+                c_box += 1
+            elif isinstance(obj, (CameraExtrinsics, CameraIntrinsics)):
+                pass  # never modified by copy-paste
+            elif isinstance(obj, Tensor) and not isinstance(obj, TVTensor):
+                new_lbl = output_targets[c_lbl].get("labels")
+                if new_lbl is not None:
+                    flat_inputs[i] = new_lbl
+                c_lbl += 1
 
     def _has_camera_data(self, inputs: dict[str, Any]) -> bool:
         return "images" in inputs and "extrinsics" in inputs and "intrinsics" in inputs
