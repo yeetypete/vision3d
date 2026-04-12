@@ -10,6 +10,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.datasets.utils import download_and_extract_archive
 
+from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -20,7 +21,7 @@ from vision3d.tensors import (
 )
 
 
-class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
+class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
     """`KITTI 3D <http://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=3d>`_ Dataset.
 
     Returns samples in **lidar frame** (X-forward, Y-left, Z-up), converting
@@ -111,7 +112,7 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
         return len(self._frame_ids)
 
     @override
-    def __getitem__(self, index: int) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets | None]:
         """Load a single frame.
 
         Args:
@@ -150,7 +151,7 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
         fov_mask = _get_fov_mask(points[:, :3], lidar_to_img, img_h, img_w)
         points = points[fov_mask]
 
-        inputs: dict[str, Any] = {
+        inputs: FusionInputs = {
             "points": PointCloud3D(points),
             "images": CameraImages(image),
             "extrinsics": CameraExtrinsics(calib["extrinsics"]),
@@ -256,7 +257,7 @@ class Kitti3D(Dataset[tuple[dict[str, Any], dict[str, Any] | None]]):
         base: str,
         frame_id: str,
         calib: dict[str, torch.Tensor],
-    ) -> dict[str, Any]:
+    ) -> SampleTargets:
         """Parse KITTI label file and convert to lidar frame.
 
         Returns:

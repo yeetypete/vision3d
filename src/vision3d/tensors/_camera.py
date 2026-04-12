@@ -18,12 +18,14 @@ from torchvision.transforms.v2.functional._geometry import (
 from torchvision.tv_tensors import TVTensor
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from typing import Self
 
 
-class CameraImages(TVTensor):
-    """:class:`torch.Tensor` subclass for multi-camera images with shape ``[N, C, H, W]``.
+class CameraImages(tv_tensors.Image):
+    """:class:`tv_tensors.Image` subclass for multi-camera images with shape ``[N, C, H, W]``.
+
+    Inherits from :class:`torchvision.tv_tensors.Image` so every
+    torchvision v2 image transform dispatches automatically.
 
     For 3D spatial transforms (flip, rotate, etc.) this type passes through
     unchanged.
@@ -70,11 +72,14 @@ class CameraImages(TVTensor):
 class CameraExtrinsics(TVTensor):
     """:class:`torch.Tensor` subclass for camera extrinsic matrices with shape ``[N, 4, 4]``.
 
-    Each matrix transforms a point from lidar frame to camera frame
-    (lidar-to-camera convention).
+    Each matrix transforms a point from the dataset's *source frame*
+    to camera frame. The source frame is dataset-defined: lidar for
+    lidar-equipped datasets (e.g. KITTI, nuScenes), ego/world for
+    camera-only datasets.
 
-    3D spatial transforms (flip, rotate, etc.) update these matrices to keep
-    the lidar-to-camera mapping consistent after the lidar frame changes.
+    3D spatial transforms (flip, rotate, etc.) update these matrices
+    to keep the source-to-camera mapping consistent after the source
+    frame changes.
 
     Args:
         data: Any data that can be turned into a tensor with :func:`torch.as_tensor`.
@@ -214,52 +219,6 @@ class CameraIntrinsics(TVTensor):
     @override
     def __repr__(self, *, tensor_contents: Any = None) -> str:
         return self._make_repr(image_size=self.image_size)
-
-
-def _make_camera_kernel(
-    image_fn: Callable[..., Tensor],
-) -> Callable[..., CameraImages]:
-    def kernel(inpt: CameraImages, *args: Any, **kwargs: Any) -> CameraImages:
-        output = image_fn(inpt.as_subclass(Tensor), *args, **kwargs)
-        return tv_tensors.wrap(output, like=inpt)
-
-    return kernel
-
-
-# Register photometric transforms
-for _fn, _img_fn in [
-    (_F.adjust_brightness, _F.adjust_brightness_image),
-    (_F.adjust_contrast, _F.adjust_contrast_image),
-    (_F.adjust_saturation, _F.adjust_saturation_image),
-    (_F.adjust_hue, _F.adjust_hue_image),
-    (_F.adjust_gamma, _F.adjust_gamma_image),
-    (_F.adjust_sharpness, _F.adjust_sharpness_image),
-    (_F.rgb_to_grayscale, _F.rgb_to_grayscale_image),
-    (_F.permute_channels, _F.permute_channels_image),
-    (_F.posterize, _F.posterize_image),
-    (_F.solarize, _F.solarize_image),
-    (_F.autocontrast, _F.autocontrast_image),
-    (_F.equalize, _F.equalize_image),
-    (_F.invert, _F.invert_image),
-    (_F.normalize, _F.normalize_image),
-    (_F.gaussian_blur, _F.gaussian_blur_image),
-    (_F.gaussian_noise, _F.gaussian_noise_image),
-    (_F.to_dtype, _F.to_dtype_image),
-    (_F.erase, _F.erase_image),
-    (_F.grayscale_to_rgb, _F.grayscale_to_rgb_image),
-    (_F.jpeg, _F.jpeg_image),
-]:
-    _register_kernel(_fn, CameraImages)(_make_camera_kernel(_img_fn))
-
-# Register geometric transforms
-for _fn, _img_fn in [
-    (_F.resize, _F.resize_image),
-    (_F.crop, _F.crop_image),
-    (_F.center_crop, _F.center_crop_image),
-    (_F.pad, _F.pad_image),
-    (_F.resized_crop, _F.resized_crop_image),
-]:
-    _register_kernel(_fn, CameraImages)(_make_camera_kernel(_img_fn))
 
 
 @_register_kernel(_F.resize, CameraIntrinsics)
