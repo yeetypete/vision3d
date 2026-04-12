@@ -256,7 +256,7 @@ class CopyPaste3D(nn.Module):
     (:class:`RandomFlip3D`, :class:`RandomRotate3D`,
     :class:`RandomScale3D`, :class:`RandomTranslate3D`). Pasted objects
     are extracted and re-inserted in the source-frame geometry of the
-    scene they came from; if a scene transform has already mutated the
+    scene they came from. If a scene transform has already mutated the
     frame, the pasted objects will disagree with the rest of the scene
     and the resulting boxes/points will be inconsistent.
 

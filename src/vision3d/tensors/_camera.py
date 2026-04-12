@@ -74,7 +74,7 @@ class CameraExtrinsics(TVTensor):
 
     Each matrix transforms a point from the dataset's *source frame*
     to camera frame. The source frame is dataset-defined: lidar for
-    lidar-equipped datasets (KITTI, nuScenes, Waymo), ego/world for
+    lidar-equipped datasets (e.g. KITTI, nuScenes), ego/world for
     camera-only datasets.
 
     3D spatial transforms (flip, rotate, etc.) update these matrices
