@@ -19,6 +19,8 @@ jobs:
       image: nvidia/cuda:12.8.1-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
       volumes:
         - /usr/share/dotnet:/host/dotnet
+        - /usr/local/lib/android:/host/android
+        - /opt/hostedtoolcache:/host/hostedtoolcache
     permissions:
       contents: read
     steps:
@@ -26,7 +28,10 @@ jobs:
         shell: bash
         run: |
           shopt -s dotglob
-          rm -rf /host/dotnet/*
+          rm -rf /host/dotnet/* &
+          rm -rf /host/android/* &
+          rm -rf /host/hostedtoolcache/* &
+          wait
       - name: Install system dependencies
         run: apt-get update && apt-get install -y --no-install-recommends git ninja-build
       - name: Checkout
@@ -52,6 +57,8 @@ jobs:
       image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
       volumes:
         - /usr/share/dotnet:/host/dotnet
+        - /usr/local/lib/android:/host/android
+        - /opt/hostedtoolcache:/host/hostedtoolcache
     permissions:
       contents: read
     env:
@@ -75,7 +82,10 @@ jobs:
         shell: bash
         run: |
           shopt -s dotglob
-          rm -rf /host/dotnet/*
+          rm -rf /host/dotnet/* &
+          rm -rf /host/android/* &
+          rm -rf /host/hostedtoolcache/* &
+          wait
       - name: Install system dependencies
         run: apt-get update && apt-get install -y --no-install-recommends git ninja-build
       - name: Checkout
@@ -104,6 +114,8 @@ jobs:
       image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
       volumes:
         - /usr/share/dotnet:/host/dotnet
+        - /usr/local/lib/android:/host/android
+        - /opt/hostedtoolcache:/host/hostedtoolcache
     permissions:
       contents: read
     env:
@@ -118,7 +130,10 @@ jobs:
         shell: bash
         run: |
           shopt -s dotglob
-          rm -rf /host/dotnet/*
+          rm -rf /host/dotnet/* &
+          rm -rf /host/android/* &
+          rm -rf /host/hostedtoolcache/* &
+          wait
       - name: Install system dependencies
         run: apt-get update && apt-get install -y --no-install-recommends git ninja-build
       - name: Checkout
