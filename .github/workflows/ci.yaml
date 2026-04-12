@@ -19,14 +19,14 @@ jobs:
       image: nvidia/cuda:12.8.1-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
       volumes:
         - /usr/share/dotnet:/host/dotnet
-        - /usr/local/lib/android:/host/android
-        - /opt/ghc:/host/ghc
-        - /opt/hostedtoolcache/CodeQL:/host/codeql
     permissions:
       contents: read
     steps:
       - name: Free disk space
-        run: find /host/dotnet /host/android /host/ghc /host/codeql -mindepth 1 -delete
+        shell: bash
+        run: |
+          shopt -s dotglob
+          rm -rf /host/dotnet/*
       - name: Install system dependencies
         run: apt-get update && apt-get install -y --no-install-recommends git ninja-build
       - name: Checkout
@@ -52,9 +52,6 @@ jobs:
       image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
       volumes:
         - /usr/share/dotnet:/host/dotnet
-        - /usr/local/lib/android:/host/android
-        - /opt/ghc:/host/ghc
-        - /opt/hostedtoolcache/CodeQL:/host/codeql
     permissions:
       contents: read
     env:
@@ -73,7 +70,10 @@ jobs:
     name: "test (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }})"
     steps:
       - name: Free disk space
-        run: find /host/dotnet /host/android /host/ghc /host/codeql -mindepth 1 -delete
+        shell: bash
+        run: |
+          shopt -s dotglob
+          rm -rf /host/dotnet/*
       - name: Install system dependencies
         run: apt-get update && apt-get install -y --no-install-recommends git ninja-build
       - name: Checkout
@@ -102,9 +102,6 @@ jobs:
       image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
       volumes:
         - /usr/share/dotnet:/host/dotnet
-        - /usr/local/lib/android:/host/android
-        - /opt/ghc:/host/ghc
-        - /opt/hostedtoolcache/CodeQL:/host/codeql
     permissions:
       contents: read
     env:
@@ -116,7 +113,10 @@ jobs:
     name: "build (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }})"
     steps:
       - name: Free disk space
-        run: find /host/dotnet /host/android /host/ghc /host/codeql -mindepth 1 -delete
+        shell: bash
+        run: |
+          shopt -s dotglob
+          rm -rf /host/dotnet/*
       - name: Install system dependencies
         run: apt-get update && apt-get install -y --no-install-recommends git ninja-build
       - name: Checkout
