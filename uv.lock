@@ -2721,6 +2721,7 @@ source = { editable = "." }
 dependencies = [
     { name = "torch" },
     { name = "torchvision" },
+    { name = "typing-extensions" },
 ]
 
 [package.optional-dependencies]
@@ -2742,8 +2743,9 @@ dev = [
 requires-dist = [
     { name = "nuscenes-devkit", marker = "extra == 'nuscenes'", specifier = ">=1.1.9" },
     { name = "rerun-sdk", marker = "extra == 'viz'", specifier = ">=0.31.1" },
-    { name = "torch", specifier = ">=2.6" },
-    { name = "torchvision", specifier = ">=0.21" },
+    { name = "torch", specifier = ">=2.7" },
+    { name = "torchvision", specifier = ">=0.22" },
+    { name = "typing-extensions", specifier = ">=4.13" },
 ]
 provides-extras = ["nuscenes", "viz"]
 

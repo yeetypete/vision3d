@@ -1,8 +1,9 @@
 """Types for :mod:`vision3d.datasets` samples."""
 
-from typing import NotRequired, ReadOnly, Required, TypedDict
+from typing import NotRequired, Required, TypedDict
 
 from torch import Tensor
+from typing_extensions import ReadOnly
 
 from vision3d.tensors import (
     BoundingBoxes3D,

@@ -6,8 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 authors = [{ name = "Peter Siegel", email = "psiegel2000@icloud.com" }]
 dependencies = [
-  "torch>=2.6",
-  "torchvision>=0.21",
+  "torch>=2.7",
+  "torchvision>=0.22",
+  "typing-extensions>=4.13",
 ]
 
 [project.optional-dependencies]
@@ -26,7 +27,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools<82", "torch>=2.6", "numpy>=2"]
+requires = ["setuptools<82", "torch>=2.7", "numpy>=2"]
 build-backend = "setuptools.build_meta"
 
 [tool.pyrefly]
