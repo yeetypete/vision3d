@@ -23,11 +23,11 @@ def get_version() -> str:
     base version read from ``version.txt``. Otherwise, for local builds, append
     the short git commit SHA as a PEP 440 local version identifier.
     """
-    with open(_ROOT / "version.txt") as f:
-        version = f.readline().strip()
-
     if build_version := os.getenv("BUILD_VERSION"):
         return build_version
+
+    with open(_ROOT / "version.txt") as f:
+        version = f.readline().strip()
 
     try:
         sha = (
