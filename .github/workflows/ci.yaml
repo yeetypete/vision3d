@@ -17,11 +17,18 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: nvidia/cuda:12.8.1-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
+      volumes:
+        - /usr/share/dotnet:/host/dotnet
+        - /usr/local/lib/android:/host/android
+        - /opt/ghc:/host/ghc
+        - /opt/hostedtoolcache/CodeQL:/host/codeql
     permissions:
       contents: read
     steps:
-      - name: Install git
-        run: apt-get update && apt-get install -y --no-install-recommends git
+      - name: Free disk space
+        run: find /host/dotnet /host/android /host/ghc /host/codeql -mindepth 1 -delete
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends git ninja-build
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -43,6 +50,11 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
+      volumes:
+        - /usr/share/dotnet:/host/dotnet
+        - /usr/local/lib/android:/host/android
+        - /opt/ghc:/host/ghc
+        - /opt/hostedtoolcache/CodeQL:/host/codeql
     permissions:
       contents: read
     env:
@@ -60,8 +72,10 @@ jobs:
             cuda-version: "13.0.2"
     name: "test (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }})"
     steps:
-      - name: Install git
-        run: apt-get update && apt-get install -y --no-install-recommends git
+      - name: Free disk space
+        run: find /host/dotnet /host/android /host/ghc /host/codeql -mindepth 1 -delete
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends git ninja-build
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up uv
@@ -86,6 +100,11 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
+      volumes:
+        - /usr/share/dotnet:/host/dotnet
+        - /usr/local/lib/android:/host/android
+        - /opt/ghc:/host/ghc
+        - /opt/hostedtoolcache/CodeQL:/host/codeql
     permissions:
       contents: read
     env:
@@ -96,8 +115,10 @@ jobs:
       matrix: *torch-matrix
     name: "build (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }})"
     steps:
-      - name: Install git
-        run: apt-get update && apt-get install -y --no-install-recommends git
+      - name: Free disk space
+        run: find /host/dotnet /host/android /host/ghc /host/codeql -mindepth 1 -delete
+      - name: Install system dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends git ninja-build
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up uv
@@ -112,8 +133,8 @@ jobs:
           [tool.uv]
           build-constraint-dependencies = ["torch==${{ matrix.torch-version }}"]
           EOF
-      - name: Build wheel
-        run: uv build --wheel
+      - name: Build
+        run: uv build
       - name: Upload wheel
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
