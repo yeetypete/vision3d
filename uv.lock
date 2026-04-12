@@ -2743,8 +2743,8 @@ dev = [
 requires-dist = [
     { name = "nuscenes-devkit", marker = "extra == 'nuscenes'", specifier = ">=1.1.9" },
     { name = "rerun-sdk", marker = "extra == 'viz'", specifier = ">=0.31.1" },
-    { name = "torch", specifier = ">=2.8" },
-    { name = "torchvision", specifier = ">=0.23" },
+    { name = "torch", specifier = ">=2.10" },
+    { name = "torchvision", specifier = ">=0.25" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'", specifier = ">=4.13" },
 ]
 provides-extras = ["nuscenes", "viz"]
