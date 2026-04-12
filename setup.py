@@ -1,4 +1,4 @@
-"""setuptools entry point for vision3d's C++ extension."""
+"""setuptools entry point for vision3d."""
 
 import os
 import subprocess
