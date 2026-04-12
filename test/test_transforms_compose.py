@@ -76,7 +76,7 @@ def _make_sample() -> tuple[dict[str, Any], dict[str, Any]]:
     return inputs, _make_targets()
 
 
-def _standard_chain() -> list[Any]:
+def _pipeline() -> list[Any]:
     """A representative 4-transform scene pipeline.
 
     Returns:
@@ -115,7 +115,7 @@ class TestTorchvisionComposeCompat:
         assert isinstance(out_targets["boxes"], BoundingBoxes3D)
 
     def test_v2_compose_equals_manual_sequential_under_same_seed(self) -> None:
-        chain = _standard_chain()
+        chain = _pipeline()
 
         torch.manual_seed(7)
         manual_inputs, manual_targets = _make_sample()
@@ -151,14 +151,7 @@ class TestMixedCompose:
 
 
 class TestModalityCompose:
-    """Per-modality compose tests — lidar-only, camera-only, fusion.
-
-    Each test builds a sample matching one of the ``SampleInputs``
-    modality profiles (:class:`LidarInputs`, :class:`CameraInputs`,
-    :class:`FusionInputs`) and verifies the corresponding realistic
-    training-style compose runs end-to-end with the expected
-    dispatch behavior.
-    """
+    """Per-modality compose tests: lidar-only, camera-only, fusion."""
 
     def test_lidar_only_compose_preserves_points_and_boxes(self) -> None:
         inputs = _make_lidar_inputs()
