@@ -5,6 +5,7 @@ from typing import Any, ClassVar, override
 
 import numpy as np
 import torch
+import torch.linalg
 from nuscenes.eval.detection.constants import DETECTION_NAMES
 from nuscenes.eval.detection.utils import category_to_detection_name
 from PIL import Image
