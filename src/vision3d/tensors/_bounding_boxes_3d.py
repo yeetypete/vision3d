@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 class BoundingBox3DFormat(Enum):
     """Coordinate format of a 3D bounding box.
 
-    Dimension convention follows Waymo / OpenPCDet / MMDetection3D:
+    Dimension convention:
 
     * ``l`` (length) = extent along **X** (forward axis, ``dx``)
     * ``w`` (width) = extent along **Y** (lateral axis, ``dy``)

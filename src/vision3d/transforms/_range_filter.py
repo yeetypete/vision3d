@@ -14,11 +14,9 @@ from ._transform import Transform
 class RangeFilter3D(Transform):
     """Drop points and boxes outside an axis-aligned 3D region.
 
-    Replaces MMDetection3D's separate ``ObjectRangeFilter`` and
-    ``PointsRangeFilter`` in one transform. Points are filtered by
-    their xyz coordinates; boxes are filtered by their **center**
-    (format-agnostic via ``_extract_box_params``). Labels in
-    ``targets`` are filtered in sync with boxes.
+    Points are filtered by their xyz coordinates; boxes are filtered
+    by their **center** (format-agnostic). Labels in ``targets`` are
+    filtered in sync with boxes.
 
     Applied after spatial augmentations (rotate / scale / translate
     can push data out of the sensor range) and before the model sees
