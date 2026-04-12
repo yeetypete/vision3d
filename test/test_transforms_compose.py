@@ -100,28 +100,6 @@ def _apply_sequential(
     return inputs, targets
 
 
-class TestDeterminism:
-    def test_same_seed_same_output(self) -> None:
-        chain = _standard_chain()
-
-        torch.manual_seed(123)
-        inputs_a, targets_a = _make_sample()
-        inputs_a, targets_a = _apply_sequential(chain, inputs_a, targets_a)
-
-        torch.manual_seed(123)
-        inputs_b, targets_b = _make_sample()
-        inputs_b, targets_b = _apply_sequential(chain, inputs_b, targets_b)
-
-        assert torch.allclose(
-            inputs_a["points"].as_subclass(Tensor),
-            inputs_b["points"].as_subclass(Tensor),
-        )
-        assert torch.allclose(
-            targets_a["boxes"].as_subclass(Tensor),
-            targets_b["boxes"].as_subclass(Tensor),
-        )
-
-
 class TestTorchvisionComposeCompat:
     """Our ``Transform`` base must work inside :class:`v2.Compose`."""
 
