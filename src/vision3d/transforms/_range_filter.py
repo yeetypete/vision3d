@@ -57,29 +57,27 @@ class RangeFilter3D(Transform):
 
     def _filter_targets(self, targets: dict[str, Any]) -> dict[str, Any]:
         out = dict(targets)
-        if "boxes" in out:
-            boxes = out["boxes"]
-            keep = self._box_keep_mask(boxes)
-            out["boxes"] = BoundingBoxes3D(
-                boxes.as_subclass(Tensor)[keep], format=boxes.format
-            )
-            if "labels" in out:
-                out["labels"] = out["labels"][keep]
+        self._apply_box_mask(out)
         return out
 
     def _filter_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
         out = dict(sample)
         if "points" in out:
             out["points"] = self._filter_points(out["points"])
-        if "boxes" in out:
-            boxes = out["boxes"]
-            keep = self._box_keep_mask(boxes)
-            out["boxes"] = BoundingBoxes3D(
-                boxes.as_subclass(Tensor)[keep], format=boxes.format
-            )
-            if "labels" in out:
-                out["labels"] = out["labels"][keep]
+        self._apply_box_mask(out)
         return out
+
+    def _apply_box_mask(self, d: dict[str, Any]) -> None:
+        """Filter boxes and labels in-place by center range."""
+        if "boxes" not in d:
+            return
+        boxes = d["boxes"]
+        keep = self._box_keep_mask(boxes)
+        d["boxes"] = BoundingBoxes3D(
+            boxes.as_subclass(Tensor)[keep], format=boxes.format
+        )
+        if "labels" in d:
+            d["labels"] = d["labels"][keep]
 
     def _filter_points(self, points: PointCloud3D) -> PointCloud3D:
         pts = points.as_subclass(Tensor)
