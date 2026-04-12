@@ -351,7 +351,7 @@ class CopyPaste3D(Transform):
         images: list[CameraImages] = []
         extrinsics: list[CameraExtrinsics] = []
         intrinsics: list[CameraIntrinsics] = []
-        labels: list[Tensor] = []
+        labels: list[Tensor[Any]] = []
 
         for obj in flat_inputs:
             if isinstance(obj, PointCloud3D):

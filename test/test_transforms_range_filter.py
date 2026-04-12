@@ -177,14 +177,14 @@ class TestEdgeCases:
             ),
             "labels": torch.tensor([0]),
         }
-        inputs: dict[str, torch.Tensor] = {}
+        inputs: dict[str, torch.Tensor[Any]] = {}
         _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
         assert out_targets["boxes"].shape[0] == 1
 
     def test_no_boxes_key(self) -> None:
         points = PointCloud3D(torch.tensor([[0.0, 0, 0, 1]]))
         inputs = {"points": points}
-        targets: dict[str, torch.Tensor] = {}
+        targets: dict[str, torch.Tensor[Any]] = {}
         out_inputs, _ = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
         assert out_inputs["points"].shape[0] == 1
 

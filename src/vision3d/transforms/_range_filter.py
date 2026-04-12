@@ -90,7 +90,7 @@ class RangeFilter3D(Transform):
         keep = ((pts[:, :3] >= min_bound) & (pts[:, :3] < max_bound)).all(dim=-1)
         return PointCloud3D(pts[keep])
 
-    def _box_keep_mask(self, boxes: BoundingBoxes3D) -> Tensor:
+    def _box_keep_mask[N, K](self, boxes: BoundingBoxes3D) -> Tensor[N]:
         raw = boxes.as_subclass(Tensor)
         centers, _, _ = _extract_box_params(raw, boxes.format)
         min_bound = torch.tensor(
