@@ -2,7 +2,7 @@
 
 import csv
 import os
-from typing import Any, ClassVar, override
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, override
 
 import numpy as np
 import torch
@@ -10,6 +10,9 @@ import torch.linalg
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.datasets.utils import download_and_extract_archive
+
+if TYPE_CHECKING:
+    from torch import Tensor
 
 from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.tensors import (
@@ -20,6 +23,13 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
+
+
+class _KittiCalib(TypedDict):
+    """Calibration data with known tensor shapes."""
+
+    extrinsics: Tensor
+    intrinsics: Tensor
 
 
 class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
@@ -210,7 +220,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
             return torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
         return torch.zeros(1, 3, 1, 1)
 
-    def _load_calib(self, base: str, frame_id: str) -> dict[str, torch.Tensor]:
+    def _load_calib(self, base: str, frame_id: str) -> _KittiCalib:
         """Parse KITTI calibration file.
 
         Returns:
@@ -257,7 +267,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         self,
         base: str,
         frame_id: str,
-        calib: dict[str, torch.Tensor],
+        calib: _KittiCalib,
     ) -> SampleTargets:
         """Parse KITTI label file and convert to lidar frame.
 
