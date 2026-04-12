@@ -58,10 +58,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - name: Pin torch version
-        run: >
-          sed -i
-          '/\[tool\.uv\]/a constraint-dependencies = ["torch==${{ matrix.torch-version }}"]'
-          pyproject.toml
+        run: |
+          cat >> pyproject.toml <<EOF
+
+          [tool.uv]
+          constraint-dependencies = ["torch==${{ matrix.torch-version }}"]
+          build-constraint-dependencies = ["torch==${{ matrix.torch-version }}"]
+          EOF
       - name: Install project
         run: uv sync --all-extras
       - name: Run tests
@@ -88,12 +91,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - name: Pin torch version
-        run: >
-          sed -i
-          '/\[tool\.uv\]/a constraint-dependencies = ["torch==${{ matrix.torch-version }}"]'
-          pyproject.toml
+        run: |
+          cat >> pyproject.toml <<EOF
+
+          [tool.uv]
+          build-constraint-dependencies = ["torch==${{ matrix.torch-version }}"]
+          EOF
       - name: Build wheel
-        run: uv build
+        run: uv build --wheel
       - name: Upload wheel
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
