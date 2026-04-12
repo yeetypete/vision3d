@@ -4,6 +4,7 @@ import math
 from typing import TYPE_CHECKING
 
 import torch
+import torch.linalg
 
 from vision3d.tensors import (
     BoundingBox3DFormat,
@@ -49,7 +50,10 @@ def log_point_cloud(
         colors[:, 2] = ((1 - normalized) * 255).to(torch.uint8)
         colors[:, 3] = 255
 
-    rr.log(entity, rr.Points3D(xyz, colors=colors))
+    rr.log(
+        entity,
+        rr.Points3D(xyz.numpy(), colors=colors.numpy() if colors is not None else None),
+    )
 
 
 def log_boxes_3d(
@@ -93,8 +97,8 @@ def log_boxes_3d(
     rr.log(
         entity,
         rr.Boxes3D(
-            centers=centers,
-            sizes=sizes,
+            centers=centers.numpy(),
+            sizes=sizes.numpy(),
             quaternions=quaternions,
             class_ids=class_ids,
             labels=labels,
@@ -123,9 +127,9 @@ def log_boxes_3d(
         rr.log(
             f"{entity}/heading",
             rr.Arrows3D(
-                origins=origins,
-                vectors=vectors,
-                radii=radii,
+                origins=origins.numpy(),
+                vectors=vectors.numpy(),
+                radii=radii.numpy(),
                 colors=[(255, 255, 255)] * n,
             ),
         )
@@ -175,8 +179,8 @@ def _log_single_camera(
         rr.log(
             entity,
             rr.Transform3D(
-                translation=ext[:3, 3],
-                mat3x3=ext[:3, :3],
+                translation=ext[:3, 3].numpy(),
+                mat3x3=ext[:3, :3].numpy(),
                 relation=rr.TransformRelation.ChildFromParent,
             ),
         )
@@ -187,14 +191,14 @@ def _log_single_camera(
         rr.log(
             entity,
             rr.Pinhole(
-                image_from_camera=K,
+                image_from_camera=K.numpy(),
                 width=w,
                 height=h,
                 camera_xyz=rr.ViewCoordinates.RDF,
             ),
         )
 
-    rr.log(entity, rr.Image(img))
+    rr.log(entity, rr.Image(img.numpy()))
 
 
 def log_sample(
