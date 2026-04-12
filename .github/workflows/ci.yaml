@@ -12,7 +12,7 @@ jobs:
   lint:
     runs-on: ubuntu-24.04
     container:
-      image: nvidia/cuda:12.8.0-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
+      image: nvidia/cuda:12.8.1-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
     permissions:
       contents: read
     steps:
@@ -38,7 +38,7 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     container:
-      image: nvidia/cuda:12.8.0-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
+      image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
     permissions:
       contents: read
     strategy:
@@ -46,6 +46,11 @@ jobs:
       matrix: &torch-matrix
         python-version: ["3.12", "3.13", "3.14"]
         torch-version: ["2.9.0", "2.11.0"]
+        include:
+          - torch-version: "2.9.0"
+            cuda-version: "12.8.1"
+          - torch-version: "2.11.0"
+            cuda-version: "13.0.2"
     name: "test (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }})"
     steps:
       - name: Install git
@@ -73,7 +78,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     container:
-      image: nvidia/cuda:12.8.0-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
+      image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
     permissions:
       contents: read
     strategy:
