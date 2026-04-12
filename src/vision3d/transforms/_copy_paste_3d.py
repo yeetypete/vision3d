@@ -33,7 +33,7 @@ from vision3d.transforms._transform import Transform
 
 
 @dataclass
-class CameraCrop:
+class CameraCrop[C, CropH, CropW]:
     """Image crop and convex-hull mask for one camera view of an object.
 
     Attributes:
@@ -42,13 +42,13 @@ class CameraCrop:
         bbox: Bounding box in image coords ``(x_min, y_min, x_max, y_max)``.
     """
 
-    crop: Tensor
-    mask: Tensor
+    crop: Tensor[C, CropH, CropW]
+    mask: Tensor[CropH, CropW]
     bbox: tuple[int, int, int, int]
 
 
 @dataclass
-class ObjectEntry:
+class ObjectEntry[M, C, K]:
     """A single object extracted from a scene.
 
     Attributes:
@@ -61,10 +61,12 @@ class ObjectEntry:
             visible in camera ``i``.
     """
 
-    points: Tensor | None
-    box: Tensor
+    points: Tensor[M, C] | None
+    box: Tensor[K]
     label: int
-    camera_crops: list[CameraCrop | None] | None = field(default=None, repr=False)
+    camera_crops: list[CameraCrop[Any, Any, Any] | None] | None = field(
+        default=None, repr=False
+    )
 
 
 def _convex_hull_2d(
@@ -105,12 +107,12 @@ def _convex_hull_2d(
     return lower[:-1] + upper[:-1]
 
 
-def _fill_convex_polygon(
+def _fill_convex_polygon[H, W](
     vertices: list[tuple[float, float]],
     height: int,
     width: int,
     device: torch.device,
-) -> Tensor:
+) -> Tensor[H, W]:
     """Rasterise a convex polygon into a boolean mask using Pillow.
 
     Args:
@@ -128,15 +130,15 @@ def _fill_convex_polygon(
     return torch.from_numpy(mask_np.copy()).bool().to(device)
 
 
-_HullMaskResult = tuple[Tensor, tuple[int, int, int, int], float]
+type _HullMaskResult[H, W] = tuple[Tensor[H, W], tuple[int, int, int, int], float]
 
 
-def _project_boxes_to_camera(
-    boxes: Tensor,
+def _project_boxes_to_camera[M, K](
+    boxes: Tensor[M, K],
     fmt: BoundingBox3DFormat,
-    extrinsic: Tensor,
-    intrinsic: Tensor,
-) -> tuple[Tensor, Tensor]:
+    extrinsic: Tensor[4, 4],
+    intrinsic: Tensor[3, 3],
+) -> tuple[Tensor[M, 8, 2], Tensor[M, 8]]:
     """Project all box corners into a single camera at once.
 
     Args:
@@ -157,11 +159,11 @@ def _project_boxes_to_camera(
 
 
 def _hull_mask_from_projected(
-    uv: Tensor,
-    depth: Tensor,
+    uv: Tensor[8, 2],
+    depth: Tensor[8],
     img_h: int,
     img_w: int,
-) -> _HullMaskResult | None:
+) -> _HullMaskResult[Any, Any] | None:
     """Compute a convex-hull mask from pre-projected corners.
 
     Converts to plain Python immediately and does all geometry in floats
@@ -214,14 +216,14 @@ def _hull_mask_from_projected(
     return mask, (x_min, y_min, x_max, y_max), mean_depth
 
 
-def _batch_hull_masks(
-    boxes: Tensor,
+def _batch_hull_masks[M, K](
+    boxes: Tensor[M, K],
     fmt: BoundingBox3DFormat,
-    extrinsic: Tensor,
-    intrinsic: Tensor,
+    extrinsic: Tensor[4, 4],
+    intrinsic: Tensor[3, 3],
     img_h: int,
     img_w: int,
-) -> list[_HullMaskResult | None]:
+) -> list[_HullMaskResult[Any, Any] | None]:
     """Compute hull masks for multiple boxes in one camera (batched projection).
 
     Args:
@@ -298,7 +300,7 @@ class CopyPaste3D(Transform):
         self.max_database_size = max_database_size
         self.p = p
 
-        self._database: dict[int, deque[ObjectEntry]] = defaultdict(
+        self._database: dict[int, deque[ObjectEntry[Any, Any, Any]]] = defaultdict(
             lambda: deque(maxlen=self.max_database_size)
         )
 
@@ -320,7 +322,7 @@ class CopyPaste3D(Transform):
         for inp, tgt in zip(batch_inputs, batch_targets):
             self._extract_objects(inp, tgt)
 
-        if torch.rand(1).item() >= self.p:
+        if torch.rand(()).item() >= self.p:
             return tree_unflatten(flat_inputs, spec)
 
         output_inputs = []
@@ -460,7 +462,7 @@ class CopyPaste3D(Transform):
 
         # Find valid objects: With point clouds this means meeting min_points,
         # for camera-only inputs all labeled boxes are valid.
-        valid: list[tuple[int, Tensor | None]] = []
+        valid: list[tuple[int, Tensor[Any, Any] | None]] = []
         if points is not None:
             indices = points_in_boxes_3d_indices(points, boxes, fmt)
             for j in range(boxes.shape[0]):
@@ -476,7 +478,7 @@ class CopyPaste3D(Transform):
 
         # Batch camera crop extraction for all valid objects at once
         has_cameras = self._has_camera_data(inputs)
-        camera_crops_map: dict[int, list[CameraCrop | None]] = {}
+        camera_crops_map: dict[int, list[CameraCrop[Any, Any, Any] | None]] = {}
         if has_cameras and valid:
             camera_crops_map = self._extract_all_camera_crops(
                 boxes, fmt, inputs, [j for j, _ in valid]
@@ -492,13 +494,13 @@ class CopyPaste3D(Transform):
             )
             self._database[label].append(entry)
 
-    def _extract_all_camera_crops(
+    def _extract_all_camera_crops[M, K](
         self,
-        boxes: Tensor,
+        boxes: Tensor[M, K],
         fmt: BoundingBox3DFormat,
         inputs: dict[str, Any],
         valid_indices: list[int],
-    ) -> dict[int, list[CameraCrop | None]]:
+    ) -> dict[int, list[CameraCrop[Any, Any, Any] | None]]:
         """Extract image crops for multiple objects from all camera views.
 
         Uses batched projection per camera to avoid per-object overhead.
@@ -524,7 +526,7 @@ class CopyPaste3D(Transform):
 
         valid_boxes = boxes[valid_indices]  # [V, K]
 
-        result: dict[int, list[CameraCrop | None]] = {
+        result: dict[int, list[CameraCrop[Any, Any, Any] | None]] = {
             j: [None] * n_cams for j in valid_indices
         }
         for cam_idx in range(n_cams):
@@ -566,9 +568,9 @@ class CopyPaste3D(Transform):
         for lbl in labels.tolist():
             existing_counts[lbl] = existing_counts.get(lbl, 0) + 1
 
-        pasted_entries: list[ObjectEntry] = []
-        pasted_boxes: list[Tensor] = []
-        pasted_points: list[Tensor] = []
+        pasted_entries: list[ObjectEntry[Any, Any, Any]] = []
+        pasted_boxes: list[Tensor[Any]] = []
+        pasted_points: list[Tensor[Any, Any]] = []
         pasted_labels: list[int] = []
 
         all_boxes = boxes
@@ -658,12 +660,12 @@ class CopyPaste3D(Transform):
 
         return new_inputs, new_targets
 
-    def _paste_camera_images(
+    def _paste_camera_images[N, K](
         self,
         inputs: dict[str, Any],
-        existing_boxes: Tensor,
+        existing_boxes: Tensor[N, K],
         fmt: BoundingBox3DFormat,
-        pasted_entries: list[ObjectEntry],
+        pasted_entries: list[ObjectEntry[Any, Any, Any]],
     ) -> CameraImages | None:
         """Paste object image crops into camera views with depth-aware occlusion.
 
@@ -707,7 +709,7 @@ class CopyPaste3D(Transform):
             order = paste_depths.argsort(descending=True)
 
             # Batched hull masks for existing scene boxes (for occlusion)
-            existing_masks: list[_HullMaskResult | None] = []
+            existing_masks: list[_HullMaskResult[Any, Any] | None] = []
             existing_depths: list[float] = []
             if has_existing:
                 existing_depths_t = (ext @ e_centers_hom.T).T[:, 2]
