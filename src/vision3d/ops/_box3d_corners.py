@@ -11,10 +11,10 @@ if TYPE_CHECKING:
     from vision3d.tensors import BoundingBox3DFormat
 
 
-def box3d_corners(
-    boxes: Tensor,
+def box3d_corners[N, K](
+    boxes: Tensor[N, K],
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[N, 8, 3]:
     r"""Compute the 8 world-space corners of 3D bounding boxes.
 
     Supports all rotation formats including full 9-DOF (yaw, pitch, roll).

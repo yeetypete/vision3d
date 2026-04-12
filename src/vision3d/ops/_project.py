@@ -4,11 +4,11 @@ import torch
 from torch import Tensor
 
 
-def project_to_image(
-    points_3d: Tensor,
-    extrinsics: Tensor,
-    intrinsics: Tensor,
-) -> tuple[Tensor, Tensor]:
+def project_to_image[N](
+    points_3d: Tensor[N, 3],
+    extrinsics: Tensor[4, 4],
+    intrinsics: Tensor[3, 3],
+) -> tuple[Tensor[N, 2], Tensor[N]]:
     """Project 3D points in lidar frame to pixel coordinates.
 
     Args:

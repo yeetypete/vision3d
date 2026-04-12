@@ -12,12 +12,12 @@ if TYPE_CHECKING:
 
 
 @torch.no_grad()
-def nms_3d(
-    boxes: Tensor,
-    scores: Tensor,
+def nms_3d[N, K, M](
+    boxes: Tensor[N, K],
+    scores: Tensor[N],
     iou_threshold: float,
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[M]:
     """Greedy, class-agnostic non-maximum suppression on 3D bounding boxes.
 
     Iteratively removes lower-scoring boxes whose IoU with a
@@ -37,7 +37,7 @@ def nms_3d(
     """
     n = boxes.shape[0]
     if n == 0:
-        return torch.empty(0, dtype=torch.long, device=boxes.device)
+        return torch.empty(0, dtype=torch.long, device=boxes.device)  # pyrefly: ignore[bad-return]
 
     order = scores.argsort(descending=True)
     boxes_sorted = boxes[order]
@@ -55,13 +55,13 @@ def nms_3d(
 
 
 @torch.no_grad()
-def batched_nms_3d(
-    boxes: Tensor,
-    scores: Tensor,
-    idxs: Tensor,
+def batched_nms_3d[N, K, M](
+    boxes: Tensor[N, K],
+    scores: Tensor[N],
+    idxs: Tensor[N],
     iou_threshold: float,
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[M]:
     """Class-aware 3D NMS: runs :func:`nms_3d` independently per class.
 
     Args:
@@ -76,7 +76,7 @@ def batched_nms_3d(
         in decreasing order of score.
     """
     if boxes.numel() == 0:
-        return torch.empty(0, dtype=torch.long, device=boxes.device)
+        return torch.empty(0, dtype=torch.long, device=boxes.device)  # pyrefly: ignore[bad-return]
 
     keep_mask = torch.zeros_like(scores, dtype=torch.bool)
     for class_id in torch.unique(idxs):

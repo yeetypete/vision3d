@@ -19,11 +19,11 @@ if TYPE_CHECKING:
 
 
 @torch.no_grad()
-def box3d_iou(
-    boxes1: Tensor,
-    boxes2: Tensor,
+def box3d_iou[N, M, K](
+    boxes1: Tensor[N, K],
+    boxes2: Tensor[M, K],
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[N, M]:
     """Compute the pairwise intersection-over-union of 3D ``boxes1`` and ``boxes2``.
 
     ``iou = vol / (vol1 + vol2 - vol)``, where ``vol`` is the volume of

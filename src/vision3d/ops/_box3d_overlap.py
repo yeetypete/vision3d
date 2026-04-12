@@ -11,11 +11,11 @@ if TYPE_CHECKING:
     from vision3d.tensors import BoundingBox3DFormat
 
 
-def box3d_overlap(
-    boxes1: Tensor,
-    boxes2: Tensor,
+def box3d_overlap[N, M, K](
+    boxes1: Tensor[N, K],
+    boxes2: Tensor[M, K],
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[N, M]:
     """Check 3D overlap between two sets of oriented bounding boxes.
 
     Uses the Separating Axis Theorem (SAT) with 15 potential separating

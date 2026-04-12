@@ -6,11 +6,11 @@ from torch import Tensor
 from vision3d.tensors import BoundingBox3DFormat
 
 
-def points_in_boxes_3d(
-    points: Tensor,
-    boxes: Tensor,
+def points_in_boxes_3d[N, M, K, C](
+    points: Tensor[N, C],
+    boxes: Tensor[M, K],
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[N, M]:
     """Compute a boolean mask indicating which points fall inside which boxes.
 
     Supports all rotation formats including full 9-DOF (yaw, pitch, roll).
@@ -29,11 +29,11 @@ def points_in_boxes_3d(
     return _points_in_rotated_boxes(points[:, :3], centers, half_dims, rot)
 
 
-def points_in_boxes_3d_indices(
-    points: Tensor,
-    boxes: Tensor,
+def points_in_boxes_3d_indices[N, M, K, C](
+    points: Tensor[N, C],
+    boxes: Tensor[M, K],
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[N]:
     """Return per-point box assignment.
 
     If a point is inside multiple boxes, the first (lowest index) box wins.
@@ -59,11 +59,11 @@ def points_in_boxes_3d_indices(
     return first_box
 
 
-def _build_rotation_matrix(
-    yaw: Tensor,
-    pitch: Tensor | None = None,
-    roll: Tensor | None = None,
-) -> Tensor:
+def _build_rotation_matrix[M](
+    yaw: Tensor[M],
+    pitch: Tensor[M] | None = None,
+    roll: Tensor[M] | None = None,
+) -> Tensor[M, 3, 3]:
     """Build ``[M, 3, 3]`` rotation matrices from Tait-Bryan ZY'X'' angles.
 
     When pitch and roll are None, builds a yaw-only Rz rotation
@@ -110,9 +110,9 @@ def _build_rotation_matrix(
     return rot
 
 
-def _extract_box_params(
-    boxes: Tensor, format: BoundingBox3DFormat
-) -> tuple[Tensor, Tensor, Tensor]:
+def _extract_box_params[M, K](
+    boxes: Tensor[M, K], format: BoundingBox3DFormat
+) -> tuple[Tensor[M, 3], Tensor[M, 3], Tensor[M, 3, 3]]:
     """Extract centers, half-dimensions, and rotation matrix from boxes.
 
     Returns:
@@ -148,9 +148,12 @@ def _extract_box_params(
     return centers, half_dims, rot
 
 
-def _points_in_rotated_boxes(
-    xyz: Tensor, centers: Tensor, half_dims: Tensor, rot: Tensor
-) -> Tensor:
+def _points_in_rotated_boxes[N, M](
+    xyz: Tensor[N, 3],
+    centers: Tensor[M, 3],
+    half_dims: Tensor[M, 3],
+    rot: Tensor[M, 3, 3],
+) -> Tensor[N, M]:
     """Check if points are inside arbitrarily rotated boxes.
 
     Args:

@@ -10,11 +10,11 @@ if TYPE_CHECKING:
 from ._box3d_convert import _xyzlwh_to_xyzxyz, _xyzxyz_to_xyzlwh
 
 
-def box3d_convert(
-    boxes: Tensor,
+def box3d_convert[*B](
+    boxes: Tensor[*B, 6],
     in_fmt: BoundingBox3DFormat | str,
     out_fmt: BoundingBox3DFormat | str,
-) -> Tensor:
+) -> Tensor[*B, 6]:
     """Convert 3D bounding boxes from ``in_fmt`` to ``out_fmt``.
 
     Only the lossless ``XYZXYZ`` <-> ``XYZLWH`` conversion is supported.

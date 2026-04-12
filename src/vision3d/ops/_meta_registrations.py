@@ -4,9 +4,9 @@ import torch
 
 
 @torch.library.register_fake("vision3d::iou_box3d")
-def _meta_iou_box3d(
-    boxes1: torch.Tensor, boxes2: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
+def _meta_iou_box3d[N, M](
+    boxes1: torch.Tensor[N, 8, 3], boxes2: torch.Tensor[M, 8, 3]
+) -> tuple[torch.Tensor[N, M], torch.Tensor[N, M]]:
     torch._check(
         boxes1.dim() == 3 and boxes1.size(1) == 8 and boxes1.size(2) == 3,
         lambda: f"boxes1 must be (N, 8, 3), got {tuple(boxes1.shape)}",

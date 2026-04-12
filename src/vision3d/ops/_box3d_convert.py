@@ -4,7 +4,7 @@ import torch
 from torch import Tensor
 
 
-def _xyzxyz_to_xyzlwh(boxes: Tensor) -> Tensor:
+def _xyzxyz_to_xyzlwh[*B](boxes: Tensor[*B, 6]) -> Tensor[*B, 6]:
     x1, y1, z1, x2, y2, z2 = boxes.unbind(-1)
     cx = (x1 + x2) / 2
     cy = (y1 + y2) / 2
@@ -15,7 +15,7 @@ def _xyzxyz_to_xyzlwh(boxes: Tensor) -> Tensor:
     return torch.stack((cx, cy, cz, l, w, h), dim=-1)
 
 
-def _xyzlwh_to_xyzxyz(boxes: Tensor) -> Tensor:
+def _xyzlwh_to_xyzxyz[*B](boxes: Tensor[*B, 6]) -> Tensor[*B, 6]:
     cx, cy, cz, l, w, h = boxes.unbind(-1)
     x1 = cx - l / 2
     y1 = cy - w / 2
