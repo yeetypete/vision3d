@@ -15,21 +15,35 @@ from ._geometry import (
     translate_3d_camera_extrinsics,
     translate_3d_point_cloud,
 )
+from ._point_cloud import (
+    jitter_points,
+    jitter_points_point_cloud,
+    sample_points,
+    sample_points_point_cloud,
+    shuffle_points,
+    shuffle_points_point_cloud,
+)
 from ._registry import register_kernel
 
 __all__ = [
     "flip_3d",
     "flip_3d_bounding_boxes",
     "flip_3d_point_cloud",
+    "jitter_points",
+    "jitter_points_point_cloud",
     "register_kernel",
     "rotate_3d",
     "rotate_3d_bounding_boxes",
     "rotate_3d_camera_extrinsics",
     "rotate_3d_point_cloud",
+    "sample_points",
+    "sample_points_point_cloud",
     "scale_3d",
     "scale_3d_bounding_boxes",
     "scale_3d_camera_extrinsics",
     "scale_3d_point_cloud",
+    "shuffle_points",
+    "shuffle_points_point_cloud",
     "translate_3d",
     "translate_3d_bounding_boxes",
     "translate_3d_camera_extrinsics",
