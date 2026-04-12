@@ -1,9 +1,10 @@
 """Log vision3d data to a Rerun viewer."""
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import torch
+import torch.linalg
 
 from vision3d.tensors import (
     BoundingBox3DFormat,
@@ -24,9 +25,9 @@ except ImportError as e:
     raise ImportError(msg) from e
 
 
-def log_point_cloud(
+def log_point_cloud[N, C](
     entity: str,
-    points: PointCloud3D | torch.Tensor,
+    points: PointCloud3D | torch.Tensor[N, C],
     *,
     color_by_distance: bool = True,
 ) -> None:
@@ -49,7 +50,10 @@ def log_point_cloud(
         colors[:, 2] = ((1 - normalized) * 255).to(torch.uint8)
         colors[:, 3] = 255
 
-    rr.log(entity, rr.Points3D(xyz, colors=colors))
+    rr.log(
+        entity,
+        rr.Points3D(xyz.numpy(), colors=colors.numpy() if colors is not None else None),
+    )
 
 
 def log_boxes_3d(
@@ -93,8 +97,8 @@ def log_boxes_3d(
     rr.log(
         entity,
         rr.Boxes3D(
-            centers=centers,
-            sizes=sizes,
+            centers=centers.numpy(),
+            sizes=sizes.numpy(),
             quaternions=quaternions,
             class_ids=class_ids,
             labels=labels,
@@ -123,19 +127,19 @@ def log_boxes_3d(
         rr.log(
             f"{entity}/heading",
             rr.Arrows3D(
-                origins=origins,
-                vectors=vectors,
-                radii=radii,
+                origins=origins.numpy(),
+                vectors=vectors.numpy(),
+                radii=radii.numpy(),
                 colors=[(255, 255, 255)] * n,
             ),
         )
 
 
-def log_cameras(
+def log_cameras[N, C, H, W](
     entity_prefix: str,
-    images: CameraImages | torch.Tensor,
-    intrinsics: CameraIntrinsics | torch.Tensor | None = None,
-    extrinsics: CameraExtrinsics | torch.Tensor | None = None,
+    images: CameraImages | torch.Tensor[N, C, H, W],
+    intrinsics: CameraIntrinsics | torch.Tensor[N, 3, 3] | None = None,
+    extrinsics: CameraExtrinsics | torch.Tensor[N, 4, 4] | None = None,
 ) -> None:
     """Log all camera images with optional pinhole projection to Rerun.
 
@@ -154,11 +158,11 @@ def log_cameras(
         _log_single_camera(entity, images, intrinsics, extrinsics, camera_index=i)
 
 
-def _log_single_camera(
+def _log_single_camera[N, C, H, W](
     entity: str,
-    images: CameraImages | torch.Tensor,
-    intrinsics: CameraIntrinsics | torch.Tensor | None,
-    extrinsics: CameraExtrinsics | torch.Tensor | None,
+    images: CameraImages | torch.Tensor[N, C, H, W],
+    intrinsics: CameraIntrinsics | torch.Tensor[N, 3, 3] | None,
+    extrinsics: CameraExtrinsics | torch.Tensor[N, 4, 4] | None,
     *,
     camera_index: int,
 ) -> None:
@@ -175,8 +179,8 @@ def _log_single_camera(
         rr.log(
             entity,
             rr.Transform3D(
-                translation=ext[:3, 3],
-                mat3x3=ext[:3, :3],
+                translation=ext[:3, 3].numpy(),
+                mat3x3=ext[:3, :3].numpy(),
                 relation=rr.TransformRelation.ChildFromParent,
             ),
         )
@@ -187,19 +191,19 @@ def _log_single_camera(
         rr.log(
             entity,
             rr.Pinhole(
-                image_from_camera=K,
+                image_from_camera=K.numpy(),
                 width=w,
                 height=h,
                 camera_xyz=rr.ViewCoordinates.RDF,
             ),
         )
 
-    rr.log(entity, rr.Image(img))
+    rr.log(entity, rr.Image(img.numpy()))
 
 
 def log_sample(
     inputs: SampleInputs,
-    targets: SampleTargets | None = None,
+    targets: SampleTargets[Any] | None = None,
     *,
     entity_prefix: str = "world",
     label_to_id: dict[str, int] | None = None,
@@ -244,9 +248,9 @@ def log_sample(
         )
 
 
-def _extract_centers_sizes_yaws(
-    raw: torch.Tensor, fmt: BoundingBox3DFormat
-) -> tuple[torch.Tensor, torch.Tensor, list[float]]:
+def _extract_centers_sizes_yaws[N](
+    raw: torch.Tensor[N, Any], fmt: BoundingBox3DFormat
+) -> tuple[torch.Tensor[N, 3], torch.Tensor[N, 3], list[float]]:
     """Extract centers, sizes (l, w, h), and yaw angles from raw box tensor.
 
     Returns:

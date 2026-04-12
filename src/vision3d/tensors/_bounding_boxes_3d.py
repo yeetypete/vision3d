@@ -83,16 +83,16 @@ class BoundingBoxes3D(TVTensor):
     ) -> None: ...
 
     @classmethod
-    def _wrap(
+    def _wrap[*S](
         cls,
-        tensor: torch.Tensor,
+        tensor: torch.Tensor[*S],
         *,
         format: BoundingBox3DFormat | str,
         check_dims: bool = True,
     ) -> BoundingBoxes3D:
         if check_dims:
             if tensor.ndim == 1:
-                tensor = tensor.unsqueeze(0)
+                tensor = tensor.unsqueeze(0)  # pyrefly: ignore[bad-assignment]
             elif tensor.ndim != 2:
                 raise ValueError(f"Expected a 1D or 2D tensor, got {tensor.ndim}D")
 
@@ -100,7 +100,7 @@ class BoundingBoxes3D(TVTensor):
             format = BoundingBox3DFormat[format.upper()]
 
         bounding_boxes = tensor.as_subclass(cls)
-        bounding_boxes.format = format
+        bounding_boxes.format = format  # pyrefly: ignore[missing-attribute]
         return bounding_boxes
 
     def __new__(
@@ -125,9 +125,9 @@ class BoundingBoxes3D(TVTensor):
 
     @classmethod
     @override
-    def _wrap_output(
+    def _wrap_output[*S](
         cls,
-        output: torch.Tensor,
+        output: torch.Tensor[*S],
         args: Sequence[Any] = (),
         kwargs: Mapping[str, Any] | None = None,
     ) -> BoundingBoxes3D:
@@ -147,7 +147,7 @@ class BoundingBoxes3D(TVTensor):
             output = cls._wrap(output, format=format, check_dims=False)
         elif isinstance(output, (tuple, list)):
             # This branch exists for chunk() and unbind()
-            output = type(output)(
+            output = type(output)(  # pyrefly: ignore[bad-assignment]
                 cls._wrap(part, format=format, check_dims=False) for part in output
             )
         return output

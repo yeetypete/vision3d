@@ -5,8 +5,13 @@ from typing import Any, ClassVar, override
 
 import numpy as np
 import torch
-from nuscenes.eval.detection.constants import DETECTION_NAMES
-from nuscenes.eval.detection.utils import category_to_detection_name
+import torch.linalg
+from nuscenes.eval.detection.constants import (
+    DETECTION_NAMES,
+)
+from nuscenes.eval.detection.utils import (
+    category_to_detection_name,
+)
 from PIL import Image
 from torch.utils.data import Dataset
 
@@ -31,7 +36,7 @@ CAMERA_NAMES: list[str] = [
 ]
 
 
-class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
+class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets[Any]]]):
     """`nuScenes <https://www.nuscenes.org/>`_ 3D object detection dataset.
 
     Returns samples in the **global frame** with annotations as
@@ -90,7 +95,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         return len(self._sample_tokens)
 
     @override
-    def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets]:
+    def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets[Any]]:
         """Load a single sample.
 
         Args:
@@ -181,19 +186,19 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
         return inputs, targets
 
-    def _load_lidar(self, lidar_data: dict[str, Any]) -> torch.Tensor:
+    def _load_lidar[N](self, lidar_data: dict[str, Any]) -> torch.Tensor[N, 5]:
         path = os.path.join(self.root, lidar_data["filename"])
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)
         return torch.from_numpy(points)
 
-    def _load_image(self, cam_data: dict[str, Any]) -> torch.Tensor:
+    def _load_image[C, H, W](self, cam_data: dict[str, Any]) -> torch.Tensor[C, H, W]:
         path = os.path.join(self.root, cam_data["filename"])
         img = np.array(Image.open(path).convert("RGB"))
         return torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
 
     def _load_annotations(
-        self, sample: dict[str, Any], lidar_to_global: torch.Tensor
-    ) -> SampleTargets:
+        self, sample: dict[str, Any], lidar_to_global: torch.Tensor[4, 4]
+    ) -> SampleTargets[Any]:
         """Load annotations and convert from global to lidar frame.
 
         Returns:
@@ -255,7 +260,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
 def _make_transform(
     translation: list[float], rotation_wxyz: list[float]
-) -> torch.Tensor:
+) -> torch.Tensor[4, 4]:
     """Build a 4x4 transform from translation + quaternion (wxyz).
 
     Returns:
@@ -271,7 +276,7 @@ def _make_transform(
 
 
 def _quaternion_to_yaw(
-    rotation_wxyz: list[float], global_to_lidar_rot: torch.Tensor
+    rotation_wxyz: list[float], global_to_lidar_rot: torch.Tensor[3, 3]
 ) -> float:
     """Convert a global-frame quaternion to yaw angle in lidar frame.
 

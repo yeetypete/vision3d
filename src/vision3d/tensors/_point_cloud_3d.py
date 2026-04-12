@@ -56,7 +56,7 @@ class PointCloud3D(TVTensor):
             raise ValueError(
                 f"Point clouds require floating point tensors, got {tensor.dtype}."
             )
-        return tensor.as_subclass(cls)
+        return tensor.as_subclass(cls)  # pyrefly: ignore[bad-return]
 
     @override
     def __repr__(self, *, tensor_contents: Any = None) -> str:

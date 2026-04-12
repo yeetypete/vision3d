@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 import torch
 from torch import Tensor
@@ -53,7 +53,7 @@ class _DetectionStatsKey:
 
 
 @dataclass
-class _DetectionStats:
+class _DetectionStats[N]:
     """Per-bucket accumulator for AP computation.
 
     Attributes:
@@ -65,8 +65,8 @@ class _DetectionStats:
         num_gt: Total ground-truth boxes seen for this bucket.
     """
 
-    scores: list[Tensor] = field(default_factory=list)
-    is_tp: list[Tensor] = field(default_factory=list)
+    scores: list[Tensor[N]] = field(default_factory=list)
+    is_tp: list[Tensor[N]] = field(default_factory=list)
     num_gt: int = 0
 
 
@@ -135,12 +135,12 @@ class MeanAveragePrecision3D:
         self.iou_thresholds = tuple(iou_thresholds)
         self.ap_interpolation = ap_interpolation
         self.range_bins = tuple(range_bins) if range_bins is not None else None
-        self._state: dict[_DetectionStatsKey, _DetectionStats] = {}
+        self._state: dict[_DetectionStatsKey, _DetectionStats[Any]] = {}
 
     def update(
         self,
-        preds: list[Prediction3D],
-        targets: list[Target3D],
+        preds: list[Prediction3D[Any]],
+        targets: list[Target3D[Any]],
     ) -> None:
         """Accumulate one or more frames of predictions vs ground truth.
 
@@ -160,7 +160,7 @@ class MeanAveragePrecision3D:
         for pred, target in zip(preds, targets):
             self._update_frame(pred, target)
 
-    def _update_frame(self, pred: Prediction3D, target: Target3D) -> None:
+    def _update_frame(self, pred: Prediction3D[Any], target: Target3D[Any]) -> None:
         pred_boxes = pred["boxes"]
         pred_scores = pred["scores"]
         pred_labels = pred["labels"]
@@ -287,7 +287,9 @@ class MeanAveragePrecision3D:
         self._state.clear()
 
 
-def _greedy_match(scores: Tensor, iou: Tensor, threshold: float) -> Tensor:
+def _greedy_match[N, M](
+    scores: Tensor[N], iou: Tensor[N, M], threshold: float
+) -> Tensor[N]:
     """Greedy one-to-one matching, preds ordered by descending score.
 
     Args:
@@ -317,9 +319,9 @@ def _greedy_match(scores: Tensor, iou: Tensor, threshold: float) -> Tensor:
     return is_tp
 
 
-def _compute_ap(
-    scores: Tensor,
-    is_tp: Tensor,
+def _compute_ap[N](
+    scores: Tensor[N],
+    is_tp: Tensor[N],
     num_gt: int,
     interpolation: APInterpolation,
 ) -> float:
@@ -347,7 +349,6 @@ def _compute_ap(
 
     # Right envelope: precisions[i] = max(precisions[i:]).
     precisions = precisions.flip(0).cummax(dim=0).values.flip(0)
-
     if interpolation == APInterpolation.R11:
         targets = torch.linspace(0.0, 1.0, 11, dtype=torch.float32)
         return _sample_ap(recalls, precisions, targets)
@@ -363,7 +364,9 @@ def _compute_ap(
     raise ValueError(msg)
 
 
-def _sample_ap(recalls: Tensor, precisions: Tensor, targets: Tensor) -> float:
+def _sample_ap[N, T](
+    recalls: Tensor[N], precisions: Tensor[N], targets: Tensor[T]
+) -> float:
     """Sample precision at each target recall level and average.
 
     Returns:
@@ -376,7 +379,7 @@ def _sample_ap(recalls: Tensor, precisions: Tensor, targets: Tensor) -> float:
     return float(sampled.mean().item())
 
 
-def _all_points_ap(recalls: Tensor, precisions: Tensor) -> float:
+def _all_points_ap[N](recalls: Tensor[N], precisions: Tensor[N]) -> float:
     """VOC07 area-under-curve AP at every recall change.
 
     Returns:

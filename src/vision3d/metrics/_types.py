@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from vision3d.tensors import BoundingBoxes3D
 
 
-class Prediction3D(TypedDict):
+class Prediction3D[N](TypedDict):
     """Per-frame detection output.
 
     Attributes:
@@ -19,11 +19,11 @@ class Prediction3D(TypedDict):
     """
 
     boxes: BoundingBoxes3D
-    scores: Tensor
-    labels: Tensor
+    scores: Tensor[N]
+    labels: Tensor[N]
 
 
-class Target3D(TypedDict):
+class Target3D[M](TypedDict):
     """Per-frame ground-truth annotations.
 
     Attributes:
@@ -32,4 +32,4 @@ class Target3D(TypedDict):
     """
 
     boxes: BoundingBoxes3D
-    labels: Tensor
+    labels: Tensor[M]

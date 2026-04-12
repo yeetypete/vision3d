@@ -62,7 +62,7 @@ class CameraImages(tv_tensors.Image):
             raise ValueError(
                 f"Expected at least 3D tensor [N, C, H, W], got {tensor.ndim}D"
             )
-        return tensor.as_subclass(cls)
+        return tensor.as_subclass(cls)  # pyrefly: ignore[bad-return]
 
     @override
     def __repr__(self, *, tensor_contents: Any = None) -> str:
@@ -117,7 +117,7 @@ class CameraExtrinsics(TVTensor):
             raise ValueError(
                 f"Extrinsics require floating point tensors, got {tensor.dtype}."
             )
-        return tensor.as_subclass(cls)
+        return tensor.as_subclass(cls)  # pyrefly: ignore[bad-return]
 
     @override
     def __repr__(self, *, tensor_contents: Any = None) -> str:
@@ -156,9 +156,9 @@ class CameraIntrinsics(TVTensor):
     ) -> None: ...
 
     @classmethod
-    def _wrap(
+    def _wrap[N](
         cls,
-        tensor: torch.Tensor,
+        tensor: torch.Tensor[N, 3, 3],
         *,
         image_size: tuple[int, int],
     ) -> CameraIntrinsics:
@@ -172,7 +172,7 @@ class CameraIntrinsics(TVTensor):
                 f"got {image_size!r}"
             )
         intrinsics = tensor.as_subclass(cls)
-        intrinsics.image_size = image_size
+        intrinsics.image_size = image_size  # pyrefly: ignore[missing-attribute]
         return intrinsics
 
     def __new__(
@@ -199,9 +199,9 @@ class CameraIntrinsics(TVTensor):
 
     @classmethod
     @override
-    def _wrap_output(
+    def _wrap_output[*S](
         cls,
-        output: torch.Tensor,
+        output: torch.Tensor[*S],
         args: Any = (),
         kwargs: Any = None,
     ) -> CameraIntrinsics:

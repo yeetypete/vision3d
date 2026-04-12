@@ -7,8 +7,8 @@ if TYPE_CHECKING:
 from ._bounding_boxes_3d import BoundingBoxes3D
 
 
-def wrap(
-    wrappee: torch.Tensor,
+def wrap[*Shape](
+    wrappee: torch.Tensor[*Shape],
     *,
     like: TVTensor,
     **kwargs: Any,
