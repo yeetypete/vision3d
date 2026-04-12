@@ -406,9 +406,7 @@ class CopyPaste3D(Transform):
         """Replace modified leaves in *flat_inputs* in-place.
 
         Uses per-type counters to walk through the flat list and replace
-        each leaf with the corresponding value from the output dicts,
-        following the pattern of torchvision's
-        ``SimpleCopyPaste._insert_outputs``.
+        each leaf with the corresponding value from the output dicts.
         """
         c_pts = 0
         c_img = 0
