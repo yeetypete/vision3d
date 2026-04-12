@@ -34,7 +34,11 @@ no-build-isolation-package = ["vision3d"]
 
 [tool.pyrefly]
 min-severity = "ignore"
-search-path = ["examples", "test"]
+search-path = ["examples", "test", "fixtures"]
+# Fixtures are type stubs consumed by pyrefly's shape inference engine, not
+# normal source code.
+project-excludes = ["fixtures/**"]
+tensor-shapes = true
 
 [tool.pyrefly.errors]
 # Pyrefly does not yet have a strict mode, so we manually set all diagnostics
@@ -63,6 +67,24 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "test/**" = ["D"]
 "examples/**" = ["D"]
+# Fixture stubs: suppress rules incompatible with .pyi stub conventions
+"fixtures/**" = [
+  "D",       # docstrings in stubs serve as shape-inference documentation
+  "F811",    # @overload requires repeated function names
+  "I001",    # import order differs from runtime code
+  "PIE790",  # `...` is the standard stub body
+  "PLR0402", # `import X as X` is a re-export pattern in stubs
+  "PYI002",  # TYPE_CHECKING guard used for Dim import
+  "PYI013",  # `...` in class body is standard for stubs
+  "PYI026",  # type alias style differs in stubs
+  "PYI029",  # __repr__ defined on Module
+  "PYI041",  # int | float redundancy is intentional for readability
+  "PYI048",  # docstring + `...` is the convention in shape stubs
+  "RUF013",  # implicit Optional style used in upstream pyrefly stubs
+  "RUF022",  # __all__ sorting not relevant for stubs
+  "TC",      # TYPE_CHECKING rules don't apply to stubs
+  "UP035",   # typing imports kept for compatibility
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
