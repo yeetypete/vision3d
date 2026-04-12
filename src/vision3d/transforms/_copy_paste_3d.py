@@ -458,7 +458,7 @@ class CopyPaste3D(Transform):
 
         fmt = boxes.format
 
-        # Find valid objects — with point clouds this means meeting min_points;
+        # Find valid objects: With point clouds this means meeting min_points,
         # for camera-only inputs all labeled boxes are valid.
         valid: list[tuple[int, Tensor | None]] = []
         if points is not None:
