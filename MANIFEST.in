@@ -1,0 +1,2 @@
+include version.txt
+recursive-include src/vision3d/ops/csrc *.h *.cuh *.cpp *.cu

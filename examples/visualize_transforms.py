@@ -18,7 +18,7 @@ import rerun.blueprint as rrb
 import torch
 from torchvision.transforms import v2
 
-from vision3d.datasets import NuScenes3D
+from vision3d.datasets import NuScenes3D, SampleInputs, SampleTargets
 from vision3d.datasets.nuscenes import CAMERA_NAMES
 from vision3d.transforms import (
     CopyPaste3D,
@@ -35,8 +35,6 @@ from vision3d.viz import log_sample
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-    from vision3d.datasets import SampleInputs, SampleTargets
 
     type _Pipeline = Callable[
         [SampleInputs, SampleTargets], tuple[SampleInputs, SampleTargets]

@@ -1,10 +1,10 @@
 """Log vision3d data to a Rerun viewer."""
 
 import math
-from typing import TYPE_CHECKING
 
 import torch
 
+from vision3d.datasets import SampleInputs, SampleTargets
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -13,9 +13,6 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
-
-if TYPE_CHECKING:
-    from vision3d.datasets import SampleInputs, SampleTargets
 
 try:
     import rerun as rr

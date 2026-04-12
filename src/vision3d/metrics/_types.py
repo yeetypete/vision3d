@@ -1,11 +1,10 @@
 """Shared type contracts for vision3d metrics."""
 
-from typing import TYPE_CHECKING, TypedDict
+from typing import TypedDict
 
-if TYPE_CHECKING:
-    from torch import Tensor
+from torch import Tensor
 
-    from vision3d.tensors import BoundingBoxes3D
+from vision3d.tensors import BoundingBoxes3D
 
 
 class Prediction3D(TypedDict):

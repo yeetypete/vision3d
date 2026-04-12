@@ -1,11 +1,8 @@
 """Convert 3D bounding boxes between formats."""
 
-from typing import TYPE_CHECKING
+from torch import Tensor
 
 from vision3d.tensors import BoundingBox3DFormat
-
-if TYPE_CHECKING:
-    from torch import Tensor
 
 from ._box3d_convert import _xyzlwh_to_xyzxyz, _xyzxyz_to_xyzlwh
 

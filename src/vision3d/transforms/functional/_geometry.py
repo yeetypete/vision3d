@@ -1,9 +1,10 @@
 """Functional kernels for 3D geometric transforms."""
 
 import math
-from typing import TYPE_CHECKING
 
 import torch
+from torch import Tensor
+from torchvision.tv_tensors import TVTensor
 
 from vision3d.tensors import (
     BoundingBox3DFormat,
@@ -13,10 +14,6 @@ from vision3d.tensors import (
 )
 
 from ._registry import register_kernel
-
-if TYPE_CHECKING:
-    from torch import Tensor
-    from torchvision.tv_tensors import TVTensor
 
 # Axis indices for flip
 AXIS_INDEX = {"x": 0, "y": 1, "z": 2}

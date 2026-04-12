@@ -4,18 +4,14 @@ Python wrapper around PyTorch3D's ``box3d_overlap``. C++ and
 CUDA sources live under ``src/vision3d/ops/csrc/iou_box3d/``.
 """
 
-from typing import TYPE_CHECKING
-
 import torch
 from torch import Tensor
 
 from vision3d import _extension  # noqa: F401  # loads ``_C`` into torch.ops
 from vision3d.ops import _meta_registrations  # noqa: F401  # registers fake kernels
+from vision3d.tensors import BoundingBox3DFormat
 
 from ._box3d_corners import box3d_corners
-
-if TYPE_CHECKING:
-    from vision3d.tensors import BoundingBox3DFormat
 
 
 @torch.no_grad()

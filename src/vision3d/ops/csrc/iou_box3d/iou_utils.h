@@ -321,7 +321,7 @@ inline float BoxVolume(
   float box_vol = 0.0;
   // Iterate through each triange, calculate the area of the
   // tetrahedron formed with the box_center and sum them
-  for (int t = 0; t < box_tris.size(); ++t) {
+  for (size_t t = 0; t < box_tris.size(); ++t) {
     // Subtract the center:
     const vec3<float> v0 = box_tris[t][0] - box_center;
     const vec3<float> v1 = box_tris[t][1] - box_center;
@@ -722,11 +722,11 @@ inline face_verts BoxIntersections(
     // Iterate through triangles in tris
     // Create intermediate vector to store the updated tris
     face_verts tri_verts_updated;
-    for (int t = 0; t < out_tris.size(); ++t) {
+    for (size_t t = 0; t < out_tris.size(); ++t) {
       // Clip tri by plane
       const face_verts tri_updated = ClipTriByPlane(planes[p], out_tris[t], n2);
       // Add to the tri_verts_updated output if not empty
-      for (int v = 0; v < tri_updated.size(); ++v) {
+      for (size_t v = 0; v < tri_updated.size(); ++v) {
         tri_verts_updated.push_back(tri_updated[v]);
       }
     }

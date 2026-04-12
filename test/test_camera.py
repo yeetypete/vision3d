@@ -1,5 +1,6 @@
+from collections.abc import Generator
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pytest
 import torch
@@ -11,9 +12,6 @@ from common_utils import (
 from torchvision import tv_tensors
 
 from vision3d.tensors import CameraExtrinsics, CameraImages, CameraIntrinsics
-
-if TYPE_CHECKING:
-    from collections.abc import Generator
 
 
 @pytest.fixture(autouse=True)

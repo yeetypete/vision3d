@@ -1,5 +1,5 @@
+from collections.abc import Callable, Generator
 from copy import deepcopy
-from typing import TYPE_CHECKING
 
 import pytest
 import torch
@@ -7,9 +7,6 @@ from common_utils import make_point_cloud_3d
 from torchvision import tv_tensors
 
 from vision3d.tensors import PointCloud3D, wrap
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
 
 
 @pytest.fixture(autouse=True)

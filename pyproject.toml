@@ -1,13 +1,14 @@
 [project]
 name = "vision3d"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 authors = [{ name = "Peter Siegel", email = "psiegel2000@icloud.com" }]
 dependencies = [
-  "torch>=2.6",
-  "torchvision>=0.21",
+  "torch>=2.10",
+  "torchvision>=0.25",
+  "typing-extensions>=4.13; python_version < '3.13'",
 ]
 
 [project.optional-dependencies]
@@ -26,11 +27,8 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools", "torch>=2.6"]
+requires = ["setuptools<82", "torch>=2.10", "numpy>=2"]
 build-backend = "setuptools.build_meta"
-
-[tool.uv]
-no-build-isolation-package = ["vision3d"]
 
 [tool.pyrefly]
 min-severity = "ignore"
