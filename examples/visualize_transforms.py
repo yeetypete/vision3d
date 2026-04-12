@@ -11,7 +11,6 @@ Usage::
 
 import argparse
 import math
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import rerun as rr
@@ -26,49 +25,17 @@ from vision3d.transforms import (
     RandomRotate3D,
     RandomScale3D,
     RandomTranslate3D,
-    Transform,
 )
 from vision3d.viz import log_sample
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from vision3d.datasets import SampleInputs, SampleTargets
 
-type _TransformPipeline = (
-    CopyPaste3D | v2.Transform | Transform | Sequence[_TransformPipeline] | None
-)
-
-
-def _apply(
-    transform: _TransformPipeline,
-    inputs: SampleInputs,
-    targets: SampleTargets,
-) -> tuple[SampleInputs, SampleTargets]:
-    """Apply one transform, a list of transforms, or ``None``.
-
-    Dispatches by type so every 3D-transform flavor, torchvision v2
-    transform, and ``CopyPaste3D`` can be freely mixed inside a list.
-
-    Args:
-        transform: One step or a pipeline; see :data:`_TransformPipeline`.
-        inputs: Per-frame input dict (points, images, intrinsics,
-            extrinsics).
-        targets: Per-frame target dict (boxes, labels).
-
-    Returns:
-        ``(inputs, targets)`` after applying the transform(s).
-    """
-    if transform is None:
-        return inputs, targets
-    if isinstance(transform, Sequence):
-        for step in transform:
-            inputs, targets = _apply(step, inputs, targets)
-        return inputs, targets
-    if isinstance(transform, CopyPaste3D):
-        out_inputs, out_targets = transform((inputs,), (targets,))
-        return out_inputs[0], out_targets[0]
-    if isinstance(transform, v2.Transform):
-        return transform(inputs), targets
-    return transform(inputs, targets)
+    type _Pipeline = Callable[
+        [SampleInputs, SampleTargets], tuple[SampleInputs, SampleTargets]
+    ]
 
 
 def main() -> None:
@@ -106,20 +73,27 @@ def main() -> None:
         f"  Database populated from {len(db_range)} frames, {len(ds.classes)} classes"
     )
 
-    # Test end-to-end 3D + 2D composition with a mix of transforms
-    composition = [
-        copy_paste,
-        RandomRotate3D(angle_range=math.pi / 4, p=1.0),
-        RandomScale3D(scale_range=(0.7, 1.3), p=1.0),
-        RandomTranslate3D(translation_range=5.0, p=1.0),
-        v2.Resize(size=[450, 800]),
-        v2.CenterCrop(size=[400, 700]),
-        v2.ColorJitter(brightness=0.6, contrast=0.6, saturation=0.6, hue=0.3),
-    ]
+    # Wrap CopyPaste3D's batch signature for single-sample viz.
+    def copy_paste_one(
+        inputs: SampleInputs, targets: SampleTargets
+    ) -> tuple[SampleInputs, SampleTargets]:
+        ci, ct = copy_paste((inputs,), (targets,))
+        return ci[0], ct[0]
 
-    transforms = [
-        ("original", "Original", None),
-        # 3D spatial
+    composition = v2.Compose(
+        [
+            copy_paste_one,
+            RandomRotate3D(angle_range=math.pi / 4, p=1.0),
+            RandomScale3D(scale_range=(0.7, 1.3), p=1.0),
+            RandomTranslate3D(translation_range=5.0, p=1.0),
+            v2.Resize(size=[450, 800]),
+            v2.CenterCrop(size=[400, 700]),
+            v2.ColorJitter(brightness=0.6, contrast=0.6, saturation=0.6, hue=0.3),
+        ]
+    )
+
+    transforms: list[tuple[str, str, _Pipeline]] = [
+        ("original", "Original", lambda i, t: (i, t)),
         ("flip_z", "RandomFlip3D(axis='z')", RandomFlip3D(axis="z", p=1.0)),
         (
             "translate",
@@ -143,14 +117,11 @@ def main() -> None:
         ),
         ("gaussian_blur", "GaussianBlur", v2.GaussianBlur(kernel_size=31, sigma=10.0)),
         ("solarize", "Solarize", v2.RandomSolarize(threshold=0.5, p=1.0)),
-        # Geometric image (updates CameraIntrinsics)
         ("resize_half", "Resize(half)", v2.Resize(size=[450, 800])),
         ("center_crop", "CenterCrop(600x800)", v2.CenterCrop(size=[600, 800])),
         ("pad", "Pad(100)", v2.Pad(padding=100)),
-        # Copy-paste
-        ("copy_paste", "CopyPaste3D", copy_paste),
-        # End-to-end composition
-        ("composition", "Full Composition", composition),
+        ("copy_paste", "CopyPaste3D", copy_paste_one),
+        ("composition", "Composition", composition),
     ]
 
     # Build blueprint: one tab per transform, each with 3D + 6 camera views
@@ -186,10 +157,10 @@ def main() -> None:
     rr.script_setup(args, "vision3d_transforms")
     rr.send_blueprint(blueprint)
 
-    for prefix, name, transform in transforms:
+    for prefix, name, pipeline in transforms:
         rr.log(prefix, rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 
-        t_inputs, t_targets = _apply(transform, inputs, targets)
+        t_inputs, t_targets = pipeline(inputs, targets)
 
         if label_to_id:
             annotation_context = [(i, label) for label, i in label_to_id.items()]
