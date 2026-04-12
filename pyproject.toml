@@ -8,7 +8,7 @@ authors = [{ name = "Peter Siegel", email = "psiegel2000@icloud.com" }]
 dependencies = [
   "torch>=2.7",
   "torchvision>=0.22",
-  "typing-extensions>=4.13",
+  "typing-extensions>=4.13; python_version < '3.13'",
 ]
 
 [project.optional-dependencies]

@@ -2721,7 +2721,7 @@ source = { editable = "." }
 dependencies = [
     { name = "torch" },
     { name = "torchvision" },
-    { name = "typing-extensions" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
 ]
 
 [package.optional-dependencies]
@@ -2745,7 +2745,7 @@ requires-dist = [
     { name = "rerun-sdk", marker = "extra == 'viz'", specifier = ">=0.31.1" },
     { name = "torch", specifier = ">=2.7" },
     { name = "torchvision", specifier = ">=0.22" },
-    { name = "typing-extensions", specifier = ">=4.13" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'", specifier = ">=4.13" },
 ]
 provides-extras = ["nuscenes", "viz"]
 

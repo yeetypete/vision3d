@@ -1,9 +1,14 @@
 """Types for :mod:`vision3d.datasets` samples."""
 
+import sys
 from typing import NotRequired, Required, TypedDict
 
 from torch import Tensor
-from typing_extensions import ReadOnly
+
+if sys.version_info >= (3, 13):
+    from typing import ReadOnly
+else:
+    from typing_extensions import ReadOnly
 
 from vision3d.tensors import (
     BoundingBoxes3D,
