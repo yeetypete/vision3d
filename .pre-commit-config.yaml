@@ -21,13 +21,13 @@ repos:
           - id: sort-simple-yaml
           - id: trailing-whitespace
     - repo: https://github.com/astral-sh/ruff-pre-commit
-      rev: v0.15.7
+      rev: v0.15.10
       hooks:
           - id: ruff
             args: [--fix]
           - id: ruff-format
     - repo: https://github.com/pre-commit/mirrors-clang-format
-      rev: v21.1.2
+      rev: v22.1.3
       hooks:
           - id: clang-format
             files: \.(cpp|hpp|c|h|cu|cuh)$
@@ -36,3 +36,7 @@ repos:
       rev: v0.22.0
       hooks:
           - id: markdownlint-cli2
+    - repo: https://github.com/rhysd/actionlint
+      rev: v1.7.12
+      hooks:
+          - id: actionlint
