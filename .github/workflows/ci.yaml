@@ -25,7 +25,6 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
         with:
-          python-version: "3.14"
           enable-cache: true
       - name: Install dependencies
         run: uv sync --locked --all-extras --no-install-project
