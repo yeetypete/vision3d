@@ -117,7 +117,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-local-path: ${{ runner.temp }}/uv-cache
-          cache-suffix: ${{ matrix.cuda-tag }}torch${{ matrix.torch-version }}
+          cache-suffix: ${{ matrix.cuda-tag }}-torch-${{ matrix.torch-version }}
       - name: Pin torch version
         run: |
           cat >> pyproject.toml <<EOF
@@ -178,7 +178,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-local-path: ${{ runner.temp }}/uv-cache
-          cache-suffix: ${{ matrix.cuda-tag }}torch${{ matrix.torch-version }}
+          cache-suffix: ${{ matrix.cuda-tag }}-torch-${{ matrix.torch-version }}
       - name: Pin torch version
         run: |
           cat >> pyproject.toml <<EOF
