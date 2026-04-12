@@ -29,6 +29,7 @@ from vision3d.transforms import (
     RandomRotate3D,
     RandomScale3D,
     RandomTranslate3D,
+    RangeFilter3D,
 )
 from vision3d.viz import log_sample
 
@@ -93,6 +94,7 @@ def main() -> None:
             RandomScale3D(scale_range=(0.7, 1.3), p=1.0),
             RandomTranslate3D(translation_range=5.0, p=1.0),
             PointJitter(sigma=0.1, p=1.0),
+            RangeFilter3D(point_cloud_range=(-50, -50, -5, 50, 50, 3)),
             v2.Resize(size=[450, 800]),
             v2.CenterCrop(size=[400, 700]),
             v2.ColorJitter(brightness=0.6, contrast=0.6, saturation=0.6, hue=0.3),
@@ -125,11 +127,16 @@ def main() -> None:
         ("gaussian_blur", "GaussianBlur", v2.GaussianBlur(kernel_size=31, sigma=10.0)),
         ("solarize", "Solarize", v2.RandomSolarize(threshold=0.5, p=1.0)),
         ("resize_half", "Resize(half)", v2.Resize(size=[450, 800])),
-        ("center_crop", "CenterCrop(600x800)", v2.CenterCrop(size=[600, 800])),
+        ("center_crop", "CenterCrop()", v2.CenterCrop(size=[600, 800])),
         ("pad", "Pad(100)", v2.Pad(padding=100)),
         ("point_shuffle", "PointShuffle", PointShuffle(p=1.0)),
         ("point_sample", "PointSample(4096)", PointSample(n=4096)),
         ("point_jitter", "PointJitter(sigma=0.1)", PointJitter(sigma=0.1, p=1.0)),
+        (
+            "range_filter",
+            "RangeFilter3D()",
+            RangeFilter3D(point_cloud_range=(-30, -30, -5, 30, 30, 3)),
+        ),
         ("copy_paste", "CopyPaste3D", copy_paste_one),
         ("composition", "Composition", composition),
     ]
