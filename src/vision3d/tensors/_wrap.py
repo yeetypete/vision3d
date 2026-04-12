@@ -1,8 +1,7 @@
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    import torch
-    from torchvision.tv_tensors import TVTensor
+import torch
+from torchvision.tv_tensors import TVTensor
 
 from ._bounding_boxes_3d import BoundingBoxes3D
 

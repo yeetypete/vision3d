@@ -1,5 +1,6 @@
 """3D detection mean Average Precision metric."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, NotRequired, TypedDict
@@ -7,13 +8,11 @@ from typing import TYPE_CHECKING, NotRequired, TypedDict
 import torch
 from torch import Tensor
 
+from vision3d.metrics._types import Prediction3D, Target3D
 from vision3d.ops import box3d_iou
 from vision3d.ops._points_in_boxes_3d import _extract_box_params
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
-    from vision3d.metrics._types import Prediction3D, Target3D
     from vision3d.tensors import BoundingBox3DFormat
 
 

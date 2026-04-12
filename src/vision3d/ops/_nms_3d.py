@@ -1,14 +1,11 @@
 """3D non-maximum suppression."""
 
-from typing import TYPE_CHECKING
-
 import torch
 from torch import Tensor
 
-from ._box3d_iou import box3d_iou
+from vision3d.tensors import BoundingBox3DFormat
 
-if TYPE_CHECKING:
-    from vision3d.tensors import BoundingBox3DFormat
+from ._box3d_iou import box3d_iou
 
 
 @torch.no_grad()

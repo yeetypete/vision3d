@@ -1,7 +1,8 @@
 """Base class for vision3d transforms."""
 
 import enum
-from typing import TYPE_CHECKING, Any, override
+from collections.abc import Callable
+from typing import Any, override
 
 import torch
 from torch import nn
@@ -9,9 +10,6 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 from torchvision.tv_tensors import TVTensor
 
 from .functional._registry import _get_kernel
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 def _needs_transform(inpt: Any) -> bool:

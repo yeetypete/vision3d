@@ -1,10 +1,7 @@
-from typing import TYPE_CHECKING, override
+from typing import Any, Self, override
 
 import torch
 from torchvision.tv_tensors import TVTensor
-
-if TYPE_CHECKING:
-    from typing import Any, Self
 
 
 class PointCloud3D(TVTensor):

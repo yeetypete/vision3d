@@ -1,6 +1,6 @@
 """Camera-related TVTensor types."""
 
-from typing import TYPE_CHECKING, Any, override
+from typing import Any, Self, override
 
 import torch
 from torch import Tensor
@@ -16,9 +16,6 @@ from torchvision.transforms.v2.functional._geometry import (
     _parse_pad_padding,
 )
 from torchvision.tv_tensors import TVTensor
-
-if TYPE_CHECKING:
-    from typing import Self
 
 
 class CameraImages(tv_tensors.Image):
@@ -161,7 +158,7 @@ class CameraIntrinsics(TVTensor):
         tensor: torch.Tensor,
         *,
         image_size: tuple[int, int],
-    ) -> CameraIntrinsics:
+    ) -> Self:
         if (
             not isinstance(image_size, tuple)
             or len(image_size) != 2
@@ -204,7 +201,7 @@ class CameraIntrinsics(TVTensor):
         output: torch.Tensor,
         args: Any = (),
         kwargs: Any = None,
-    ) -> CameraIntrinsics:
+    ) -> Self:
 
         flat_params, _ = tree_flatten(
             tuple(args) + (tuple(kwargs.values()) if kwargs else ())

@@ -1,17 +1,16 @@
 """Types for :mod:`vision3d.datasets` samples."""
 
-from typing import TYPE_CHECKING, NotRequired, ReadOnly, Required, TypedDict
+from typing import NotRequired, ReadOnly, Required, TypedDict
 
-if TYPE_CHECKING:
-    from torch import Tensor
+from torch import Tensor
 
-    from vision3d.tensors import (
-        BoundingBoxes3D,
-        CameraExtrinsics,
-        CameraImages,
-        CameraIntrinsics,
-        PointCloud3D,
-    )
+from vision3d.tensors import (
+    BoundingBoxes3D,
+    CameraExtrinsics,
+    CameraImages,
+    CameraIntrinsics,
+    PointCloud3D,
+)
 
 
 class SampleInputs(TypedDict):

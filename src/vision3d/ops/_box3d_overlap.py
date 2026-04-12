@@ -1,14 +1,11 @@
 """3D oriented bounding box overlap using the Separating Axis Theorem."""
 
-from typing import TYPE_CHECKING
-
 import torch
 from torch import Tensor
 
-from ._points_in_boxes_3d import _extract_box_params
+from vision3d.tensors import BoundingBox3DFormat
 
-if TYPE_CHECKING:
-    from vision3d.tensors import BoundingBox3DFormat
+from ._points_in_boxes_3d import _extract_box_params
 
 
 def box3d_overlap(

@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -14,9 +15,6 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _write_velodyne(path: Path, num_points: int = 50) -> np.ndarray:

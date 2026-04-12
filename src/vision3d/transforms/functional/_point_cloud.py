@@ -1,11 +1,8 @@
 """Functional kernels for point cloud transforms."""
 
-from typing import TYPE_CHECKING
+from torch import Tensor
 
 from vision3d.tensors import PointCloud3D
-
-if TYPE_CHECKING:
-    from torch import Tensor
 
 from ._registry import register_kernel
 

@@ -1,13 +1,10 @@
+from collections.abc import Mapping, Sequence
 from enum import Enum
-from typing import TYPE_CHECKING, override
+from typing import Any, Self, override
 
 import torch
 from torch.utils._pytree import tree_flatten
 from torchvision.tv_tensors import TVTensor
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
-    from typing import Any, Self
 
 
 class BoundingBox3DFormat(Enum):
@@ -40,7 +37,7 @@ class BoundingBox3DFormat(Enum):
     XYZLWHYPR = "XYZLWHYPR"
 
     @staticmethod
-    def is_rotated(format: BoundingBox3DFormat) -> bool:
+    def is_rotated(format: "BoundingBox3DFormat") -> bool:
         return (
             format == BoundingBox3DFormat.XYZLWHY
             or format == BoundingBox3DFormat.XYZLWHYPR
@@ -89,7 +86,7 @@ class BoundingBoxes3D(TVTensor):
         *,
         format: BoundingBox3DFormat | str,
         check_dims: bool = True,
-    ) -> BoundingBoxes3D:
+    ) -> Self:
         if check_dims:
             if tensor.ndim == 1:
                 tensor = tensor.unsqueeze(0)
@@ -130,7 +127,7 @@ class BoundingBoxes3D(TVTensor):
         output: torch.Tensor,
         args: Sequence[Any] = (),
         kwargs: Mapping[str, Any] | None = None,
-    ) -> BoundingBoxes3D:
+    ) -> Self:
         # Metadata is lost after __torch_function__ calls. Restore it by taking
         # the format from the first BoundingBoxes3D in the args. This is correct
         # in most cases; when it isn't (e.g. mixing formats in one operation),

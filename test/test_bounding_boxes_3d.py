@@ -1,5 +1,5 @@
+from collections.abc import Callable, Generator
 from copy import deepcopy
-from typing import TYPE_CHECKING
 
 import pytest
 import torch
@@ -7,9 +7,6 @@ from common_utils import make_bounding_boxes_3d
 from torchvision import tv_tensors
 
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D, wrap
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
 
 
 @pytest.fixture(autouse=True)

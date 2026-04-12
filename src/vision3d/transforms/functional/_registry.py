@@ -6,14 +6,11 @@ functionals.
 """
 
 import functools
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import Any
 
 import torch
 from torchvision.tv_tensors import TVTensor
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-    from typing import Any
 
 # {functional: {input_type: kernel}}
 KERNEL_REGISTRY: dict[Callable[..., Any], dict[type, Callable[..., Any]]] = {}
