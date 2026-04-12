@@ -52,7 +52,8 @@ class ObjectEntry:
     """A single object extracted from a scene.
 
     Attributes:
-        points: Points in scene frame ``[M, 3+C]``.
+        points: Points in scene frame ``[M, 3+C]``, or ``None`` for
+            camera-only entries.
         box: Full box tensor ``[K]`` in its original format.
         label: Integer class label.
         camera_crops: Per-camera crops, or None when no camera data is
@@ -60,7 +61,7 @@ class ObjectEntry:
             visible in camera ``i``.
     """
 
-    points: Tensor
+    points: Tensor | None
     box: Tensor
     label: int
     camera_crops: list[CameraCrop | None] | None = field(default=None, repr=False)
@@ -364,25 +365,35 @@ class CopyPaste3D(Transform):
             elif isinstance(obj, Tensor) and not isinstance(obj, TVTensor):
                 labels.append(obj)
 
-        n = len(points)
-        if n == 0:
-            raise TypeError(
-                f"{type(self).__name__}() requires input sample to contain "
-                f"at least one PointCloud3D."
-            )
-        if len(boxes) != n:
-            raise TypeError(
-                f"{type(self).__name__}() requires equal numbers of "
-                f"PointCloud3D ({n}) and BoundingBoxes3D ({len(boxes)})."
-            )
-
+        n = len(boxes)
+        has_points = len(points) > 0
         has_cameras = len(images) > 0
         has_labels = len(labels) > 0
+
+        mismatched: list[str] = []
+        if has_points and len(points) != n:
+            mismatched.append(f"PointCloud3D ({len(points)})")
+        if has_cameras and len(images) != n:
+            mismatched.append(f"CameraImages ({len(images)})")
+        if has_cameras and len(extrinsics) != n:
+            mismatched.append(f"CameraExtrinsics ({len(extrinsics)})")
+        if has_cameras and len(intrinsics) != n:
+            mismatched.append(f"CameraIntrinsics ({len(intrinsics)})")
+        if has_labels and len(labels) != n:
+            mismatched.append(f"plain tensors ({len(labels)})")
+        if mismatched:
+            raise TypeError(
+                f"{type(self).__name__}() requires equal sized lists of "
+                f"inputs per sample. Got {n} BoundingBoxes3D but "
+                f"{', '.join(mismatched)}."
+            )
 
         batch_inputs: list[dict[str, Any]] = []
         batch_targets: list[dict[str, Any]] = []
         for i in range(n):
-            inp: dict[str, Any] = {"points": points[i]}
+            inp: dict[str, Any] = {}
+            if has_points:
+                inp["points"] = points[i]
             if has_cameras:
                 inp["images"] = images[i]
                 inp["extrinsics"] = extrinsics[i]
@@ -438,7 +449,7 @@ class CopyPaste3D(Transform):
 
     def _extract_objects(self, inputs: dict[str, Any], targets: dict[str, Any]) -> None:
         """Extract per-object point clouds and store in database."""
-        points = inputs["points"]
+        points = inputs.get("points")
         boxes = targets["boxes"]
         labels = targets.get("labels", torch.zeros(0, dtype=torch.long))
 
@@ -447,17 +458,21 @@ class CopyPaste3D(Transform):
 
         fmt = boxes.format
 
-        indices = points_in_boxes_3d_indices(points, boxes, fmt)
-
-        # First pass: find objects with enough points
-        valid: list[tuple[int, Tensor]] = []
-        for j in range(boxes.shape[0]):
-            if j >= labels.shape[0]:
-                break
-            mask = indices == j
-            obj_points = points[mask]
-            if obj_points.shape[0] >= self.min_points:
-                valid.append((j, obj_points))
+        # Find valid objects — with point clouds this means meeting min_points;
+        # for camera-only inputs all labeled boxes are valid.
+        valid: list[tuple[int, Tensor | None]] = []
+        if points is not None:
+            indices = points_in_boxes_3d_indices(points, boxes, fmt)
+            for j in range(boxes.shape[0]):
+                if j >= labels.shape[0]:
+                    break
+                mask = indices == j
+                obj_points = points[mask]
+                if obj_points.shape[0] >= self.min_points:
+                    valid.append((j, obj_points))
+        else:
+            for j in range(min(boxes.shape[0], labels.shape[0])):
+                valid.append((j, None))
 
         # Batch camera crop extraction for all valid objects at once
         has_cameras = self._has_camera_data(inputs)
@@ -470,7 +485,7 @@ class CopyPaste3D(Transform):
         for j, obj_points in valid:
             label = int(labels[j].item())
             entry = ObjectEntry(
-                points=obj_points.detach().cpu(),
+                points=obj_points.detach().cpu() if obj_points is not None else None,
                 box=boxes[j].detach().cpu(),
                 label=label,
                 camera_crops=camera_crops_map.get(j),
@@ -541,7 +556,7 @@ class CopyPaste3D(Transform):
         Returns:
             Modified ``(inputs, targets)`` dicts.
         """
-        points = inputs["points"]
+        points = inputs.get("points")
         boxes = targets["boxes"]
         labels = targets.get("labels", torch.zeros(0, dtype=torch.long))
         fmt = boxes.format
@@ -596,20 +611,31 @@ class CopyPaste3D(Transform):
                 entry = candidates[k]
                 pasted_entries.append(entry)
                 pasted_boxes.append(cand_boxes[k])
-                pasted_points.append(entry.points.to(points.device))
+                if entry.points is not None and points is not None:
+                    pasted_points.append(entry.points.to(points.device))
                 pasted_labels.append(entry.label)
             all_boxes = torch.cat([all_boxes, cand_boxes[accepted_k]])
 
         if not pasted_boxes:
             return inputs, targets
 
-        # Remove scene points inside pasted box regions
         pasted_boxes_tensor = torch.stack(pasted_boxes)
-        remove_mask = points_in_boxes_3d(points, pasted_boxes_tensor, fmt).any(dim=1)
-        kept_points = points[~remove_mask]
 
-        # Concatenate
-        new_points = torch.cat([kept_points, torch.cat(pasted_points)])
+        new_inputs: dict[str, Any] = {**inputs}
+
+        # Point cloud update: remove scene points in pasted regions, add pasted points
+        if points is not None:
+            remove_mask = points_in_boxes_3d(points, pasted_boxes_tensor, fmt).any(
+                dim=1
+            )
+            kept_points = points[~remove_mask]
+            if pasted_points:
+                new_points = torch.cat([kept_points, torch.cat(pasted_points)])
+            else:
+                new_points = kept_points
+            new_inputs["points"] = PointCloud3D(new_points)
+
+        # Box and label update
         new_boxes = torch.cat([boxes, pasted_boxes_tensor])
         new_labels = torch.cat(
             [
@@ -618,10 +644,6 @@ class CopyPaste3D(Transform):
             ]
         )
 
-        new_inputs: dict[str, Any] = {
-            **inputs,
-            "points": PointCloud3D(new_points),
-        }
         new_targets: dict[str, Any] = {
             **targets,
             "boxes": BoundingBoxes3D(new_boxes, format=fmt),
