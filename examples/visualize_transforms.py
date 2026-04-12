@@ -22,6 +22,9 @@ from vision3d.datasets import NuScenes3D
 from vision3d.datasets.nuscenes import CAMERA_NAMES
 from vision3d.transforms import (
     CopyPaste3D,
+    PointJitter,
+    PointSample,
+    PointShuffle,
     RandomFlip3D,
     RandomRotate3D,
     RandomScale3D,
@@ -89,6 +92,7 @@ def main() -> None:
             RandomRotate3D(angle_range=math.pi / 4, p=1.0),
             RandomScale3D(scale_range=(0.7, 1.3), p=1.0),
             RandomTranslate3D(translation_range=5.0, p=1.0),
+            PointJitter(sigma=0.1, p=1.0),
             v2.Resize(size=[450, 800]),
             v2.CenterCrop(size=[400, 700]),
             v2.ColorJitter(brightness=0.6, contrast=0.6, saturation=0.6, hue=0.3),
@@ -123,6 +127,9 @@ def main() -> None:
         ("resize_half", "Resize(half)", v2.Resize(size=[450, 800])),
         ("center_crop", "CenterCrop(600x800)", v2.CenterCrop(size=[600, 800])),
         ("pad", "Pad(100)", v2.Pad(padding=100)),
+        ("point_shuffle", "PointShuffle", PointShuffle(p=1.0)),
+        ("point_sample", "PointSample(4096)", PointSample(n=4096)),
+        ("point_jitter", "PointJitter(sigma=0.1)", PointJitter(sigma=0.1, p=1.0)),
         ("copy_paste", "CopyPaste3D", copy_paste_one),
         ("composition", "Composition", composition),
     ]
