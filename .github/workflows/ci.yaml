@@ -68,9 +68,9 @@ jobs:
       fail-fast: false
       matrix: &torch-matrix
         python-version: ["3.12", "3.13", "3.14"]
-        torch-version: ["2.9.0", "2.11.0"]
+        torch-version: ["2.9.1", "2.11.0"]
         include:
-          - torch-version: "2.9.0"
+          - torch-version: "2.9.1"
             cuda-version: "12.8.1"
             cuda-tag: "cu128"
           - torch-version: "2.11.0"
