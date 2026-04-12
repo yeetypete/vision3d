@@ -5,13 +5,12 @@ from typing import Any, override
 import torch
 from torch import Tensor
 
-from vision3d.transforms.functional._point_cloud import (
+from ._transform import RandomTransform, Transform
+from .functional._point_cloud import (
     jitter_points,
     sample_points,
     shuffle_points,
 )
-
-from ._transform import RandomTransform, Transform
 
 
 class PointShuffle(RandomTransform):
