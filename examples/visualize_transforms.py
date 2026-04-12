@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import rerun as rr
 import rerun.blueprint as rrb
+import torch
 from torchvision.transforms import v2
 
 from vision3d.datasets import NuScenes3D
@@ -54,6 +55,8 @@ def main() -> None:
     )
     rr.script_add_args(parser)
     args = parser.parse_args()
+
+    torch.manual_seed(42)
 
     ds = NuScenes3D(args.root, version=args.version, split=args.split)
     inputs, targets = ds[args.frame]
