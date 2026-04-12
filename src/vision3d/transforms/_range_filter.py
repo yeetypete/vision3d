@@ -18,9 +18,9 @@ class RangeFilter3D(Transform):
     by their **center** (format-agnostic). Labels in ``targets`` are
     filtered in sync with boxes.
 
-    Applied after spatial augmentations (rotate / scale / translate
-    can push data out of the sensor range) and before the model sees
-    the data.
+    **Must** be applied after spatial augmentations (rotate / scale /
+    translate can push data out of the sensor range) and before the
+    model sees the data.
 
     Args:
         point_cloud_range: Axis-aligned bounds
