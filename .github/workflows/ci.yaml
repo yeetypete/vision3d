@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: {}
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
+        with:
+          python-version: "3.14"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --no-install-project
+      - name: Ruff lint
+        run: uv run ruff check
+      - name: Ruff format
+        run: uv run ruff format --check
+      - name: Pyrefly typecheck
+        run: uv run pyrefly check
+
+  test:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+        torch-version: ["2.9.0", "2.11.0"]
+    name: "test (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }})"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Set up uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - name: Pin torch version
+        run: >
+          sed -i
+          '/\[tool\.uv\]/a constraint-dependencies = ["torch==${{ matrix.torch-version }}"]'
+          pyproject.toml
+      - name: Install project
+        run: uv sync --all-extras
+      - name: Run tests
+        run: uv run pytest
