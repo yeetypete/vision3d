@@ -31,8 +31,8 @@ def _make_targets() -> dict[str, Any]:
     """
     return {
         "boxes": BoundingBoxes3D(
-            torch.tensor([[1.0, 2, 0, 2, 2, 2, 0.3]]),
-            format=BoundingBox3DFormat.XYZLWHY,
+            torch.tensor([[1.0, 2, 0, 2, 2, 2, 0.3, 0.1, -0.05]]),
+            format=BoundingBox3DFormat.XYZLWHYPR,
         ),
         "labels": torch.tensor([0], dtype=torch.long),
     }
@@ -105,7 +105,7 @@ class TestTypePreservation:
         torch.manual_seed(0)
         inputs, targets = _make_sample()
         inputs, targets = _apply_sequential(_standard_chain(), inputs, targets)
-        assert targets["boxes"].format == BoundingBox3DFormat.XYZLWHY
+        assert targets["boxes"].format == BoundingBox3DFormat.XYZLWHYPR
 
     def test_camera_intrinsics_image_size_preserved(self) -> None:
         torch.manual_seed(0)
