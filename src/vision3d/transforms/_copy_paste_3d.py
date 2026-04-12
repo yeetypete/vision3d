@@ -320,7 +320,7 @@ class CopyPaste3D(Transform):
         for inp, tgt in zip(batch_inputs, batch_targets):
             self._extract_objects(inp, tgt)
 
-        if torch.rand(1).item() >= self.p:
+        if torch.rand(()).item() >= self.p:
             return tree_unflatten(flat_inputs, spec)
 
         output_inputs = []

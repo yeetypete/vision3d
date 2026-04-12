@@ -99,9 +99,9 @@ def _make_fusion_batch(
         box_data = []
         all_points = []
         for _j in range(num_boxes):
-            cx = (torch.rand(1).item() - 0.5) * 4
-            cy = (torch.rand(1).item() - 0.5) * 4
-            cz = torch.rand(1).item() * 10 + 5
+            cx = (torch.rand(()).item() - 0.5) * 4
+            cy = (torch.rand(()).item() - 0.5) * 4
+            cz = torch.rand(()).item() * 10 + 5
             l, w, h = 1.0, 1.0, 1.0
             yaw = 0.0
             box_data.append([cx, cy, cz, l, w, h, yaw])
@@ -169,9 +169,9 @@ def _make_camera_batch(
     for _ in range(batch_size):
         box_data = []
         for _j in range(num_boxes):
-            cx = (torch.rand(1).item() - 0.5) * 4
-            cy = (torch.rand(1).item() - 0.5) * 4
-            cz = torch.rand(1).item() * 10 + 5
+            cx = (torch.rand(()).item() - 0.5) * 4
+            cy = (torch.rand(()).item() - 0.5) * 4
+            cz = torch.rand(()).item() * 10 + 5
             box_data.append([cx, cy, cz, 1.0, 1.0, 1.0, 0.0])
 
         boxes = BoundingBoxes3D(
