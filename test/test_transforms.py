@@ -1100,3 +1100,32 @@ class TestRandomScale3DFusion:
         assert isinstance(out["images"], CameraImages)
         assert isinstance(out["extrinsics"], CameraExtrinsics)
         assert isinstance(out["intrinsics"], CameraIntrinsics)
+
+
+class TestPointsAndBoxesStayConsistent:
+    """A random transform must apply the same random decision to every
+    TVTensor in the sample. If the flip or offset were sampled
+    independently per TVTensor, points and boxes would end up in
+    different coordinate frames."""
+
+    def test_flip_negates_both_point_x_and_box_center_x(self) -> None:
+        sample = _make_sample()
+        points_before = sample["points"].clone()
+        boxes_before = sample["boxes"].clone()
+
+        out = RandomFlip3D(axis="x", p=1.0)(sample)
+
+        assert torch.allclose(out["points"][:, 0], -points_before[:, 0])
+        assert torch.allclose(out["boxes"][:, 0], -boxes_before[:, 0])
+
+    def test_translate_shifts_points_and_boxes_by_same_offset(self) -> None:
+        torch.manual_seed(42)
+        sample = _make_sample()
+        points_before = sample["points"].clone()
+        boxes_before = sample["boxes"].clone()
+
+        out = RandomTranslate3D(translation_range=5.0, p=1.0)(sample)
+
+        point_delta = out["points"][0, :3] - points_before[0, :3]
+        box_delta = out["boxes"][0, :3] - boxes_before[0, :3]
+        assert torch.allclose(point_delta, box_delta, atol=1e-5)
