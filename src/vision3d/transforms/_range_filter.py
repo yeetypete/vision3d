@@ -24,11 +24,6 @@ class RangeFilter3D(Transform):
     can push data out of the sensor range) and before the model sees
     the data.
 
-    Unlike the scene transforms, this class inherits from
-    :class:`nn.Module` rather than :class:`Transform` because it
-    needs to couple boxes and labels — the standard per-leaf dispatch
-    cannot handle filtering two tensors with the same mask.
-
     Args:
         point_cloud_range: Axis-aligned bounds
             ``(x_min, y_min, z_min, x_max, y_max, z_max)``.

@@ -1,10 +1,4 @@
-"""Tests for RangeFilter3D.
-
-Three levels following the test_transforms.py pattern:
-1. Filtering logic tests — verify point/box filtering math directly.
-2. Transform tests — end-to-end on (inputs, targets) and single-dict samples.
-3. Edge case tests — empty results, all-in-range, format-agnostic.
-"""
+"""Tests for RangeFilter3D."""
 
 from typing import Any
 
