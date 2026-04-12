@@ -10,7 +10,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.datasets.utils import download_and_extract_archive
 
-from vision3d.datasets._types import FusionInputs, SampleTargets
+from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,

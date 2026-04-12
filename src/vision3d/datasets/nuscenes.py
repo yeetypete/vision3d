@@ -10,7 +10,7 @@ from nuscenes.eval.detection.utils import category_to_detection_name
 from PIL import Image
 from torch.utils.data import Dataset
 
-from vision3d.datasets._types import FusionInputs, SampleTargets
+from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
