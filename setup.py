@@ -1,6 +1,7 @@
 """setuptools entry point for vision3d's C++ extension."""
 
 import os
+import subprocess
 from pathlib import Path
 
 import torch
@@ -12,10 +13,37 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
 )
 
+_ROOT = Path(__file__).resolve().parent
+
+
+def get_version() -> str:
+    """Return the project version.
+
+    If the ``BUILD_VERSION`` environment variable is set, it fully overrides the
+    base version read from ``version.txt``. Otherwise, for local builds, append
+    the short git commit SHA as a PEP 440 local version identifier.
+    """
+    with open(_ROOT / "version.txt") as f:
+        version = f.readline().strip()
+
+    if build_version := os.getenv("BUILD_VERSION"):
+        return build_version
+
+    try:
+        sha = (
+            subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=str(_ROOT))
+            .decode("ascii")
+            .strip()
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return version
+
+    return f"{version}+{sha[:7]}"
+
+
 FORCE_CUDA = os.getenv("FORCE_CUDA", "0") == "1"
 _HAS_CUDA = (torch.cuda.is_available() and CUDA_HOME is not None) or FORCE_CUDA
 
-_ROOT = Path(__file__).resolve().parent
 _CSRC = _ROOT / "src/vision3d/ops/csrc"
 _SOURCES = [
     "src/vision3d/ops/csrc/iou_box3d.cpp",
@@ -27,6 +55,7 @@ if _HAS_CUDA:
 Extension = CUDAExtension if _HAS_CUDA else CppExtension
 
 setup(
+    version=get_version(),
     ext_modules=[
         Extension(
             name="vision3d._C",

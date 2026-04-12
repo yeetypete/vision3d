@@ -65,8 +65,10 @@ jobs:
         include:
           - torch-version: "2.9.0"
             cuda-version: "12.8.1"
+            cuda-tag: "cu128"
           - torch-version: "2.11.0"
             cuda-version: "13.0.2"
+            cuda-tag: "cu130"
     name: "test (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }})"
     steps:
       - name: Free disk space
@@ -133,6 +135,8 @@ jobs:
           [tool.uv]
           build-constraint-dependencies = ["torch==${{ matrix.torch-version }}"]
           EOF
+      - name: Set BUILD_VERSION
+        run: echo "BUILD_VERSION=$(cat version.txt)+${{ matrix.cuda-tag }}" >> "$GITHUB_ENV"
       - name: Build
         run: uv build
       - name: Upload wheel
