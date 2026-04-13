@@ -1,18 +1,11 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# For the full list of built-in configuration values, see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
+"""Sphinx configuration for vision3d documentation."""
 
-# -- Project information -----------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+import vision3d
 
 project = "vision3d"
 copyright = "2026, Peter Siegel"
 author = "Peter Siegel"
-release = "0.1.0"
-
-# -- General configuration ---------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
+release = vision3d.__version__
 
 extensions = [
     "sphinx.ext.autodoc",
@@ -22,15 +15,11 @@ extensions = [
     "sphinx.ext.viewcode",
 ]
 
+autosummary_generate = True
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
 
 templates_path = ["_templates"]
-exclude_patterns = []
-
-
-# -- Options for HTML output -------------------------------------------------
-# https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "furo"
 html_static_path = ["_static"]
