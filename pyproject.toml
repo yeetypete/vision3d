@@ -1,17 +1,17 @@
 [project]
 name = "vision3d"
-dynamic = ["version"]
 description = "A 3D extension of torchvision."
 readme = "README.md"
+requires-python = ">=3.12"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
-requires-python = ">=3.12"
-authors = [{ name = "Peter Siegel", email = "psiegel2000@icloud.com" }]
+authors = [{ name = "Peter Siegel" }]
 dependencies = [
   "torch>=2.10",
   "torchvision>=0.25",
   "typing-extensions>=4.13; python_version < '3.13'",
 ]
+dynamic = ["version"]
 
 [project.optional-dependencies]
 nuscenes = [
@@ -29,7 +29,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools<82", "torch>=2.10", "numpy>=2"]
+requires = ["numpy>=2", "setuptools<82", "torch>=2.10"]
 build-backend = "setuptools.build_meta"
 
 [tool.pyrefly]
