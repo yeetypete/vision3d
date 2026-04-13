@@ -3,6 +3,8 @@ name = "vision3d"
 dynamic = ["version"]
 description = "Add your description here"
 readme = "README.md"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 authors = [{ name = "Peter Siegel", email = "psiegel2000@icloud.com" }]
 dependencies = [
