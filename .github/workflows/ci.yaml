@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -197,3 +198,37 @@ jobs:
           if-no-files-found: error
           retention-days: 5
           path: dist/*.whl
+
+  publish:
+    name: Publish to PyPI
+    needs: [lint, test, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
+        with:
+          enable-cache: true
+      - name: Verify tag matches version.txt
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(cat version.txt)"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} (${tag}) does not match version.txt (${version})"
+            exit 1
+          fi
+      - name: Set BUILD_VERSION
+        run: echo "BUILD_VERSION=$(cat version.txt)" >> "$GITHUB_ENV"
+      - name: Build sdist
+        run: uv build --sdist
+      - name: Publish
+        run: uv publish
