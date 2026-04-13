@@ -1,7 +1,7 @@
 [project]
 name = "vision3d"
 dynamic = ["version"]
-description = "Add your description here"
+description = "A 3D extension of torchvision."
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
