@@ -13,6 +13,11 @@ dependencies = [
 ]
 dynamic = ["version"]
 
+[project.urls]
+Homepage = "https://github.com/yeetypete/vision3d"
+Issues = "https://github.com/yeetypete/vision3d/issues"
+Repository = "https://github.com/yeetypete/vision3d"
+
 [project.optional-dependencies]
 nuscenes = [
   "nuscenes-devkit>=1.1.9",
