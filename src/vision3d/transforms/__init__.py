@@ -1,4 +1,4 @@
-"""3D data augmentation transforms compatible with torchvision v2 pipelines."""
+"""3D data augmentation transforms."""
 
 from ._copy_paste_3d import CopyPaste3D
 from ._geometry import RandomFlip3D, RandomRotate3D, RandomScale3D, RandomTranslate3D
