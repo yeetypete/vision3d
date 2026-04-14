@@ -23,4 +23,3 @@ napoleon_numpy_docstring = False
 templates_path = ["_templates"]
 
 html_theme = "furo"
-html_static_path = ["_static"]
