@@ -3,6 +3,7 @@
 import math
 
 import torch
+from torch import Tensor
 
 from vision3d.datasets import SampleInputs, SampleTargets
 from vision3d.tensors import (
@@ -23,7 +24,7 @@ except ImportError as e:
 
 def log_point_cloud(
     entity: str,
-    points: PointCloud3D | torch.Tensor,
+    points: PointCloud3D | Tensor,
     *,
     color_by_distance: bool = True,
 ) -> None:
@@ -73,7 +74,7 @@ def log_boxes_3d(
         class_ids: Per-box class IDs for coloring via AnnotationContext.
         log_heading: If True and boxes have rotation, log heading arrows.
     """
-    raw = boxes.as_subclass(torch.Tensor).detach().cpu()
+    raw = boxes.as_subclass(Tensor).detach().cpu()
     fmt = boxes.format
     n = raw.shape[0]
 
@@ -130,9 +131,9 @@ def log_boxes_3d(
 
 def log_cameras(
     entity_prefix: str,
-    images: CameraImages | torch.Tensor,
-    intrinsics: CameraIntrinsics | torch.Tensor | None = None,
-    extrinsics: CameraExtrinsics | torch.Tensor | None = None,
+    images: CameraImages | Tensor,
+    intrinsics: CameraIntrinsics | Tensor | None = None,
+    extrinsics: CameraExtrinsics | Tensor | None = None,
 ) -> None:
     """Log all camera images with optional pinhole projection to Rerun.
 
@@ -153,9 +154,9 @@ def log_cameras(
 
 def _log_single_camera(
     entity: str,
-    images: CameraImages | torch.Tensor,
-    intrinsics: CameraIntrinsics | torch.Tensor | None,
-    extrinsics: CameraExtrinsics | torch.Tensor | None,
+    images: CameraImages | Tensor,
+    intrinsics: CameraIntrinsics | Tensor | None,
+    extrinsics: CameraExtrinsics | Tensor | None,
     *,
     camera_index: int,
 ) -> None:
@@ -242,8 +243,8 @@ def log_sample(
 
 
 def _extract_centers_sizes_yaws(
-    raw: torch.Tensor, fmt: BoundingBox3DFormat
-) -> tuple[torch.Tensor, torch.Tensor, list[float]]:
+    raw: Tensor, fmt: BoundingBox3DFormat
+) -> tuple[Tensor, Tensor, list[float]]:
     """Extract centers, sizes (l, w, h), and yaw angles from raw box tensor.
 
     Returns:

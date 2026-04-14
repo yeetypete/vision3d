@@ -8,6 +8,7 @@ import torch
 from nuscenes.eval.detection.constants import DETECTION_NAMES
 from nuscenes.eval.detection.utils import category_to_detection_name
 from PIL import Image
+from torch import Tensor
 from torch.utils.data import Dataset
 
 from vision3d.datasets import FusionInputs, SampleTargets
@@ -112,7 +113,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
             - ``"boxes"``: :class:`BoundingBoxes3D` in lidar frame,
               format ``XYZLWHY``.
-            - ``"labels"``: :class:`torch.Tensor` of class indices.
+            - ``"labels"``: :class:`~torch.Tensor` of class indices.
         """
         sample = self._nusc.get("sample", self._sample_tokens[index])
 
@@ -181,18 +182,18 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
         return inputs, targets
 
-    def _load_lidar(self, lidar_data: dict[str, Any]) -> torch.Tensor:
+    def _load_lidar(self, lidar_data: dict[str, Any]) -> Tensor:
         path = os.path.join(self.root, lidar_data["filename"])
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)
         return torch.from_numpy(points)
 
-    def _load_image(self, cam_data: dict[str, Any]) -> torch.Tensor:
+    def _load_image(self, cam_data: dict[str, Any]) -> Tensor:
         path = os.path.join(self.root, cam_data["filename"])
         img = np.array(Image.open(path).convert("RGB"))
         return torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
 
     def _load_annotations(
-        self, sample: dict[str, Any], lidar_to_global: torch.Tensor
+        self, sample: dict[str, Any], lidar_to_global: Tensor
     ) -> SampleTargets:
         """Load annotations and convert from global to lidar frame.
 
@@ -253,9 +254,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         }
 
 
-def _make_transform(
-    translation: list[float], rotation_wxyz: list[float]
-) -> torch.Tensor:
+def _make_transform(translation: list[float], rotation_wxyz: list[float]) -> Tensor:
     """Build a 4x4 transform from translation + quaternion (wxyz).
 
     Returns:
@@ -271,7 +270,7 @@ def _make_transform(
 
 
 def _quaternion_to_yaw(
-    rotation_wxyz: list[float], global_to_lidar_rot: torch.Tensor
+    rotation_wxyz: list[float], global_to_lidar_rot: Tensor
 ) -> float:
     """Convert a global-frame quaternion to yaw angle in lidar frame.
 

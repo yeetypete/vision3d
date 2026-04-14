@@ -9,7 +9,7 @@ import functools
 from collections.abc import Callable
 from typing import Any
 
-import torch
+from torch import Tensor
 from torchvision.tv_tensors import TVTensor
 
 # {functional: {input_type: kernel}}
@@ -50,7 +50,7 @@ def register_kernel(
             def wrapper(inpt: TVTensor, *args: Any, **kwargs: Any) -> TVTensor:
                 from vision3d.tensors import wrap
 
-                output = kernel(inpt.as_subclass(torch.Tensor), *args, **kwargs)
+                output = kernel(inpt.as_subclass(Tensor), *args, **kwargs)
                 return wrap(output, like=inpt)
 
             registry[tv_tensor_cls] = wrapper

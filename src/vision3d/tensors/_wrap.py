@@ -1,26 +1,26 @@
 from typing import Any
 
-import torch
+from torch import Tensor
 from torchvision.tv_tensors import TVTensor
 
 from ._bounding_boxes_3d import BoundingBoxes3D
 
 
 def wrap(
-    wrappee: torch.Tensor,
+    wrappee: Tensor,
     *,
     like: TVTensor,
     **kwargs: Any,
 ) -> TVTensor:
-    """Convert a :class:`torch.Tensor` into the same TVTensor subclass as ``like``.
+    """Convert a :class:`~torch.Tensor` into the same TVTensor subclass as ``like``.
 
     If ``like`` is a :class:`~vision3d.tensors.BoundingBoxes3D`, the ``format``
     of ``like`` is assigned to ``wrappee`` unless overridden via ``kwargs``.
 
     Args:
-        wrappee (torch.Tensor): The tensor to convert.
-        like (torchvision.tv_tensors.TVTensor): The reference. ``wrappee`` will
-            be converted into the same subclass as ``like``.
+        wrappee: The tensor to convert.
+        like: The reference. ``wrappee`` will be converted into the same
+            subclass as ``like``.
         kwargs: Can contain ``"format"`` if ``like`` is a
             :class:`~vision3d.tensors.BoundingBoxes3D`. Ignored otherwise.
 

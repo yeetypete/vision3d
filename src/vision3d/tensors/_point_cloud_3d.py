@@ -5,7 +5,7 @@ from torchvision.tv_tensors import TVTensor
 
 
 class PointCloud3D(TVTensor):
-    """:class:`torch.Tensor` subclass for 3D point clouds with shape ``[N, 3+C]``.
+    """:class:`~torch.Tensor` subclass for 3D point clouds with shape ``[N, 3+C]``.
 
     The first 3 columns are ``(x, y, z)`` coordinates. Additional columns are
     per-point features (e.g. intensity, color, normals).
@@ -15,10 +15,10 @@ class PointCloud3D(TVTensor):
         dtype (torch.dtype, optional): Desired data type. If omitted, will be
             inferred from ``data``.
         device (torch.device, optional): Desired device. If omitted and ``data``
-            is a :class:`torch.Tensor`, the device is taken from it. Otherwise,
+            is a :class:`~torch.Tensor`, the device is taken from it. Otherwise,
             the point cloud is constructed on the CPU.
         requires_grad (bool, optional): Whether autograd should record operations.
-            If omitted and ``data`` is a :class:`torch.Tensor`, the value is
+            If omitted and ``data`` is a :class:`~torch.Tensor`, the value is
             taken from it. Otherwise, defaults to ``False``.
     """
 

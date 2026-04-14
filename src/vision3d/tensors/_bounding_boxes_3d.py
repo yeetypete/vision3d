@@ -3,6 +3,7 @@ from enum import Enum
 from typing import Any, Self, override
 
 import torch
+from torch import Tensor
 from torch.utils._pytree import tree_flatten
 from torchvision.tv_tensors import TVTensor
 
@@ -45,7 +46,7 @@ class BoundingBox3DFormat(Enum):
 
 
 class BoundingBoxes3D(TVTensor):
-    """:class:`torch.Tensor` subclass for 3D bounding boxes with shape ``[N, K]``.
+    """:class:`~torch.Tensor` subclass for 3D bounding boxes with shape ``[N, K]``.
 
     Where ``N`` is the number of bounding boxes and ``K`` depends on the format:
     6 for axis-aligned (``XYZXYZ``, ``XYZLWH``), 7 for yaw-only (``XYZLWHY``),
@@ -59,10 +60,10 @@ class BoundingBoxes3D(TVTensor):
         dtype (torch.dtype, optional): Desired data type of the bounding box. If
             omitted, will be inferred from ``data``.
         device (torch.device, optional): Desired device of the bounding box. If
-            omitted and ``data`` is a :class:`torch.Tensor`, the device is taken
+            omitted and ``data`` is a :class:`~torch.Tensor`, the device is taken
             from it. Otherwise, the bounding box is constructed on the CPU.
         requires_grad (bool, optional): Whether autograd should record operations
-            on the bounding box. If omitted and ``data`` is a :class:`torch.Tensor`,
+            on the bounding box. If omitted and ``data`` is a :class:`~torch.Tensor`,
             the value is taken from it. Otherwise, defaults to ``False``.
     """
 
@@ -82,7 +83,7 @@ class BoundingBoxes3D(TVTensor):
     @classmethod
     def _wrap(
         cls,
-        tensor: torch.Tensor,
+        tensor: Tensor,
         *,
         format: BoundingBox3DFormat | str,
         check_dims: bool = True,
@@ -124,7 +125,7 @@ class BoundingBoxes3D(TVTensor):
     @override
     def _wrap_output(
         cls,
-        output: torch.Tensor,
+        output: Tensor,
         args: Sequence[Any] = (),
         kwargs: Mapping[str, Any] | None = None,
     ) -> Self:
@@ -140,7 +141,7 @@ class BoundingBoxes3D(TVTensor):
         )
         format = first_bbox_from_args.format
 
-        if isinstance(output, torch.Tensor) and not isinstance(output, BoundingBoxes3D):
+        if isinstance(output, Tensor) and not isinstance(output, BoundingBoxes3D):
             output = cls._wrap(output, format=format, check_dims=False)
         elif isinstance(output, (tuple, list)):
             # This branch exists for chunk() and unbind()
