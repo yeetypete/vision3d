@@ -16,6 +16,8 @@ extensions = [
     "sphinx.ext.viewcode",
 ]
 
+autosummary_ignore_module_all = False
+
 autodoc_default_options = {
     "members": True,
     "show-inheritance": True,
