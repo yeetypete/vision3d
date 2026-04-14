@@ -27,34 +27,9 @@ jobs:
         uses: j178/prek-action@53276d8b0d10f8b6672aa85b4588c6921d0370cc # v2
   lint:
     runs-on: ubuntu-24.04
-    container:
-      image: nvidia/cuda:12.8.1-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
-      volumes:
-        - /usr/share/dotnet:/host/dotnet
-        - /usr/local/lib/android:/host/android
-        - /opt/hostedtoolcache:/host/hostedtoolcache
     permissions:
       contents: read
     steps:
-      - name: Free disk space
-        shell: bash
-        run: |
-          shopt -s dotglob
-          rm -rf /host/dotnet/* &
-          rm -rf /host/android/* &
-          rm -rf /host/hostedtoolcache/* &
-          wait
-      - name: Install system dependencies
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            git \
-            libgl1 \
-            libglib2.0-0 \
-            libsm6 \
-            libxcb1 \
-            libxext6 \
-            libxrender1 \
-            ninja-build
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
