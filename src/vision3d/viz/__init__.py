@@ -1,4 +1,4 @@
-"""Optional 3D visualization utilities built on Rerun.
+"""Optional 3D visualization utilities.
 
 Requires the ``viz`` dependency group::
 
