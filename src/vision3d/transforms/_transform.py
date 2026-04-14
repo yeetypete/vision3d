@@ -25,10 +25,11 @@ class Transform(nn.Module):
     """Base class for vision3d transforms.
 
     Only :class:`~torchvision.tv_tensors.TVTensor` subclasses (e.g.
-    :class:`BoundingBoxes3D`, :class:`PointCloud3D`) are transformed.
+    :class:`~vision3d.tensors.BoundingBoxes3D`,
+    :class:`~vision3d.tensors.PointCloud3D`) are transformed.
     Plain tensors (labels, scores, etc.) pass through unchanged.
 
-    Subclasses should override :meth:`transform` and use :meth:`_call_kernel`
+    Subclasses should override :meth:`transform` and use ``_call_kernel``
     to dispatch to the correct kernel for each input type.
     """
 

@@ -35,17 +35,17 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     """`nuScenes <https://www.nuscenes.org/>`_ 3D object detection dataset.
 
     Returns samples in the **global frame** with annotations as
-    :class:`BoundingBoxes3D` in ``XYZLWHY`` format (yaw extracted from
-    quaternion). Multi-camera images, intrinsics, and extrinsics are
-    returned for all 6 cameras.
+    :class:`~vision3d.tensors.BoundingBoxes3D` in ``XYZLWHY`` format (yaw
+    extracted from quaternion). Multi-camera images, intrinsics, and extrinsics
+    are returned for all 6 cameras.
 
     Requires the ``nuscenes-devkit`` package.
 
     Args:
-        root (str or path): Root directory of the nuScenes dataset.
+        root (str or pathlib.Path): Root directory of the nuScenes dataset.
         version (str): Dataset version. Default: ``"v1.0-mini"``.
         split (str): One of ``"train"`` or ``"val"``. Default: ``"train"``.
-        transforms (callable, optional): A function/transform that takes input
+        transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
     """
 

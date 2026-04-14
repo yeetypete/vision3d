@@ -64,7 +64,7 @@ def log_boxes_3d(
 
     For consistent class coloring across frames, pass ``class_ids`` and
     log an ``rr.AnnotationContext`` on the entity once before logging
-    any boxes (see :func:`log_annotation_context`).
+    any boxes.
 
     Args:
         entity: Rerun entity path (e.g. ``"world/boxes"``).

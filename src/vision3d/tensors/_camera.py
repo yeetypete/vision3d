@@ -19,7 +19,7 @@ from torchvision.tv_tensors import TVTensor
 
 
 class CameraImages(tv_tensors.Image):
-    """:class:`tv_tensors.Image` subclass for multi-camera images with shape ``[N, C, H, W]``.
+    """:class:`~torchvision.tv_tensors.Image` subclass for multi-camera images with shape ``[N, C, H, W]``.
 
     Inherits from :class:`torchvision.tv_tensors.Image` so every
     torchvision v2 image transform dispatches automatically.
@@ -131,8 +131,8 @@ class CameraIntrinsics(TVTensor):
 
     Args:
         data: Any data that can be turned into a tensor with :func:`torch.as_tensor`.
-        image_size (tuple of ints): Height and width of the corresponding
-            images. Required for geometric transforms (resize) that need
+        image_size (tuple): Height and width of the corresponding images as
+            ``(h, w)``. Required for geometric transforms (resize) that need
             to compute scale factors.
         dtype (torch.dtype, optional): Desired data type.
         device (torch.device, optional): Desired device.

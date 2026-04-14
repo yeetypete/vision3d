@@ -48,7 +48,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
 
         train (bool, optional): Use ``train`` split if true, else ``test`` split.
             Defaults to ``True``.
-        transforms (callable, optional): A function/transform that takes input
+        transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
         download (bool, optional): If true, downloads the dataset from the internet
             and puts it in root directory. If dataset is already downloaded, it is
