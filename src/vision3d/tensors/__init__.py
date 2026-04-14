@@ -1,3 +1,5 @@
+"""TVTensor subclasses with 3D semantics through torchvision v2 transforms."""
+
 from ._bounding_boxes_3d import (
     BoundingBox3DFormat,
     BoundingBoxes3D,

@@ -1,3 +1,5 @@
+"""3D object detection dataset loaders."""
+
 from ._types import (
     CameraInputs,
     FusionInputs,

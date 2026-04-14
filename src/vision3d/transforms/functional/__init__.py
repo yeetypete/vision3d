@@ -1,3 +1,5 @@
+"""Functional form of the 3D transforms in :mod:`vision3d.transforms`."""
+
 from ._geometry import (
     flip_3d,
     flip_3d_bounding_boxes,

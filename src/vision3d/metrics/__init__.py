@@ -1,3 +1,5 @@
+"""3D object detection evaluation metrics."""
+
 from ._mean_average_precision_3d import (
     APInterpolation,
     MeanAveragePrecision3D,
