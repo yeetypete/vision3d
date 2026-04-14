@@ -108,7 +108,7 @@ def _flip_3d_bounding_boxes_dispatch(inpt: BoundingBoxes3D, *, axis: str) -> TVT
     from vision3d.tensors import wrap
 
     output = flip_3d_bounding_boxes(
-        inpt.as_subclass(torch.Tensor), format=inpt.format, axis=axis
+        inpt.as_subclass(Tensor), format=inpt.format, axis=axis
     )
     return wrap(output, like=inpt)
 
@@ -180,7 +180,7 @@ def _translate_3d_bounding_boxes_dispatch(
     from vision3d.tensors import wrap
 
     output = translate_3d_bounding_boxes(
-        inpt.as_subclass(torch.Tensor), format=inpt.format, offset=offset
+        inpt.as_subclass(Tensor), format=inpt.format, offset=offset
     )
     return wrap(output, like=inpt)
 
@@ -340,7 +340,7 @@ def _rotate_3d_bounding_boxes_dispatch(
     from vision3d.tensors import wrap
 
     output = rotate_3d_bounding_boxes(
-        inpt.as_subclass(torch.Tensor),
+        inpt.as_subclass(Tensor),
         format=inpt.format,
         rotation_matrix=rotation_matrix,
     )
@@ -462,7 +462,7 @@ def _scale_3d_bounding_boxes_dispatch(
     from vision3d.tensors import wrap
 
     output = scale_3d_bounding_boxes(
-        inpt.as_subclass(torch.Tensor), format=inpt.format, factor=factor
+        inpt.as_subclass(Tensor), format=inpt.format, factor=factor
     )
     return wrap(output, like=inpt)
 

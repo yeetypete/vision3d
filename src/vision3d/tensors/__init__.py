@@ -1,3 +1,5 @@
+"""TVTensor subclasses with 3D semantics."""
+
 from ._bounding_boxes_3d import (
     BoundingBox3DFormat,
     BoundingBoxes3D,

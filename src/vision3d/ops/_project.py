@@ -17,9 +17,8 @@ def project_to_image(
         intrinsics: Camera intrinsic matrix ``[3, 3]``.
 
     Returns:
-        Tuple of:
-        - ``uv``: Pixel coordinates ``[N, 2]`` (u, v).
-        - ``depth``: Depth in camera frame ``[N]``.
+        ``(uv, depth)`` where ``uv`` is the pixel coordinates ``[N, 2]`` (u, v)
+        and ``depth`` is the camera-frame depth ``[N]``.
     """
     n = points_3d.shape[0]
     ones = torch.ones(n, 1, dtype=points_3d.dtype, device=points_3d.device)

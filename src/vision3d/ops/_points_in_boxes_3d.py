@@ -116,8 +116,8 @@ def _extract_box_params(
     """Extract centers, half-dimensions, and rotation matrix from boxes.
 
     Returns:
-        Tuple of (centers ``[M, 3]``, half_dims ``[M, 3]``,
-        rot ``[M, 3, 3]``).
+        ``(centers, half_dims, rot)`` where ``centers`` and ``half_dims`` are
+        ``[M, 3]`` and ``rot`` is ``[M, 3, 3]``.
 
     Raises:
         ValueError: If ``format`` is not a supported format.

@@ -1,12 +1,11 @@
 """Meta (fake tensor) registrations for vision3d custom ops."""
 
 import torch
+from torch import Tensor
 
 
 @torch.library.register_fake("vision3d::iou_box3d")
-def _meta_iou_box3d(
-    boxes1: torch.Tensor, boxes2: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
+def _meta_iou_box3d(boxes1: Tensor, boxes2: Tensor) -> tuple[Tensor, Tensor]:
     torch._check(
         boxes1.dim() == 3 and boxes1.size(1) == 8 and boxes1.size(2) == 3,
         lambda: f"boxes1 must be (N, 8, 3), got {tuple(boxes1.shape)}",

@@ -1,3 +1,5 @@
+"""Geometric operators for 3D data."""
+
 from ._box3d_corners import box3d_corners
 from ._box3d_iou import box3d_iou
 from ._box3d_overlap import box3d_overlap

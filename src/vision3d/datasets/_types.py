@@ -20,10 +20,10 @@ from vision3d.tensors import (
 
 
 class SampleInputs(TypedDict):
-    """Per-frame model inputs; base contract with all fields optional.
+    """Per-frame model inputs; base type with all fields optional.
 
-    Fields are :data:`ReadOnly` so dataset-specific subclasses can
-    tighten them from :data:`NotRequired` to :data:`Required`.
+    Fields are ``ReadOnly`` so dataset-specific subclasses can narrow them
+    from ``NotRequired`` to ``Required``.
 
     Attributes:
         points: Lidar point cloud for the frame.

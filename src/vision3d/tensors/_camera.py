@@ -19,7 +19,7 @@ from torchvision.tv_tensors import TVTensor
 
 
 class CameraImages(tv_tensors.Image):
-    """:class:`tv_tensors.Image` subclass for multi-camera images with shape ``[N, C, H, W]``.
+    """:class:`~torchvision.tv_tensors.Image` subclass for multi-camera images with shape ``[N, C, H, W]``.
 
     Inherits from :class:`torchvision.tv_tensors.Image` so every
     torchvision v2 image transform dispatches automatically.
@@ -67,7 +67,7 @@ class CameraImages(tv_tensors.Image):
 
 
 class CameraExtrinsics(TVTensor):
-    """:class:`torch.Tensor` subclass for camera extrinsic matrices with shape ``[N, 4, 4]``.
+    """:class:`~torch.Tensor` subclass for camera extrinsic matrices with shape ``[N, 4, 4]``.
 
     Each matrix transforms a point from the dataset's *source frame*
     to camera frame. The source frame is dataset-defined: lidar for
@@ -122,7 +122,7 @@ class CameraExtrinsics(TVTensor):
 
 
 class CameraIntrinsics(TVTensor):
-    """:class:`torch.Tensor` subclass for camera intrinsic matrices with shape ``[N, 3, 3]``.
+    """:class:`~torch.Tensor` subclass for camera intrinsic matrices with shape ``[N, 3, 3]``.
 
     Each matrix maps from camera-frame 3D coordinates to pixel coordinates.
 
@@ -131,8 +131,8 @@ class CameraIntrinsics(TVTensor):
 
     Args:
         data: Any data that can be turned into a tensor with :func:`torch.as_tensor`.
-        image_size (tuple of ints): Height and width of the corresponding
-            images. Required for geometric transforms (resize) that need
+        image_size (tuple): Height and width of the corresponding images as
+            ``(h, w)``. Required for geometric transforms (resize) that need
             to compute scale factors.
         dtype (torch.dtype, optional): Desired data type.
         device (torch.device, optional): Desired device.
@@ -155,7 +155,7 @@ class CameraIntrinsics(TVTensor):
     @classmethod
     def _wrap(
         cls,
-        tensor: torch.Tensor,
+        tensor: Tensor,
         *,
         image_size: tuple[int, int],
     ) -> Self:
@@ -198,7 +198,7 @@ class CameraIntrinsics(TVTensor):
     @override
     def _wrap_output(
         cls,
-        output: torch.Tensor,
+        output: Tensor,
         args: Any = (),
         kwargs: Any = None,
     ) -> Self:
@@ -207,9 +207,7 @@ class CameraIntrinsics(TVTensor):
             tuple(args) + (tuple(kwargs.values()) if kwargs else ())
         )
         first = next(x for x in flat_params if isinstance(x, CameraIntrinsics))
-        if isinstance(output, torch.Tensor) and not isinstance(
-            output, CameraIntrinsics
-        ):
+        if isinstance(output, Tensor) and not isinstance(output, CameraIntrinsics):
             output = cls._wrap(output, image_size=first.image_size)
         return output
 

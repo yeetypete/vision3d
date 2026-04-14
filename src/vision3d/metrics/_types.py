@@ -1,4 +1,4 @@
-"""Shared type contracts for vision3d metrics."""
+"""Shared types for :mod:`vision3d.metrics`."""
 
 from typing import TypedDict
 

@@ -306,9 +306,10 @@ class CopyPaste3D(Transform):
     def forward(self, *inputs: Any) -> Any:
         """Apply copy-paste augmentation to a collated batch.
 
-        Accepts any pytree structure containing :class:`PointCloud3D`,
-        :class:`BoundingBoxes3D`, and optionally camera tensors and
-        plain-tensor labels.
+        Accepts any pytree structure containing
+        :class:`~vision3d.tensors.PointCloud3D`,
+        :class:`~vision3d.tensors.BoundingBoxes3D`, and optionally camera
+        tensors and plain-tensor labels.
 
         Returns:
             The same pytree structure with modified leaves.

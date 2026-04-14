@@ -18,9 +18,10 @@ from .functional._geometry import (
 class RandomFlip3D(RandomTransform):
     """Flip inputs along a 3D axis with probability ``p``.
 
-    Dispatches to type-specific kernels for :class:`BoundingBoxes3D` and
-    :class:`PointCloud3D`. Camera data (images, intrinsics, extrinsics) passes
-    through unchanged.
+    Dispatches to type-specific kernels for
+    :class:`~vision3d.tensors.BoundingBoxes3D` and
+    :class:`~vision3d.tensors.PointCloud3D`. Camera data (images, intrinsics,
+    extrinsics) passes through unchanged.
 
     Args:
         axis: Axis to flip along. One of ``"x"``, ``"y"``, ``"z"``.
@@ -47,8 +48,10 @@ class RandomFlip3D(RandomTransform):
 class RandomTranslate3D(RandomTransform):
     """Translate inputs by a random 3D offset with probability ``p``.
 
-    Dispatches to type-specific kernels for :class:`PointCloud3D`,
-    :class:`BoundingBoxes3D`, and :class:`CameraExtrinsics`.
+    Dispatches to type-specific kernels for
+    :class:`~vision3d.tensors.PointCloud3D`,
+    :class:`~vision3d.tensors.BoundingBoxes3D`, and
+    :class:`~vision3d.tensors.CameraExtrinsics`.
 
     Args:
         translation_range: Maximum translation per axis. Either a single
@@ -101,8 +104,10 @@ class RandomTranslate3D(RandomTransform):
 class RandomRotate3D(RandomTransform):
     """Rotate inputs around an axis by a random angle with probability ``p``.
 
-    Dispatches to type-specific kernels for :class:`PointCloud3D`,
-    :class:`BoundingBoxes3D`, and :class:`CameraExtrinsics`.
+    Dispatches to type-specific kernels for
+    :class:`~vision3d.tensors.PointCloud3D`,
+    :class:`~vision3d.tensors.BoundingBoxes3D`, and
+    :class:`~vision3d.tensors.CameraExtrinsics`.
 
     Args:
         angle_range: Maximum rotation angle in radians. Sampled uniformly
@@ -147,8 +152,10 @@ class RandomRotate3D(RandomTransform):
 class RandomScale3D(RandomTransform):
     """Scale inputs by a random uniform factor with probability ``p``.
 
-    Dispatches to type-specific kernels for :class:`PointCloud3D`,
-    :class:`BoundingBoxes3D`, and :class:`CameraExtrinsics`.
+    Dispatches to type-specific kernels for
+    :class:`~vision3d.tensors.PointCloud3D`,
+    :class:`~vision3d.tensors.BoundingBoxes3D`, and
+    :class:`~vision3d.tensors.CameraExtrinsics`.
 
     Args:
         scale_range: Scale factor range as ``(min, max)``.
