@@ -1,6 +1,6 @@
-API reference
-=============
+# API reference
 
+```{eval-rst}
 .. autosummary::
    :toctree: generated/
 
@@ -11,3 +11,4 @@ API reference
    vision3d.transforms
    vision3d.transforms.functional
    vision3d.viz
+```

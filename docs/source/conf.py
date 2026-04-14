@@ -8,6 +8,7 @@ author = "Peter Siegel"
 release = vision3d.__version__
 
 extensions = [
+    "myst_parser",
     "sphinx.ext.autodoc",
     "sphinx.ext.autosummary",
     "sphinx.ext.intersphinx",
