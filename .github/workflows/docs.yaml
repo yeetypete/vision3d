@@ -1,0 +1,70 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container:
+      image: nvidia/cuda:12.8.1-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
+      volumes:
+        - /usr/share/dotnet:/host/dotnet
+        - /usr/local/lib/android:/host/android
+        - /opt/hostedtoolcache:/host/hostedtoolcache
+    permissions:
+      contents: read
+    env:
+      FORCE_CUDA: "1"
+      TORCH_CUDA_ARCH_LIST: "7.5;8.0;8.6;9.0;10.0;12.0+PTX"
+    steps:
+      - name: Free disk space
+        shell: bash
+        run: |
+          shopt -s dotglob
+          rm -rf /host/dotnet/* &
+          rm -rf /host/android/* &
+          rm -rf /host/hostedtoolcache/* &
+          wait
+      - name: Install system dependencies
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends \
+            git \
+            libgl1 \
+            libglib2.0-0 \
+            libsm6 \
+            libxcb1 \
+            libxext6 \
+            libxrender1 \
+            ninja-build
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
+        with:
+          enable-cache: true
+          cache-local-path: ${{ github.workspace }}/.uv-cache
+          cache-suffix: docs
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --all-groups
+      - name: Build docs
+        run: uv run make -C docs html
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: docs-html
+          path: docs/build/html
+          if-no-files-found: error
+          retention-days: 5
