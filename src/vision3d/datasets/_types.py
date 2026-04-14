@@ -22,7 +22,7 @@ from vision3d.tensors import (
 class SampleInputs(TypedDict):
     """Per-frame model inputs; base type with all fields optional.
 
-    Fields are ``ReadOnly`` so dataset-specific subclasses can tighten them
+    Fields are ``ReadOnly`` so dataset-specific subclasses can narrow them
     from ``NotRequired`` to ``Required``.
 
     Attributes:
