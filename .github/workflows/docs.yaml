@@ -17,7 +17,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     container:
-      image: nvidia/cuda:12.8.1-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
+      image: nvidia/cuda:13.0.2-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
       volumes:
         - /usr/share/dotnet:/host/dotnet
         - /usr/local/lib/android:/host/android
