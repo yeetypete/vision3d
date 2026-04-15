@@ -19,6 +19,35 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Drop test variants whose device matches a ``skip_device`` marker.
+
+    Args:
+        items: List of collected test items; modified in place.
+
+    Raises:
+        UsageError: If a ``skip_device`` marker references a device not in
+            ``_DEVICES``.
+    """
+    kept: list[pytest.Item] = []
+    for item in items:
+        for mark in item.iter_markers("skip_device"):
+            unknown = set(mark.args) - set(_DEVICES)
+            if unknown:
+                raise pytest.UsageError(
+                    f"{item.nodeid}: skip_device got unknown devices "
+                    f"{sorted(unknown)} (known: {sorted(_DEVICES)})"
+                )
+        callspec = getattr(item, "callspec", None)
+        device = callspec.params.get("device") if callspec is not None else None
+        if device is not None and any(
+            device in mark.args for mark in item.iter_markers("skip_device")
+        ):
+            continue
+        kept.append(item)
+    items[:] = kept
+
+
 @pytest.fixture(
     params=[pytest.param(d, marks=getattr(pytest.mark, d)) for d in _DEVICES],
     autouse=True,
@@ -34,7 +63,8 @@ def device(request: pytest.FixtureRequest) -> Generator[torch.device]:
 
     Each parametrization carries a matching marker (``cpu``, ``cuda``, ...)
     so variants can be filtered from the CLI. Tests decorated with
-    ``@pytest.mark.skip_device("cuda")`` skip the named device variant(s).
+    ``@pytest.mark.skip_device("cuda")`` are dropped from collection for the
+    named device variant(s); see :func:`pytest_collection_modifyitems`.
 
     Example:
         Filter test runs by device from the command line::
@@ -45,21 +75,11 @@ def device(request: pytest.FixtureRequest) -> Generator[torch.device]:
 
     Args:
         request: The pytest fixture request, used to read the parametrized
-            device and any ``skip_device`` markers on the current test.
+            device.
 
     Yields:
         The active :class:`torch.device` for the test invocation.
     """
-    for mark in request.node.iter_markers("skip_device"):
-        unknown = set(mark.args) - set(_DEVICES)
-        if unknown:
-            pytest.fail(
-                f"skip_device got unknown devices {sorted(unknown)}; "
-                f"known: {sorted(_DEVICES)}",
-                pytrace=False,
-            )
-        if request.param in mark.args:
-            pytest.skip(f"skip_device({request.param})")
     dev = torch.device(request.param)
     with dev:
         yield dev
