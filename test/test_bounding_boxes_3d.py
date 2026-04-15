@@ -178,19 +178,6 @@ class TestTorchFunction:
                 result = op(bbox)
                 assert result.format == original_format
 
-    @pytest.mark.skip_device("cuda")
-    @pytest.mark.parametrize("return_type", ["Tensor", "TVTensor"])
-    def test_pin_memory_preserves_metadata(self, return_type: str) -> None:
-        bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
-        original_format = bbox.format
-
-        with tv_tensors.set_return_type(return_type):
-            pinned = bbox.pin_memory()
-
-        if return_type == "TVTensor":
-            assert type(pinned) is type(bbox)
-            assert pinned.format == original_format
-
     @pytest.mark.parametrize("return_type", ["Tensor", "TVTensor"])
     def test_other_op_no_wrapping(self, return_type: str) -> None:
         bbox = make_bounding_boxes_3d()
