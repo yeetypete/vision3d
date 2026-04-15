@@ -44,3 +44,4 @@ intersphinx_mapping = {
 templates_path = ["_templates"]
 
 html_theme = "pydata_sphinx_theme"
+html_title = f"vision3d {release}"
