@@ -82,9 +82,6 @@ docstring-code-format = true
 
 [tool.pytest.ini_options]
 addopts = "--cov --cov-report=term-missing --strict-markers"
-markers = [
-  "needs_cuda: test requires a CUDA device",
-]
 filterwarnings = [
   # Unrelated warning from ``@torch.jit.script_method`` in torch/utils/mkldnn.py.
   "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
