@@ -151,7 +151,7 @@ class TestTorchFunction:
     @pytest.mark.parametrize(
         "op",
         [
-            lambda p: p.numpy(),
+            lambda p: p.cpu().numpy(),
             lambda p: p.tolist(),
             lambda p: p.max(dim=-1),
         ],

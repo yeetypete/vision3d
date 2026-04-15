@@ -677,8 +677,11 @@ class CopyPaste3D(Transform):
         n_cams = images.shape[0]
         img_h, img_w = images.shape[2], images.shape[3]
 
-        # Pre-compute centers (format-aware) once outside the camera loop
-        pasted_box_stack = torch.stack([e.box for e in pasted_entries])
+        # Pre-compute centers (format-aware) once outside the camera loop.
+        # Database entries live on CPU so we must bring them onto the working device.
+        pasted_box_stack = torch.stack([e.box for e in pasted_entries]).to(
+            images.device
+        )
         p_centers, _, _ = _extract_box_params(pasted_box_stack, fmt)
         p_ones = torch.ones(
             p_centers.shape[0], 1, dtype=p_centers.dtype, device=p_centers.device
@@ -741,8 +744,11 @@ class CopyPaste3D(Transform):
                 target_h = ty_max - ty_min + 1
                 target_w = tx_max - tx_min + 1
 
-                # Resize stored crop and mask to target size
-                src_crop = cam_crop.crop.unsqueeze(0).float()  # [1, C, sh, sw]
+                # Resize stored crop and mask to target size.
+                # Stored on CPU so we must bring onto the working device before resize.
+                src_crop = (
+                    cam_crop.crop.unsqueeze(0).float().to(images.device)
+                )  # [1, C, sh, sw]
                 resized_crop = F.interpolate(
                     src_crop,
                     size=(target_h, target_w),
@@ -750,7 +756,9 @@ class CopyPaste3D(Transform):
                     align_corners=False,
                 ).squeeze(0)  # [C, th, tw]
 
-                src_mask = cam_crop.mask.unsqueeze(0).unsqueeze(0).float()
+                src_mask = (
+                    cam_crop.mask.unsqueeze(0).unsqueeze(0).float().to(images.device)
+                )
                 resized_mask = (
                     F.interpolate(src_mask, size=(target_h, target_w), mode="nearest")
                     .squeeze(0)

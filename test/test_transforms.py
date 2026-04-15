@@ -386,10 +386,9 @@ def _reference_translate_bounding_boxes(
 
 # Kernel tests
 class TestTranslate3DPointCloudKernel:
-    @pytest.mark.parametrize(
-        "offset", [torch.tensor([1.0, 0, 0]), torch.tensor([0, -2.0, 3.0])]
-    )
-    def test_correctness(self, offset: torch.Tensor) -> None:
+    @pytest.mark.parametrize("offset_values", [[1.0, 0, 0], [0, -2.0, 3.0]])
+    def test_correctness(self, offset_values: list[float]) -> None:
+        offset = torch.tensor(offset_values)
         points = torch.rand(50, 3) * 200 - 100
         actual = translate_3d_point_cloud(points, offset=offset)
         expected = _reference_translate_point_cloud(points, offset)
@@ -608,8 +607,8 @@ class TestRandomTranslate3DFusion:
         assert isinstance(out["intrinsics"], CameraIntrinsics)
 
 
-Z_AXIS = torch.tensor([0.0, 0.0, 1.0])
-X_AXIS = torch.tensor([1.0, 0.0, 0.0])
+def _x_axis() -> torch.Tensor:
+    return torch.tensor([1.0, 0.0, 0.0])
 
 
 def _make_z_rotation(angle: float) -> torch.Tensor:
@@ -680,7 +679,7 @@ class TestRotate3DBoundingBoxesKernel:
         from vision3d.transforms.functional._geometry import _rotation_matrix
 
         bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHY, num_boxes=2)
-        R = _rotation_matrix(X_AXIS, 0.3)
+        R = _rotation_matrix(_x_axis(), 0.3)
         with pytest.raises(ValueError, match="Z-axis"):
             rotate_3d_bounding_boxes(
                 bbox.as_subclass(torch.Tensor),
@@ -844,7 +843,7 @@ class TestRandomRotate3D:
 
     def test_custom_axis(self) -> None:
         transform = RandomRotate3D(angle_range=0.5, axis=(1.0, 0.0, 0.0), p=1.0)
-        assert torch.equal(transform.axis, X_AXIS)
+        assert torch.equal(transform.axis, _x_axis())
 
 
 class TestRandomRotate3DFusion:

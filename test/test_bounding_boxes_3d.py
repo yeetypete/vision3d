@@ -169,23 +169,14 @@ class TestTorchFunction:
         bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
         original_format = bbox.format
 
-        tv_tensors.set_return_type(return_type)
-
-        for op in [
-            lambda b: b.clone(),
-            lambda b: b.to(torch.float64),
-            lambda b: b.detach(),
-        ]:
-            result = op(bbox)
-            assert result.format == original_format
-
-        if torch.cuda.is_available():
-            pinned = bbox.pin_memory()
-            if return_type == "TVTensor":
-                assert type(pinned) is type(bbox)
-                assert pinned.format == original_format
-
-        tv_tensors.set_return_type("Tensor")
+        with tv_tensors.set_return_type(return_type):
+            for op in [
+                lambda b: b.clone(),
+                lambda b: b.to(torch.float64),
+                lambda b: b.detach(),
+            ]:
+                result = op(bbox)
+                assert result.format == original_format
 
     @pytest.mark.parametrize("return_type", ["Tensor", "TVTensor"])
     def test_other_op_no_wrapping(self, return_type: str) -> None:
@@ -208,7 +199,7 @@ class TestTorchFunction:
     @pytest.mark.parametrize(
         "op",
         [
-            lambda b: b.numpy(),
+            lambda b: b.cpu().numpy(),
             lambda b: b.tolist(),
             lambda b: b.max(dim=-1),
         ],

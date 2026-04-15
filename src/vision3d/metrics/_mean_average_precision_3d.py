@@ -348,13 +348,17 @@ def _compute_ap(
     precisions = precisions.flip(0).cummax(dim=0).values.flip(0)
 
     if interpolation == APInterpolation.R11:
-        targets = torch.linspace(0.0, 1.0, 11, dtype=torch.float32)
+        targets = torch.linspace(
+            0.0, 1.0, 11, dtype=torch.float32, device=recalls.device
+        )
         return _sample_ap(recalls, precisions, targets)
     if interpolation == APInterpolation.R40:
-        targets = torch.arange(1, 41, dtype=torch.float32) / 40.0
+        targets = torch.arange(1, 41, dtype=torch.float32, device=recalls.device) / 40.0
         return _sample_ap(recalls, precisions, targets)
     if interpolation == APInterpolation.R101:
-        targets = torch.linspace(0.0, 1.0, 101, dtype=torch.float32)
+        targets = torch.linspace(
+            0.0, 1.0, 101, dtype=torch.float32, device=recalls.device
+        )
         return _sample_ap(recalls, precisions, targets)
     if interpolation == APInterpolation.ALL_POINTS:
         return _all_points_ap(recalls, precisions)
@@ -381,8 +385,8 @@ def _all_points_ap(recalls: Tensor, precisions: Tensor) -> float:
     Returns:
         Area under the right-enveloped precision-recall curve.
     """
-    zero = torch.zeros(1, dtype=recalls.dtype)
-    one = torch.ones(1, dtype=recalls.dtype)
+    zero = torch.zeros(1, dtype=recalls.dtype, device=recalls.device)
+    one = torch.ones(1, dtype=recalls.dtype, device=recalls.device)
     mrec = torch.cat([zero, recalls, one])
     mpre = torch.cat([zero, precisions, zero])
     mpre = mpre.flip(0).cummax(dim=0).values.flip(0)
