@@ -16,6 +16,9 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 
+# Datasets return CPU tensors by convention.
+pytestmark = pytest.mark.skip_device("cuda")
+
 
 def _write_velodyne(path: Path, num_points: int = 50) -> np.ndarray:
     points = (
