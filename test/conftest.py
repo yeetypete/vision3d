@@ -9,9 +9,9 @@ _DEVICES = ("cpu", "cuda")
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    for dev in _DEVICES:
+    for device in _DEVICES:
         config.addinivalue_line(
-            "markers", f"{dev}: test variant running on device '{dev.upper()}'."
+            "markers", f"{device}: test variant running on device '{device.upper()}'."
         )
     config.addinivalue_line(
         "markers",
@@ -80,6 +80,6 @@ def device(request: pytest.FixtureRequest) -> Generator[torch.device]:
     Yields:
         The active :class:`torch.device` for the test invocation.
     """
-    dev = torch.device(request.param)
-    with dev:
-        yield dev
+    device = torch.device(request.param)
+    with device:
+        yield device
