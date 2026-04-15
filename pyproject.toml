@@ -30,6 +30,7 @@ viz = [
 dev = [
   "pyrefly>=0.59.1",
   "pytest>=9.0.2",
+  "pytest-cov>=7.1.0",
   "ruff>=0.15.9",
 ]
 docs = [
@@ -80,7 +81,12 @@ convention = "google"
 docstring-code-format = true
 
 [tool.pytest.ini_options]
+addopts = "--cov --cov-report=term-missing"
 filterwarnings = [
   # Unrelated warning from ``@torch.jit.script_method`` in torch/utils/mkldnn.py.
   "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
 ]
+
+[tool.coverage.run]
+source = ["vision3d"]
+branch = true
