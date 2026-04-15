@@ -51,43 +51,13 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
-    container:
-      image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
-      volumes:
-        - /usr/share/dotnet:/host/dotnet
-        - /usr/local/lib/android:/host/android
-        - /opt/hostedtoolcache:/host/hostedtoolcache
     permissions:
       contents: read
-    env:
-      FORCE_CUDA: "1"
-      TORCH_CUDA_ARCH_LIST: "7.5;8.0;8.6;9.0;10.0;12.0+PTX"
-    strategy:
-      fail-fast: false
-      matrix: &torch-matrix
-        python-version: ["3.12", "3.13", "3.14"]
-        torch-version: ["2.10.0", "2.11.0"]
-        include:
-          - torch-version: "2.10.0"
-            cuda-version: "12.8.1"
-            cuda-tag: "cu128"
-          - torch-version: "2.11.0"
-            cuda-version: "13.0.2"
-            cuda-tag: "cu130"
-    name: "test (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }}+${{ matrix.cuda-tag }})"
+    name: test
     steps:
-      - name: Free disk space
-        shell: bash
-        run: |
-          shopt -s dotglob
-          rm -rf /host/dotnet/* &
-          rm -rf /host/android/* &
-          rm -rf /host/hostedtoolcache/* &
-          wait
       - name: Install system dependencies
         run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            git \
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
             libgl1 \
             libglib2.0-0 \
             libsm6 \
@@ -102,22 +72,14 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.14"
           enable-cache: true
           cache-local-path: ${{ github.workspace }}/.uv-cache
-          cache-suffix: test-torch-${{ matrix.torch-version }}+${{ matrix.cuda-tag }}
-      - name: Pin torch version
-        run: |
-          cat >> pyproject.toml <<EOF
-
-          [tool.uv]
-          constraint-dependencies = ["torch==${{ matrix.torch-version }}"]
-          build-constraint-dependencies = ["torch==${{ matrix.torch-version }}"]
-          EOF
+          cache-suffix: test-cpu
       - name: Install project
-        run: uv sync --all-extras
-      - name: Run tests
-        run: uv run pytest
+        run: uv sync --locked --all-extras
+      - name: Run CPU tests
+        run: uv run pytest -m cpu
 
   build:
     runs-on: ubuntu-24.04
@@ -134,7 +96,16 @@ jobs:
       TORCH_CUDA_ARCH_LIST: "7.5;8.0;8.6;9.0;10.0;12.0+PTX"
     strategy:
       fail-fast: false
-      matrix: *torch-matrix
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+        torch-version: ["2.10.0", "2.11.0"]
+        include:
+          - torch-version: "2.10.0"
+            cuda-version: "12.8.1"
+            cuda-tag: "cu128"
+          - torch-version: "2.11.0"
+            cuda-version: "13.0.2"
+            cuda-tag: "cu130"
     name: "build (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }}+${{ matrix.cuda-tag }})"
     steps:
       - name: Free disk space
