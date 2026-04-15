@@ -43,4 +43,4 @@ intersphinx_mapping = {
 
 templates_path = ["_templates"]
 
-html_theme = "furo"
+html_theme = "pydata_sphinx_theme"
