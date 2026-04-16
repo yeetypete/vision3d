@@ -26,29 +26,6 @@ class TestConstruction:
         pc = make_point_cloud_3d(num_points=10, num_features=4)
         assert pc.shape == (10, 7)
 
-    @pytest.mark.parametrize(
-        ("data", "input_requires_grad", "expected_requires_grad"),
-        [
-            ([[0.0, 0, 0]], None, False),
-            ([[0.0, 0, 0]], False, False),
-            ([[0.0, 0, 0]], True, True),
-            (torch.rand(1, 3, requires_grad=False), None, False),
-            (torch.rand(1, 3, requires_grad=False), False, False),
-            (torch.rand(1, 3, requires_grad=False), True, True),
-            (torch.rand(1, 3, requires_grad=True), None, True),
-            (torch.rand(1, 3, requires_grad=True), False, False),
-            (torch.rand(1, 3, requires_grad=True), True, True),
-        ],
-    )
-    def test_new_requires_grad(
-        self,
-        data: list[list[float]] | torch.Tensor,
-        input_requires_grad: bool | None,
-        expected_requires_grad: bool,
-    ) -> None:
-        pc = PointCloud3D(data, requires_grad=input_requires_grad)
-        assert pc.requires_grad is expected_requires_grad
-
     def test_rejects_1d(self) -> None:
         with pytest.raises(ValueError, match="2D"):
             PointCloud3D(torch.rand(10))

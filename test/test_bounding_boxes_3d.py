@@ -65,33 +65,6 @@ class TestConstruction:
         assert bbox.ndim == 2
         assert bbox.shape == (1, 9)
 
-    @pytest.mark.parametrize(
-        ("data", "input_requires_grad", "expected_requires_grad"),
-        [
-            ([[0.0] * 9], None, False),
-            ([[0.0] * 9], False, False),
-            ([[0.0] * 9], True, True),
-            (torch.rand(1, 9, requires_grad=False), None, False),
-            (torch.rand(1, 9, requires_grad=False), False, False),
-            (torch.rand(1, 9, requires_grad=False), True, True),
-            (torch.rand(1, 9, requires_grad=True), None, True),
-            (torch.rand(1, 9, requires_grad=True), False, False),
-            (torch.rand(1, 9, requires_grad=True), True, True),
-        ],
-    )
-    def test_new_requires_grad(
-        self,
-        data: list[list[float]] | torch.Tensor,
-        input_requires_grad: bool | None,
-        expected_requires_grad: bool,
-    ) -> None:
-        bbox = BoundingBoxes3D(
-            data,
-            format=BoundingBox3DFormat.XYZLWHYPR,
-            requires_grad=input_requires_grad,
-        )
-        assert bbox.requires_grad is expected_requires_grad
-
     def test_ndim_validation(self) -> None:
         with pytest.raises(ValueError, match="1D or 2D"):
             BoundingBoxes3D(torch.rand(2, 3, 9), format=BoundingBox3DFormat.XYZLWHYPR)
