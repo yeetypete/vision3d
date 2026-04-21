@@ -56,6 +56,19 @@ prek install
 
 See the [prek documentation](https://prek.j178.dev/) for more details.
 
+## Linting, formatting, and type checking
+
+We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting, and
+[`pyrefly`](https://pyrefly.org/) for type checking. All three run in CI and
+must be clean on a PR. You may run them locally via `uv`:
+
+```bash
+uv run ruff check             # lint
+uv run ruff format            # auto-format (writes changes)
+uv run ruff format --check    # check-only; fails if formatting is off
+uv run pyrefly check          # type check
+```
+
 ## Running tests
 
 Tests are parametrized by device via an autouse fixture in
