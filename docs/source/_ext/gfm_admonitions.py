@@ -19,7 +19,7 @@ from sphinx.util.typing import ExtensionMetadata
 
 # Match GitHub's strictness: the marker must be on its own line (only horizontal
 # whitespace permitted around it), and content follows on subsequent lines.
-_ALERT_RE = re.compile(r"^[ \t]*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*\n")
+_ALERT_RE = re.compile(r"^[ \t]*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\][ \t]*$")
 
 _ALERT_TO_NODE: dict[str, type[nodes.Element]] = {
     "NOTE": nodes.note,
