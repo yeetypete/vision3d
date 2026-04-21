@@ -11,9 +11,7 @@ may be discussed.
 
 - [`uv`](https://docs.astral.sh/uv/) for Python environment and project
   management.
-- The [CUDA toolkit](https://developer.nvidia.com/cuda-downloads) matching the
-  PyTorch build you want to develop against (CUDA 12.8 for torch 2.10, or CUDA
-  13.0 for torch 2.11).
+- [CUDA toolkit](https://developer.nvidia.com/cuda-downloads) >= 12.8.
 - `ninja` (for parallel compilation of the C++/CUDA extension).
 - A C++ toolchain (`build-essential` on Debian/Ubuntu).
 
