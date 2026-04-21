@@ -16,8 +16,6 @@ may be discussed.
   13.0 for torch 2.11).
 - `ninja` (for parallel compilation of the C++/CUDA extension).
 - A C++ toolchain (`build-essential` on Debian/Ubuntu).
-- Common runtime libs for some optional dependencies: `libgl1`, `libglib2.0-0`,
-  `libsm6`, `libxcb1`, `libxext6`, `libxrender1`.
 
 ## Setting up the dev environment
 
