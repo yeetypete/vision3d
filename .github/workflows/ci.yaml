@@ -41,7 +41,7 @@ jobs:
           cache-local-path: ${{ github.workspace }}/.uv-cache
           cache-suffix: lint
       - name: Install dependencies
-        run: uv sync --locked --all-extras --no-install-project
+        run: uv sync --locked --all-extras --all-groups --no-install-project
       - name: Ruff lint
         run: uv run ruff check
       - name: Ruff format
