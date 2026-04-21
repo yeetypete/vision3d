@@ -27,10 +27,9 @@ using [`uv`](https://docs.astral.sh/uv/) your package manager.
 uv add vision3d
 ```
 
-> [!NOTE]
-> Installing from PyPI builds the C++/CUDA extension on your machine, so the
-> build-time requirements above apply. Use a pre-built wheel if you want to skip
-> the compile step.
+> [!NOTE] Installing from PyPI builds the C++/CUDA extension on your machine, so
+> the build-time requirements above apply. Use a pre-built wheel if you want to
+> skip the compile step.
 
 ### From a release wheel
 
@@ -67,9 +66,8 @@ containers), force a CUDA build with:
 FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="12.0+PTX" uv sync --all-extras
 ```
 
-> [!NOTE]
-> `TORCH_CUDA_ARCH_LIST` selects which NVIDIA compute capabilities to compile
-> CUDA kernels for (e.g. `12.0` for RTX 50-series). See the
+> [!NOTE] `TORCH_CUDA_ARCH_LIST` selects which NVIDIA compute capabilities to
+> compile CUDA kernels for (e.g. `12.0` for RTX 50-series). See the
 > [PyTorch docs](https://docs.pytorch.org/docs/stable/cpp_extension.html#torch.utils.cpp_extension.CUDAExtension)
 > for the full syntax.
 
