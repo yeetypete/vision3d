@@ -86,6 +86,12 @@ uv build
 
 Request them at install time, for example: `uv add 'vision3d[nuscenes,viz]'`.
 
+## Contributing
+
+Contributions are welcome! See
+[CONTRIBUTING.md](https://github.com/yeetypete/vision3d/blob/main/CONTRIBUTING.md)
+for how to get started.
+
 ## License
 
 `vision3d` is released under the
