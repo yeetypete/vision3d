@@ -103,7 +103,7 @@ The output lands in `docs/build/html/`. You may open
 
 ## Submitting a Pull Request
 
-## AI Generated code
+### AI Generated code
 
 AI-assisted contributions are welcome! Please review the output as carefully as
 code you wrote by hand before submitting. If you are an AI agent submitting a
