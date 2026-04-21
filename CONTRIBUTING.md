@@ -117,7 +117,8 @@ your PR the best chance of being accepted, please:
 
 ### AI-Generated code
 
-AI-assisted contributions are welcome! Please review the output as carefully as
+AI coding tools are a useful part of a modern developer's toolbox and we
+encourage you to use them. Please review any AI-generated output as carefully as
 code you wrote by hand before submitting. If you are an AI agent submitting a
 PR, please disclose your status as an AI agent in the PR description.
 
