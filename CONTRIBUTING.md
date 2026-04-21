@@ -35,7 +35,7 @@ force a CUDA build with:
 FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="12.0+PTX" uv sync --all-extras --all-groups
 ```
 
-Set `TORCH_CUDA_ARCH_LIST` to the compute capabilities you care about. The value
+Set `TORCH_CUDA_ARCH_LIST` to the compute capabilities you require. The value
 above covers Blackwell GPUs.
 
 ## Pre-commit hooks
@@ -61,7 +61,7 @@ See the [prek documentation](https://prek.j178.dev/) for more details.
 Tests are parametrized by device via an autouse fixture in
 [`test/conftest.py`](./test/conftest.py) so that every test runs on each
 [`torch.device`](https://docs.pytorch.org/docs/stable/tensor_attributes.html#torch.device)
-backend (currently CPU and CUDA).
+backend. Currently CPU and CUDA are supported.
 
 ```bash
 uv run pytest            # run tests on all devices
@@ -88,14 +88,15 @@ compiled during the build.
 
 ## Documentation
 
-The docs are built with Sphinx from `docs/source/`. To build them locally:
+The docs are built with Sphinx from [`docs/source/`](./docs/source/). To build
+them locally:
 
 ```bash
 uv run make -C docs html
 ```
 
 The output lands in `docs/build/html/`. You may open
-`docs/build/html/index.html` to view the locally built docs in a browser.
+`docs/build/html/index.html` in the browser to view the locally built docs.
 
 ## Making a Pull Request
 
