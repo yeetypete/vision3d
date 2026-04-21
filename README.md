@@ -1,6 +1,6 @@
 # vision3d
 
-This library is a A 3D extension of
+This library is a 3D extension of
 [torchvision](https://docs.pytorch.org/vision/stable/), providing datasets,
 tensor types, transforms, ops, metrics, and visualization utilities for 3D
 perception tasks.
@@ -41,8 +41,8 @@ following combinations:
 - CUDA 13.0 (torch 2.11) and CUDA 12.8 (torch 2.10)
 - Linux x86_64
 
-Pick the wheel that matches your Python interpreter and PyTorch/CUDA version, then
-install it directly from the release URL:
+Pick the wheel that matches your Python interpreter and PyTorch/CUDA version,
+then install it directly from the release URL:
 
 ```bash
 uv add https://github.com/yeetypete/vision3d/releases/download/v0.1.0/vision3d-0.1.0+cu130-cp314-cp314-linux_x86_64.whl
@@ -66,9 +66,8 @@ containers), force a CUDA build with:
 FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="12.0+PTX" uv sync --all-extras
 ```
 
-> [!NOTE]
-> `TORCH_CUDA_ARCH_LIST` selects which NVIDIA compute capabilities to compile
-> CUDA kernels for (e.g. `12.0` for RTX 50-series). See the
+> [!NOTE] `TORCH_CUDA_ARCH_LIST` selects which NVIDIA compute capabilities to
+> compile CUDA kernels for (e.g. `12.0` for RTX 50-series). See the
 > [PyTorch docs](https://docs.pytorch.org/docs/stable/cpp_extension.html#torch.utils.cpp_extension.CUDAExtension)
 > for the full syntax.
 
