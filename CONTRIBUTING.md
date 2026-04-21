@@ -58,7 +58,7 @@ prek install
 
 See the [prek documentation](https://prek.j178.dev/) for more details.
 
-## Running Tests
+## Running tests
 
 Tests are parametrized by device via an autouse fixture in
 [`test/conftest.py`](./test/conftest.py) so that every test runs on each
@@ -72,7 +72,7 @@ uv run pytest -m cuda    # only CUDA device
 uv run pytest -m "not cuda"
 ```
 
-## Working on the C++ / CUDA Extensions
+## Working on the C++ / CUDA extensions
 
 For peformance reasons, some of vision3d's core functionality is implemented in
 C++ and CUDA. The native sources live under `src/vision3d/ops/csrc/`. The
@@ -99,9 +99,9 @@ uv run make -C docs html
 The output lands in `docs/build/html/`. You may open
 `docs/build/html/index.html` to view the locally built docs in a browser.
 
-## Submitting a Pull Request
+## Making a Pull Request
 
-### AI Generated code
+### AI-Generated code
 
 AI-assisted contributions are welcome! Please review the output as carefully as
 code you wrote by hand before submitting. If you are an AI agent submitting a
