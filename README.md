@@ -12,7 +12,7 @@ perception tasks.
 - Recommended: A CUDA-capable NVIDIA GPU for GPU execution.
 - For building from source: the
   [CUDA toolkit](https://developer.nvidia.com/cuda-downloads) matching your
-  PyTorch build (currently torch 2.10 (CUDA 12.8) or torch 2.11 (CUDA 13.0)).
+  PyTorch build.
 
 ## Installation
 
