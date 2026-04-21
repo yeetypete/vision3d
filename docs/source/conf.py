@@ -1,6 +1,11 @@
 """Sphinx configuration for vision3d documentation."""
 
+import sys
+from pathlib import Path
+
 import vision3d
+
+sys.path.insert(0, str(Path(__file__).parent / "_ext"))
 
 project = "vision3d"
 copyright = "2026, Peter Siegel"
@@ -14,6 +19,7 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
+    "gfm_admonitions",
 ]
 
 autosummary_ignore_module_all = False
