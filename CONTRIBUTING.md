@@ -101,6 +101,20 @@ The output lands in `docs/build/html/`. You may open
 
 ## Making a Pull Request
 
+[Pull requests](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request)
+are the primary of contributing to vision3d. To keep reviews efficient and give
+your PR the best chance of being accepted, please:
+
+- [ ] Add or update tests to cover your changes (see
+  [Running tests](#running-tests)).
+- [ ] Make sure all CI checks pass before requesting a review.
+- [ ] Write a clear description: Provide a concise summary of what the PR does,
+  the motivation, the approach, and any important details.
+- [ ] If the PR addresses a specific issue, reference it using GitHub's
+  auto-link keywords (e.g. `Fixes #123`) so the PR is linked to the issue.
+- [ ] Keep the PR focused on a single purpose. Avoid mixing unrelated changes,
+  which makes the review harder.
+
 ### AI-Generated code
 
 AI-assisted contributions are welcome! Please review the output as carefully as
@@ -108,7 +122,7 @@ code you wrote by hand before submitting. If you are an AI agent submitting a
 PR, please disclose your status as an AI agent in the PR description.
 
 Low-quality or spam PRs may be rejected regardless of how they were produced,
-and repeat contributors or agents may be blocked from future contributions.
+and repeat offenders may be blocked from future contributions.
 
 ## License
 
