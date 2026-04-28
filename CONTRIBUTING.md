@@ -137,6 +137,28 @@ PR, please disclose your status as an AI agent in the PR description.
 Low-quality or spam PRs may be rejected regardless of how they were produced,
 and repeat offenders may be blocked from future contributions.
 
+## Creating a release (maintainers only)
+
+The project follows [Semantic Versioning](https://semver.org/). Releases are
+created via the
+[Release workflow](https://github.com/yeetypete/vision3d/actions/workflows/release.yaml)
+([source](./.github/workflows/release.yaml)) from the Actions UI:
+
+1. Bump `version.txt` to the new version (e.g. `0.1.0` --> `0.1.1`) in its own
+   PR and merge to `main`.
+1. From the Actions tab, run the
+   [Release workflow](https://github.com/yeetypete/vision3d/actions/workflows/release.yaml)
+   and pass the new version (e.g. `0.1.1`) as input. The workflow verifies the
+   input matches `version.txt`, runs lint and tests, builds the full wheel
+   matrix (every supported Python + CUDA combination) plus the sdist, atomically
+   creates the GitHub release with tag `v<version>` and all artifacts attached,
+   and publishes the sdist to PyPI.
+
+> [!NOTE]
+> The `announce` (GitHub release creation) and `publish-pypi` jobs both
+> run inside the `pypi` deployment environment, so required reviewers configured
+> there gate the actual release and PyPI push.
+
 ## License
 
 By contributing to vision3d, you agree that your contributions will be licensed
