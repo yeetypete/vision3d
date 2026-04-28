@@ -3,7 +3,6 @@ name: ci
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -25,168 +24,30 @@ jobs:
           persist-credentials: false
       - name: Run pre-commit hooks
         uses: j178/prek-action@53276d8b0d10f8b6672aa85b4588c6921d0370cc # v2
+
   lint:
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
-        with:
-          enable-cache: true
-          cache-local-path: ${{ github.workspace }}/.uv-cache
-          cache-suffix: lint
-      - name: Install dependencies
-        run: uv sync --locked --all-extras --all-groups --no-install-project
-      - name: Ruff lint
-        run: uv run ruff check
-      - name: Ruff format
-        run: uv run ruff format --check
-      - name: Pyrefly typecheck
-        run: uv run pyrefly check
+    uses: ./.github/workflows/lint.yaml
 
   test:
+    uses: ./.github/workflows/test.yaml
+
+  read-version:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-    name: test
+    outputs:
+      version: ${{ steps.read.outputs.version }}
     steps:
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            libgl1 \
-            libglib2.0-0 \
-            libsm6 \
-            libxcb1 \
-            libxext6 \
-            libxrender1 \
-            ninja-build
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
-        with:
-          python-version: "3.14"
-          enable-cache: true
-          cache-local-path: ${{ github.workspace }}/.uv-cache
-          cache-suffix: test-cpu
-      - name: Install project
-        run: uv sync --locked --all-extras
-      - name: Run CPU tests
-        run: uv run pytest -m cpu
+      - name: Read version.txt
+        id: read
+        run: echo "version=$(cat version.txt)" >> "$GITHUB_OUTPUT"
 
   build:
-    runs-on: ubuntu-24.04
-    container:
-      image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
-      volumes:
-        - /usr/share/dotnet:/host/dotnet
-        - /usr/local/lib/android:/host/android
-        - /opt/hostedtoolcache:/host/hostedtoolcache
-    permissions:
-      contents: read
-    env:
-      FORCE_CUDA: "1"
-      TORCH_CUDA_ARCH_LIST: "7.5;8.0;8.6;9.0;10.0;12.0+PTX"
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.12", "3.13", "3.14"]
-        torch-version: ["2.10.0", "2.11.0"]
-        include:
-          - torch-version: "2.10.0"
-            cuda-version: "12.8.1"
-            cuda-tag: "cu128"
-          - torch-version: "2.11.0"
-            cuda-version: "13.0.2"
-            cuda-tag: "cu130"
-    name: "build (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }}+${{ matrix.cuda-tag }})"
-    steps:
-      - name: Free disk space
-        shell: bash
-        run: |
-          shopt -s dotglob
-          rm -rf /host/dotnet/* &
-          rm -rf /host/android/* &
-          rm -rf /host/hostedtoolcache/* &
-          wait
-      - name: Install system dependencies
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            git \
-            libgl1 \
-            libglib2.0-0 \
-            libsm6 \
-            libxcb1 \
-            libxext6 \
-            libxrender1 \
-            ninja-build
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
-        with:
-          python-version: ${{ matrix.python-version }}
-          enable-cache: true
-          cache-local-path: ${{ github.workspace }}/.uv-cache
-          cache-suffix: build-torch-${{ matrix.torch-version }}+${{ matrix.cuda-tag }}
-      - name: Pin torch version
-        run: |
-          cat >> pyproject.toml <<EOF
-
-          [tool.uv]
-          build-constraint-dependencies = ["torch==${{ matrix.torch-version }}"]
-          EOF
-      - name: Set BUILD_VERSION
-        run: echo "BUILD_VERSION=$(cat version.txt)+${{ matrix.cuda-tag }}" >> "$GITHUB_ENV"
-      - name: Build
-        run: uv build
-      - name: Upload wheel
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          archive: false
-          if-no-files-found: error
-          retention-days: 5
-          path: dist/*.whl
-
-  publish:
-    name: Publish to PyPI
-    needs: [lint, test, build]
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-24.04
-    environment:
-      name: pypi
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
-        with:
-          enable-cache: true
-      - name: Verify tag matches version.txt
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          version="$(cat version.txt)"
-          if [ "$tag" != "$version" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} (${tag}) does not match version.txt (${version})"
-            exit 1
-          fi
-      - name: Set BUILD_VERSION
-        run: echo "BUILD_VERSION=$(cat version.txt)" >> "$GITHUB_ENV"
-      - name: Build sdist
-        run: uv build --sdist
-      - name: Publish
-        run: uv publish
+    needs: read-version
+    uses: ./.github/workflows/build.yaml
+    with:
+      version: ${{ needs.read-version.outputs.version }}

@@ -1,0 +1,36 @@
+name: lint
+
+on:
+  workflow_call:
+    inputs:
+      cache:
+        description: "Whether the build should be cached."
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8
+        with:
+          enable-cache: ${{ inputs.cache }}
+          cache-local-path: ${{ github.workspace }}/.uv-cache
+          cache-suffix: lint
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --all-groups --no-install-project
+      - name: Ruff lint
+        run: uv run ruff check
+      - name: Ruff format
+        run: uv run ruff format --check
+      - name: Pyrefly typecheck
+        run: uv run pyrefly check
