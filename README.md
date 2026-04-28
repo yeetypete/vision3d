@@ -5,6 +5,10 @@ This library is a 3D extension of
 tensor types, transforms, ops, metrics, and visualization utilities for 3D
 perception tasks.
 
+> [!WARNING]
+> `vision3d` is in active early development. The API may change
+> without notice and documentation may be incomplete.
+
 ## Requirements
 
 - Python 3.12 or newer.
