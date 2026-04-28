@@ -36,18 +36,24 @@ jobs:
 
   lint:
     needs: verify
+    permissions:
+      contents: read
     uses: ./.github/workflows/lint.yaml
     with:
       cache: false
 
   test:
     needs: verify
+    permissions:
+      contents: read
     uses: ./.github/workflows/test.yaml
     with:
       cache: false
 
   build:
     needs: verify
+    permissions:
+      contents: read
     uses: ./.github/workflows/build.yaml
     with:
       version: ${{ inputs.version }}

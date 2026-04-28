@@ -26,9 +26,13 @@ jobs:
         uses: j178/prek-action@53276d8b0d10f8b6672aa85b4588c6921d0370cc # v2
 
   lint:
+    permissions:
+      contents: read
     uses: ./.github/workflows/lint.yaml
 
   test:
+    permissions:
+      contents: read
     uses: ./.github/workflows/test.yaml
 
   read-version:
@@ -48,6 +52,8 @@ jobs:
 
   build:
     needs: read-version
+    permissions:
+      contents: read
     uses: ./.github/workflows/build.yaml
     with:
       version: ${{ needs.read-version.outputs.version }}
