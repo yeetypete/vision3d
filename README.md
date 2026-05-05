@@ -5,6 +5,8 @@ This library is a 3D extension of
 tensor types, transforms, ops, metrics, and visualization utilities for 3D
 perception tasks.
 
+Documentation is available at [vision3d.dev](https://vision3d.dev).
+
 > [!WARNING]
 > `vision3d` is in active early development. The API may change
 > without notice and documentation may be incomplete.
