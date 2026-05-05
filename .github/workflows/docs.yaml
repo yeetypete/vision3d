@@ -73,6 +73,8 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
     permissions:
       contents: read
       deployments: write
