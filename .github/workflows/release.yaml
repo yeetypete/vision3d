@@ -64,7 +64,7 @@ jobs:
     needs: [lint, test, build]
     runs-on: ubuntu-24.04
     environment:
-      name: pypi
+      name: release
     permissions:
       contents: write
     steps:
@@ -93,7 +93,7 @@ jobs:
     needs: announce
     runs-on: ubuntu-24.04
     environment:
-      name: pypi
+      name: release
     permissions:
       id-token: write
       contents: read
