@@ -57,8 +57,15 @@ jobs:
           enable-cache: true
           cache-local-path: ${{ github.workspace }}/.uv-cache
           cache-suffix: docs
+      - name: Pin torch version
+        run: |
+          cat >> pyproject.toml <<EOF
+
+          [tool.uv]
+          build-constraint-dependencies = ["torch==2.11.0"]
+          EOF
       - name: Install dependencies
-        run: uv sync --locked --all-extras --all-groups
+        run: uv sync --all-extras --all-groups
       - name: Build docs
         run: uv run make -C docs html
       - name: Upload docs artifact
