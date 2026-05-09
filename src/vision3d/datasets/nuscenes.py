@@ -10,6 +10,7 @@ from nuscenes.eval.detection.utils import category_to_detection_name
 from PIL import Image
 from torch import Tensor
 from torch.utils.data import Dataset
+from torchvision.datasets.utils import download_and_extract_archive
 
 from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.tensors import (
@@ -48,6 +49,12 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         split (str): One of ``"train"`` or ``"val"``. Default: ``"train"``.
         transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
+        download (bool, optional): If true, downloads the dataset from the
+            internet and puts it in root directory. If dataset is already
+            downloaded, it is not downloaded again. Only the publicly
+            available ``v1.0-mini`` split is supported. Other versions
+            require manual download from `nuscenes.org
+            <https://www.nuscenes.org/>`_.
     """
 
     camera_names: ClassVar[list[str]] = CAMERA_NAMES
@@ -55,12 +62,16 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     classes: ClassVar[list[str]] = list(DETECTION_NAMES)
     class_to_idx: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(classes)}
 
+    data_url: ClassVar[str] = "https://www.nuscenes.org/data/"
+    mini_archive: ClassVar[str] = "v1.0-mini.tgz"
+
     def __init__(
         self,
         root: str | os.PathLike[str],
         version: str = "v1.0-mini",
         split: str = "train",
         transforms: Any | None = None,
+        download: bool = False,
     ) -> None:
         try:
             from nuscenes.nuscenes import NuScenes
@@ -72,6 +83,16 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         self.version = version
         self.split = split
         self.transforms = transforms
+
+        if download:
+            self.download()
+        if not self._check_exists():
+            raise RuntimeError(
+                f"Dataset not found at {self.root!r}. "
+                f"You may use download=True to download the v1.0-mini split. "
+                f"Other versions require manual download from "
+                f"https://www.nuscenes.org."
+            )
 
         self._nusc = NuScenes(version=version, dataroot=self.root, verbose=False)
 
@@ -89,6 +110,35 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     def __len__(self) -> int:
         """Return the number of samples."""
         return len(self._sample_tokens)
+
+    def _check_exists(self) -> bool:
+        return os.path.isdir(os.path.join(self.root, self.version))
+
+    def download(self) -> None:
+        """Download the nuScenes dataset if it doesn't exist already.
+
+        Only the publicly available ``v1.0-mini`` split is supported.
+        other versions require manual download from
+        `nuscenes.org <https://www.nuscenes.org/>`_.
+
+        Raises:
+            RuntimeError: If ``version`` is not ``"v1.0-mini"``.
+        """
+        if self._check_exists():
+            return
+        if self.version != "v1.0-mini":
+            msg = (
+                f"Automatic download is only supported for v1.0-mini. got "
+                f"version={self.version!r}. Other versions require manual "
+                f"download from https://www.nuscenes.org."
+            )
+            raise RuntimeError(msg)
+        os.makedirs(self.root, exist_ok=True)
+        download_and_extract_archive(
+            url=f"{self.data_url}{self.mini_archive}",
+            download_root=self.root,
+            filename=self.mini_archive,
+        )
 
     @override
     def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets]:

@@ -184,7 +184,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         )
 
     def download(self) -> None:
-        """Download the KITTI data if it doesn't exist already."""
+        """Download the KITTI dataset if it doesn't exist already."""
         if self._check_exists():
             return
 
