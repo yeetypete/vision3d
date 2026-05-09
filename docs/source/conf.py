@@ -19,10 +19,19 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
+    "sphinx_gallery.gen_gallery",
     "gfm_admonitions",
+    "rerun_embed",
 ]
 
 autosummary_ignore_module_all = False
+
+sphinx_gallery_conf = {
+    "examples_dirs": "../../gallery",
+    "gallery_dirs": "auto_examples",
+    "remove_config_comments": True,
+    "show_signature": False,
+}
 
 autodoc_default_options = {
     "members": True,
@@ -48,6 +57,7 @@ intersphinx_mapping = {
 }
 
 templates_path = ["_templates"]
+html_static_path = ["_static"]
 
 html_theme = "pydata_sphinx_theme"
 html_title = f"vision3d {release}"

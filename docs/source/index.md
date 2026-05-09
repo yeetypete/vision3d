@@ -9,5 +9,6 @@
 :caption: Contents:
 :hidden:
 
+auto_examples/index
 api/index
 ```
