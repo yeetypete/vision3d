@@ -1,6 +1,11 @@
 # Wrangler
 .wrangler/
 
+# Sphinx-gallery
+docs/source/_static/*.rrd
+docs/source/auto_examples/
+docs/source/sg_execution_times.rst
+
 # Claude Code
 .claude/settings.local.json
 
