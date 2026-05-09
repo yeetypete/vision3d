@@ -1,6 +1,7 @@
 """`nuScenes <https://www.nuscenes.org/>`_ Dataset."""
 
 import os
+from pathlib import Path
 from typing import Any, ClassVar, override
 
 import numpy as np
@@ -79,7 +80,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             msg = "nuscenes-devkit is required. Install with: uv sync --group nuscenes"
             raise ImportError(msg) from e
 
-        self.root = str(root)
+        self.root = Path(root)
         self.version = version
         self.split = split
         self.transforms = transforms
@@ -88,13 +89,13 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             self.download()
         if not self._check_exists():
             raise RuntimeError(
-                f"Dataset not found at {self.root!r}. "
+                f"Dataset not found at {str(self.root)!r}. "
                 f"You may use download=True to download the v1.0-mini split. "
                 f"Other versions require manual download from "
                 f"https://www.nuscenes.org."
             )
 
-        self._nusc = NuScenes(version=version, dataroot=self.root, verbose=False)
+        self._nusc = NuScenes(version=version, dataroot=str(self.root), verbose=False)
 
         # Collect sample tokens for the requested split
         split_scenes = _get_split_scenes(version, split)
@@ -112,7 +113,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         return len(self._sample_tokens)
 
     def _check_exists(self) -> bool:
-        return os.path.isdir(os.path.join(self.root, self.version))
+        return (self.root / self.version).is_dir()
 
     def download(self) -> None:
         """Download the nuScenes dataset if it doesn't exist already.
@@ -133,10 +134,10 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
                 f"download from https://www.nuscenes.org."
             )
             raise RuntimeError(msg)
-        os.makedirs(self.root, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True)
         download_and_extract_archive(
             url=f"{self.data_url}{self.mini_archive}",
-            download_root=self.root,
+            download_root=str(self.root),
             filename=self.mini_archive,
         )
 
@@ -233,12 +234,12 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         return inputs, targets
 
     def _load_lidar(self, lidar_data: dict[str, Any]) -> Tensor:
-        path = os.path.join(self.root, lidar_data["filename"])
+        path = self.root / lidar_data["filename"]
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)
         return torch.from_numpy(points)
 
     def _load_image(self, cam_data: dict[str, Any]) -> Tensor:
-        path = os.path.join(self.root, cam_data["filename"])
+        path = self.root / cam_data["filename"]
         img = np.array(Image.open(path).convert("RGB"))
         return torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
 

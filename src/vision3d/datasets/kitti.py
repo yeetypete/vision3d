@@ -2,6 +2,7 @@
 
 import csv
 import os
+from pathlib import Path
 from typing import Any, ClassVar, override
 
 import numpy as np
@@ -87,7 +88,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         transforms: Any | None = None,
         download: bool = False,
     ) -> None:
-        self.root = str(root)
+        self.root = Path(root)
         self.train = train
         self.transforms = transforms
         self._location = "training" if train else "testing"
@@ -99,13 +100,9 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
                 "Dataset not found. You may use download=True to download it."
             )
 
-        velodyne_dir = os.path.join(
-            self._raw_folder, self._location, self.velodyne_dir_name
-        )
+        velodyne_dir = self._raw_folder / self._location / self.velodyne_dir_name
         self._frame_ids = sorted(
-            os.path.splitext(f)[0]
-            for f in os.listdir(velodyne_dir)
-            if f.endswith(".bin")
+            p.stem for p in velodyne_dir.iterdir() if p.suffix == ".bin"
         )
 
     def __len__(self) -> int:
@@ -138,7 +135,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
             - ``"labels"``: :class:`~torch.Tensor` of class indices.
         """
         frame_id = self._frame_ids[index]
-        base = os.path.join(self._raw_folder, self._location)
+        base = self._raw_folder / self._location
 
         points = self._load_velodyne(base, frame_id)
         calib = self._load_calib(base, frame_id)
@@ -171,16 +168,15 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         return inputs, targets
 
     @property
-    def _raw_folder(self) -> str:
-        return os.path.join(self.root, self.__class__.__name__, "raw")
+    def _raw_folder(self) -> Path:
+        return self.root / self.__class__.__name__ / "raw"
 
     def _check_exists(self) -> bool:
         folders = [self.velodyne_dir_name, self.calib_dir_name]
         if self.train:
             folders.append(self.labels_dir_name)
         return all(
-            os.path.isdir(os.path.join(self._raw_folder, self._location, d))
-            for d in folders
+            (self._raw_folder / self._location / d).is_dir() for d in folders
         )
 
     def download(self) -> None:
@@ -188,38 +184,38 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         if self._check_exists():
             return
 
-        os.makedirs(self._raw_folder, exist_ok=True)
+        self._raw_folder.mkdir(parents=True, exist_ok=True)
 
         for fname in self.resources:
             download_and_extract_archive(
                 url=f"{self.data_url}{fname}",
-                download_root=self._raw_folder,
+                download_root=str(self._raw_folder),
                 filename=fname,
             )
 
-    def _load_velodyne(self, base: str, frame_id: str) -> Tensor:
-        path = os.path.join(base, self.velodyne_dir_name, f"{frame_id}.bin")
+    def _load_velodyne(self, base: Path, frame_id: str) -> Tensor:
+        path = base / self.velodyne_dir_name / f"{frame_id}.bin"
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 4)
         return torch.from_numpy(points)
 
-    def _load_image(self, base: str, frame_id: str) -> Tensor:
-        path = os.path.join(base, self.image_dir_name, f"{frame_id}.png")
-        if os.path.exists(path):
+    def _load_image(self, base: Path, frame_id: str) -> Tensor:
+        path = base / self.image_dir_name / f"{frame_id}.png"
+        if path.exists():
             img = np.array(Image.open(path).convert("RGB"))
             # [H, W, 3] -> [1, 3, H, W]
             return torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
         return torch.zeros(1, 3, 1, 1)
 
-    def _load_calib(self, base: str, frame_id: str) -> dict[str, Tensor]:
+    def _load_calib(self, base: Path, frame_id: str) -> dict[str, Tensor]:
         """Parse KITTI calibration file.
 
         Returns:
             Dict with ``"extrinsics"`` (lidar-to-camera, ``[1, 4, 4]``) and
             ``"intrinsics"`` (camera P2 projection, ``[1, 3, 3]``).
         """
-        path = os.path.join(base, self.calib_dir_name, f"{frame_id}.txt")
+        path = base / self.calib_dir_name / f"{frame_id}.txt"
         calib_data: dict[str, np.ndarray] = {}
-        with open(path) as f:
+        with path.open() as f:
             for line in f:
                 if ":" not in line:
                     continue
@@ -255,7 +251,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
 
     def _load_targets(
         self,
-        base: str,
+        base: Path,
         frame_id: str,
         calib: dict[str, Tensor],
     ) -> SampleTargets:
@@ -265,11 +261,11 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
             Dict with ``"boxes"`` (:class:`BoundingBoxes3D`, XYZLWHY format),
             ``"labels"`` (int tensor).
         """
-        path = os.path.join(base, self.labels_dir_name, f"{frame_id}.txt")
+        path = base / self.labels_dir_name / f"{frame_id}.txt"
         label_ids: list[int] = []
         boxes_cam: list[list[float]] = []
 
-        with open(path) as f:
+        with path.open() as f:
             for line in csv.reader(f, delimiter=" "):
                 if not line or line[0] == "DontCare":
                     continue
