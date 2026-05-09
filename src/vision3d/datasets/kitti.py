@@ -175,9 +175,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         folders = [self.velodyne_dir_name, self.calib_dir_name]
         if self.train:
             folders.append(self.labels_dir_name)
-        return all(
-            (self._raw_folder / self._location / d).is_dir() for d in folders
-        )
+        return all((self._raw_folder / self._location / d).is_dir() for d in folders)
 
     def download(self) -> None:
         """Download the KITTI dataset if it doesn't exist already."""
