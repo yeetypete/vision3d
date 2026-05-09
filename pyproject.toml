@@ -32,6 +32,8 @@ dev = [
   "pytest>=9.0.2",
   "pytest-cov>=7.1.0",
   "ruff>=0.15.9",
+  "types-docutils>=0.21",
+  "types-setuptools>=80",
 ]
 docs = [
   "myst-parser>=5.0.0",

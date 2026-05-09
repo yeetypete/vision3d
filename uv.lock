@@ -2998,6 +2998,24 @@ wheels = [
 ]
 
 [[package]]
+name = "types-docutils"
+version = "0.22.3.20260508"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/fa/38121f440851d813099c73296219e1b7be327cdd5b250b171744053dc87e/types_docutils-0.22.3.20260508.tar.gz", hash = "sha256:f043dd1fffad161cb671b0e3bf593bb5229b8d40bf365ac7d8337296dc97e6bc", size = 57431, upload-time = "2026-05-08T04:46:34.541Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/07/f407403b94fc80a22e9ff9c31f17d78a3272f6cce9773081fbaf853a09e7/types_docutils-0.22.3.20260508-py3-none-any.whl", hash = "sha256:47bbac43bee53bcaf99f12f5b4253bf864777c31ac4eda6e3bf6660aa6ceac40", size = 91919, upload-time = "2026-05-08T04:46:33.336Z" },
+]
+
+[[package]]
+name = "types-setuptools"
+version = "82.0.0.20260508"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a3/53/8c7ca2263165f13b493f5258a317acb09cab02742e816c38cd5fe6f09e5a/types_setuptools-82.0.0.20260508.tar.gz", hash = "sha256:e76ade6f42ba9b4211636b84b65a8e55948a67ffe81f9a44e66b8af93d57e77e", size = 44919, upload-time = "2026-05-08T04:47:48.32Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d0/67/f49414a00fc61a4bc64bd0ff879bb230818b68e62c5cf91fc7c098912aac/types_setuptools-82.0.0.20260508-py3-none-any.whl", hash = "sha256:ba1d863bbd11526d7232bca8d5a4aebe1d38fa1677a550f47a2692b7d5776900", size = 68395, upload-time = "2026-05-08T04:47:47.391Z" },
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.15.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3056,6 +3074,8 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "types-docutils" },
+    { name = "types-setuptools" },
 ]
 docs = [
     { name = "myst-parser" },
@@ -3080,6 +3100,8 @@ dev = [
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.15.9" },
+    { name = "types-docutils", specifier = ">=0.21" },
+    { name = "types-setuptools", specifier = ">=80" },
 ]
 docs = [
     { name = "myst-parser", specifier = ">=5.0.0" },
