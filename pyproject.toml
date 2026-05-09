@@ -37,6 +37,7 @@ docs = [
   "myst-parser>=5.0.0",
   "pydata-sphinx-theme>=0.17.0",
   "sphinx>=9.1.0",
+  "sphinx-gallery>=0.21.0",
 ]
 
 [build-system]
@@ -45,7 +46,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.pyrefly]
 min-severity = "ignore"
-search-path = ["examples", "test"]
+search-path = ["examples", "test", "gallery"]
 
 [tool.pyrefly.errors]
 # Pyrefly does not yet have a strict mode, so we manually set all diagnostics
@@ -73,6 +74,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "test/**" = ["D"]
 "examples/**" = ["D"]
+"gallery/**" = ["D", "E402", "I001"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
