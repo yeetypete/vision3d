@@ -19,9 +19,9 @@ visualizing a frame with :func:`vision3d.viz.log_sample`.
 
 from pathlib import Path
 
-NUSCENES_ROOT = Path("~/.cache/vision3d/nuscenes-mini").expanduser()
-
 from vision3d.datasets import NuScenes3D
+
+NUSCENES_ROOT = Path("~/.cache/vision3d/nuscenes-mini").expanduser()
 
 dataset = NuScenes3D(NUSCENES_ROOT, version="v1.0-mini", split="train", download=True)
 print(f"len(dataset) = {len(dataset)}")
