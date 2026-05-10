@@ -1,0 +1,18 @@
+/* Keep the rerun viewer inside its embed container after exiting fullscreen.
+ *
+ * On minimize, rerun (>=0.31.x) strips the canvas's inline style, wiping
+ * the width/height: 100% it set on mount. Restoring it via the canvas
+ * selector below is not enough on its own: during the minimize transition
+ * the canvas briefly overflows before settling, which adds a horizontal
+ * scrollbar to the page. Clipping overflow on .rerun-embed hides that.
+ *
+ * The :not() guard yields the canvas to rerun's own fullscreen sizing.
+ */
+.rerun-embed > canvas:not(.rerun-viewer-fullscreen-base) {
+  width: 100%;
+  height: 100%;
+}
+
+.rerun-embed {
+  overflow: hidden;
+}

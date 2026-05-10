@@ -84,6 +84,7 @@ def setup(app: Sphinx) -> ExtensionMetadata:
     """
     app.add_directive("rerun-embed", RerunEmbedDirective)
     app.add_js_file("rerun_embed.js", type="module")
+    app.add_css_file("rerun_embed.css")
     return {
         "version": "0.1",
         "parallel_read_safe": True,
