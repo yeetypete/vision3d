@@ -52,7 +52,7 @@ Pick the wheel that matches your Python interpreter and PyTorch/CUDA version,
 then install it directly from the release URL:
 
 ```bash
-uv add https://github.com/yeetypete/vision3d/releases/download/v0.2.1/vision3d-0.2.1+cu130-cp314-cp314-linux_x86_64.whl
+uv add https://github.com/yeetypete/vision3d/releases/download/v0.2.2/vision3d-0.2.2+cu130-cp314-cp314-linux_x86_64.whl
 ```
 
 ### From source
