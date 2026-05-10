@@ -23,8 +23,8 @@ def camera_grid(
     follow ``log_cameras``' ``{entity_prefix}_{i}`` convention so this helper
     pairs directly with :func:`vision3d.viz.log_cameras`.
 
-    ``grid`` rows may be ragged. The grid is flattened row-major and wrapped
-    at the widest row's column count.
+    Panels are emitted row-major into a :class:`rrb.Grid` with
+    ``grid_columns`` set to the widest row.
 
     Args:
         camera_names: Per-camera display names indexed by tensor position.
