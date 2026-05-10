@@ -23,16 +23,6 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 
-# Camera ordering for consistent multi-camera tensor layout
-CAMERA_NAMES: list[str] = [
-    "CAM_FRONT",
-    "CAM_FRONT_RIGHT",
-    "CAM_BACK_RIGHT",
-    "CAM_BACK",
-    "CAM_BACK_LEFT",
-    "CAM_FRONT_LEFT",
-]
-
 
 class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     """`nuScenes <https://www.nuscenes.org/>`_ 3D object detection dataset.
@@ -58,7 +48,21 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             <https://www.nuscenes.org/>`_.
     """
 
-    camera_names: ClassVar[list[str]] = CAMERA_NAMES
+    # Camera ordering for consistent multi-camera tensor layout
+    camera_names: ClassVar[tuple[str, ...]] = (
+        "CAM_FRONT",
+        "CAM_FRONT_RIGHT",
+        "CAM_BACK_RIGHT",
+        "CAM_BACK",
+        "CAM_BACK_LEFT",
+        "CAM_FRONT_LEFT",
+    )
+    # Row-major layout matching the physical rig. Indices reference
+    # ``camera_names`` positions. Rows may have different lengths.
+    camera_grid: ClassVar[tuple[tuple[int, ...], ...] | None] = (
+        (5, 0, 1),  # CAM_FRONT_LEFT, CAM_FRONT, CAM_FRONT_RIGHT
+        (4, 3, 2),  # CAM_BACK_LEFT,  CAM_BACK,  CAM_BACK_RIGHT
+    )
 
     classes: ClassVar[list[str]] = list(DETECTION_NAMES)
     class_to_idx: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(classes)}
