@@ -18,7 +18,6 @@ help:
 # (sphinx-gallery's MD5/output cache, autosummary's generated stubs).
 livehtml:
 	sphinx-autobuild "$(SOURCEDIR)" "$(BUILDDIR)/html" \
-		--open-browser \
 		--watch ../gallery \
 		--watch ../src \
 		--ignore "$(SOURCEDIR)/auto_examples/*" \
