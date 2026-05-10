@@ -18,6 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import rerun as rr
 import sphinx_gallery.gen_rst as _sg_gen_rst
 from sphinx.application import Sphinx
 from sphinx.util.typing import ExtensionMetadata
@@ -28,6 +29,16 @@ from sphinx_gallery.py_source_parser import Block
 # rr.save is incremental, so we deliberately save each recording exactly
 # once: at the end of the cell that first calls rr.init for that app_id.
 _embedded: set[tuple[str, str]] = set()
+
+# Capture the true ``rr.init`` once at module load and define a single
+# wrapper that always forces ``spawn=False`` to avoid spawning the rerun
+# viewer during sphinx-gallery builds. ``_reset_rerun_init`` rebinds
+# ``rr.init`` to this wrapper before each gallery script.
+_original_rr_init = rr.init
+
+
+def _patched_rr_init(*args: Any, spawn: bool = False, **kwargs: Any) -> Any:
+    return _original_rr_init(*args, spawn=False, **kwargs)
 
 
 def rerun_scraper(
@@ -51,11 +62,6 @@ def rerun_scraper(
         A ``.. rerun-embed::`` directive the first time a given
         ``(script, app_id)`` is seen, empty string otherwise.
     """
-    try:
-        import rerun as rr
-    except ImportError:
-        return ""
-
     app_id = rr.get_application_id()
     if not app_id:
         return ""
@@ -75,19 +81,8 @@ def rerun_scraper(
 
 
 def _reset_rerun_init(gallery_conf: GalleryConfig, fname: str | None) -> None:
-    """Patch ``rr.init`` to ignore ``spawn=True`` for the about-to-run script.
-
-    Sphinx-gallery calls registered ``reset_modules`` callables at the start
-    of each script execution.
-    """
-    import rerun as rr
-
-    original_init = rr.init
-
-    def patched_init(*args: Any, spawn: bool = False, **kwargs: Any) -> Any:
-        return original_init(*args, spawn=False, **kwargs)
-
-    rr.init = patched_init
+    """Rebind ``rr.init`` to the ``spawn=False`` wrapper for the next script."""
+    rr.init = _patched_rr_init
 
 
 def _get_sg_image_scraper() -> Callable[[Block, dict[str, Any], GalleryConfig], str]:
