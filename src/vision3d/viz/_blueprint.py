@@ -23,8 +23,8 @@ def camera_grid(
     follow ``log_cameras``' ``{entity_prefix}_{i}`` convention so this helper
     pairs directly with :func:`vision3d.viz.log_cameras`.
 
-    Panels are emitted row-major into a :class:`rrb.Grid` with
-    ``grid_columns`` set to the widest row.
+    Panels are emitted row-major into a :class:`~rerun.blueprint.Grid`
+    with ``grid_columns`` set to the widest row.
 
     Args:
         camera_names: Per-camera display names indexed by tensor position.
@@ -37,8 +37,8 @@ def camera_grid(
             panel (e.g. ``"world/boxes"``). Pass ``None`` to skip the overlay.
 
     Returns:
-        An ``rrb.Grid`` containing one ``rrb.Spatial2DView`` per declared
-        camera.
+        A :class:`~rerun.blueprint.Grid` containing one
+        :class:`~rerun.blueprint.Spatial2DView` per declared camera.
 
     Raises:
         ValueError: If any index is out of range for ``camera_names``.
@@ -92,7 +92,8 @@ def lidar_view(
         name: Display name shown in the view's title bar.
 
     Returns:
-        An ``rrb.Spatial3DView`` rooted at ``/{entity_prefix}``.
+        A :class:`~rerun.blueprint.Spatial3DView` rooted at
+        ``/{entity_prefix}``.
     """
     return rrb.Spatial3DView(origin=f"/{entity_prefix}", name=name)
 
@@ -122,7 +123,8 @@ def fusion_layout(
         name: Optional display name.
 
     Returns:
-        An ``rrb.Vertical`` container stacking the 3D view and camera grid.
+        A :class:`~rerun.blueprint.Vertical` container stacking the 3D view
+        and camera grid.
     """
     return rrb.Vertical(
         lidar_view(entity_prefix=entity_prefix),
