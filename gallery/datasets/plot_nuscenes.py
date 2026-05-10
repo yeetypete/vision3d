@@ -13,9 +13,10 @@ visualizing a frame with :func:`vision3d.viz.log_sample`.
 # %%
 # Construct the dataset
 # ---------------------
-# :class:`~vision3d.datasets.NuScenes3D` yields fusion samples: each sample
-# carries lidar points, all six camera images, their intrinsics and
-# extrinsics, and 3D bounding-box annotations.
+# :class:`~vision3d.datasets.NuScenes3D` yields sample frames describing
+# the 3D scene. Each sample carries lidar points, all six camera images,
+# their intrinsics and extrinsics, and 3D bounding-box annotations of the
+# objects in the scene.
 
 from pathlib import Path
 
