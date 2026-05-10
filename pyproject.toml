@@ -23,7 +23,7 @@ nuscenes = [
   "nuscenes-devkit>=1.1.9",
 ]
 viz = [
-  "rerun-sdk>=0.31.1",
+  "rerun-sdk>=0.31.4",
 ]
 
 [dependency-groups]
