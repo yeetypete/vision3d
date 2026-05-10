@@ -48,7 +48,7 @@ class RerunEmbedDirective(Directive):
         """Render the embed as a raw-HTML node.
 
         Returns:
-            A single ``nodes.raw`` HTML node — a ``<div>`` carrying the rrd
+            A single ``nodes.raw`` HTML node: a ``<div>`` carrying the rrd
             path and SDK version on ``data-*`` attributes for the shared
             loader to pick up.
         """
