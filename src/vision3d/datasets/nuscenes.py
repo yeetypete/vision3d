@@ -61,7 +61,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     # ``camera_names`` positions. Rows may have different lengths.
     camera_grid: ClassVar[tuple[tuple[int, ...], ...] | None] = (
         (5, 0, 1),  # CAM_FRONT_LEFT, CAM_FRONT, CAM_FRONT_RIGHT
-        (4, 3, 2),  # CAM_BACK_LEFT,  CAM_BACK,  CAM_BACK_RIGHT
+        (2, 3, 4),  # CAM_BACK_RIGHT,  CAM_BACK,  CAM_BACK_LEFT
     )
 
     classes: ClassVar[list[str]] = list(DETECTION_NAMES)
