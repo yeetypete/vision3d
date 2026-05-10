@@ -31,6 +31,7 @@ sphinx_gallery_conf = {
     "gallery_dirs": "auto_examples",
     "remove_config_comments": True,
     "show_signature": False,
+    "parallel": True,
 }
 
 autodoc_default_options = {
