@@ -17,11 +17,24 @@ async function initRerunEmbeds() {
   for (const el of containers) {
     const rrdUrl = new URL(el.dataset.rrd, document.baseURI).href;
     const viewer = new WebViewer();
-    await viewer.start(rrdUrl, el, {
+    // start() creates and appends the canvas synchronously before its
+    // first await, so viewer.canvas is set as soon as the call returns
+    // a promise. Patch focus() on the canvas to default preventScroll:
+    // true before the WASM (eframe) calls it on mount, otherwise Chrome
+    // scrolls the page to bring the focused canvas into view, jumping
+    // to the embed. Firefox does not exhibit this. The WebViewer API
+    // exposes no option to control this upstream.
+    const startPromise = viewer.start(rrdUrl, el, {
       width: "100%",
       height: "100%",
       allow_fullscreen: true,
     });
+    const canvas = viewer.canvas;
+    if (canvas) {
+      const origFocus = canvas.focus.bind(canvas);
+      canvas.focus = (opts) => origFocus({ ...opts, preventScroll: true });
+    }
+    await startPromise;
   }
 }
 
