@@ -54,6 +54,7 @@ intersphinx_mapping = {
     "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "torchvision": ("https://docs.pytorch.org/vision/stable/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "rerun": ("https://ref.rerun.io/docs/python/stable/", None),
 }
 
 templates_path = ["_templates"]
