@@ -43,24 +43,32 @@ print(f"classes ({len(dataset.classes)}): {dataset.classes}")
 inputs, targets = dataset[0]
 
 print("inputs:")
-print(f"  points: shape={tuple(inputs['points'].shape)} dtype={inputs['points'].dtype}")
-print(f"  images: shape={tuple(inputs['images'].shape)} dtype={inputs['images'].dtype}")
 print(
-    f"  intrinsics: shape={tuple(inputs['intrinsics'].shape)}"
-    f"dtype={inputs['intrinsics'].dtype}"
+    f"  points: type={type(inputs['points']).__name__} "
+    f"shape={tuple(inputs['points'].shape)} dtype={inputs['points'].dtype}"
 )
 print(
-    f"  extrinsics: shape={tuple(inputs['extrinsics'].shape)}"
-    f"dtype={inputs['extrinsics'].dtype}"
+    f"  images: type={type(inputs['images']).__name__} "
+    f"shape={tuple(inputs['images'].shape)} dtype={inputs['images'].dtype}"
+)
+print(
+    f"  intrinsics: type={type(inputs['intrinsics']).__name__} "
+    f"shape={tuple(inputs['intrinsics'].shape)} dtype={inputs['intrinsics'].dtype}"
+)
+print(
+    f"  extrinsics: type={type(inputs['extrinsics']).__name__} "
+    f"shape={tuple(inputs['extrinsics'].shape)} dtype={inputs['extrinsics'].dtype}"
 )
 
 print("targets:")
 print(
-    f"  boxes: shape={tuple(targets['boxes'].shape)}"
-    f"format={targets['boxes'].format.name} dtype={targets['boxes'].dtype}"
+    f"  boxes: type={type(targets['boxes']).__name__} "
+    f"shape={tuple(targets['boxes'].shape)} dtype={targets['boxes'].dtype} "
+    f"format={targets['boxes'].format.name}"
 )
 print(
-    f"  labels: shape={tuple(targets['labels'].shape)} dtype={targets['labels'].dtype}"
+    f"  labels: type={type(targets['labels']).__name__} "
+    f"shape={tuple(targets['labels'].shape)} dtype={targets['labels'].dtype}"
 )
 
 # %%
