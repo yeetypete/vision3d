@@ -22,6 +22,7 @@ extensions = [
     "sphinx_gallery.gen_gallery",
     "gfm_admonitions",
     "rerun_embed",
+    "rerun_scraper",
 ]
 
 autosummary_ignore_module_all = False
@@ -31,7 +32,8 @@ sphinx_gallery_conf = {
     "gallery_dirs": "auto_examples",
     "remove_config_comments": True,
     "show_signature": False,
-    "parallel": True,
+    "image_scrapers": ("rerun_scraper",),
+    "reset_modules": ("rerun",),
 }
 
 autodoc_default_options = {

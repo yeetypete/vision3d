@@ -2772,11 +2772,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b8/dd/d95843947392524418aa9fc4e8d205e82b4261ab2d2fab4abce7a14ee7c0/sphinx_gallery-0.21.0-py3-none-any.whl", hash = "sha256:f37bea4012f1cd7439c7782081e4259945207cf179e79b81330a6db3b18bca8b", size = 466808, upload-time = "2026-04-24T03:09:25.992Z" },
 ]
 
-[package.optional-dependencies]
-parallel = [
-    { name = "joblib" },
-]
-
 [[package]]
 name = "sphinxcontrib-applehelp"
 version = "2.0.0"
@@ -3142,7 +3137,7 @@ docs = [
     { name = "pydata-sphinx-theme" },
     { name = "sphinx" },
     { name = "sphinx-autobuild" },
-    { name = "sphinx-gallery", extra = ["parallel"] },
+    { name = "sphinx-gallery" },
 ]
 
 [package.metadata]
@@ -3169,7 +3164,7 @@ docs = [
     { name = "pydata-sphinx-theme", specifier = ">=0.17.0" },
     { name = "sphinx", specifier = ">=9.1.0" },
     { name = "sphinx-autobuild", specifier = ">=2025.8.25" },
-    { name = "sphinx-gallery", extras = ["parallel"], specifier = ">=0.21.0" },
+    { name = "sphinx-gallery", specifier = ">=0.21.0" },
 ]
 
 [[package]]
