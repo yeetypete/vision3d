@@ -134,6 +134,8 @@ def log_cameras(
     images: CameraImages | Tensor,
     intrinsics: CameraIntrinsics | Tensor | None = None,
     extrinsics: CameraExtrinsics | Tensor | None = None,
+    *,
+    jpeg_quality: int | None = None,
 ) -> None:
     """Log all camera images with optional pinhole projection to Rerun.
 
@@ -145,11 +147,20 @@ def log_cameras(
         images: Camera images ``[N_cams, C, H, W]``.
         intrinsics: Intrinsic matrices ``[N_cams, 3, 3]``.
         extrinsics: Extrinsic matrices ``[N_cams, 4, 4]`` (lidar-to-camera).
+        jpeg_quality: If set, JPEG-encode each image at this quality (0-100)
+            before logging. ``None`` (default) logs uncompressed.
     """
     n_cams = images.shape[0]
     for i in range(n_cams):
         entity = f"{entity_prefix}_{i}" if n_cams > 1 else entity_prefix
-        _log_single_camera(entity, images, intrinsics, extrinsics, camera_index=i)
+        _log_single_camera(
+            entity,
+            images,
+            intrinsics,
+            extrinsics,
+            camera_index=i,
+            jpeg_quality=jpeg_quality,
+        )
 
 
 def _log_single_camera(
@@ -159,6 +170,7 @@ def _log_single_camera(
     extrinsics: CameraExtrinsics | Tensor | None,
     *,
     camera_index: int,
+    jpeg_quality: int | None = None,
 ) -> None:
     img = images[camera_index].detach().cpu()
     # [C, H, W] -> [H, W, C], uint8
@@ -192,7 +204,10 @@ def _log_single_camera(
             ),
         )
 
-    rr.log(entity, rr.Image(img))
+    archetype = rr.Image(img)
+    if jpeg_quality is not None:
+        archetype = archetype.compress(jpeg_quality=jpeg_quality)
+    rr.log(entity, archetype)
 
 
 def log_sample(
@@ -201,6 +216,7 @@ def log_sample(
     *,
     entity_prefix: str = "world",
     label_to_id: dict[str, int] | None = None,
+    jpeg_quality: int | None = None,
 ) -> None:
     """Log a full sample dict to Rerun.
 
@@ -213,6 +229,8 @@ def log_sample(
         entity_prefix: Rerun entity path prefix.
         label_to_id: Mapping from class name to class ID for consistent
             coloring. Build this across all frames before logging.
+        jpeg_quality: If set, JPEG-encode camera images at this quality
+            (0-100) before logging. See :func:`log_cameras`.
     """
     if "points" in inputs:
         log_point_cloud(f"{entity_prefix}/lidar", inputs["points"])
@@ -223,6 +241,7 @@ def log_sample(
             inputs["images"],
             inputs.get("intrinsics"),
             inputs.get("extrinsics"),
+            jpeg_quality=jpeg_quality,
         )
 
     if targets and "boxes" in targets:

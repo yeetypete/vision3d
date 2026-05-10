@@ -1,6 +1,7 @@
 """`nuScenes <https://www.nuscenes.org/>`_ Dataset."""
 
 import os
+from pathlib import Path
 from typing import Any, ClassVar, override
 
 import numpy as np
@@ -10,6 +11,7 @@ from nuscenes.eval.detection.utils import category_to_detection_name
 from PIL import Image
 from torch import Tensor
 from torch.utils.data import Dataset
+from torchvision.datasets.utils import download_and_extract_archive
 
 from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.tensors import (
@@ -20,16 +22,6 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
-
-# Camera ordering for consistent multi-camera tensor layout
-CAMERA_NAMES: list[str] = [
-    "CAM_FRONT",
-    "CAM_FRONT_RIGHT",
-    "CAM_BACK_RIGHT",
-    "CAM_BACK",
-    "CAM_BACK_LEFT",
-    "CAM_FRONT_LEFT",
-]
 
 
 class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
@@ -48,12 +40,35 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         split (str): One of ``"train"`` or ``"val"``. Default: ``"train"``.
         transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
+        download (bool, optional): If true, downloads the dataset from the
+            internet and puts it in root directory. If dataset is already
+            downloaded, it is not downloaded again. Only the publicly
+            available ``v1.0-mini`` split is supported. Other versions
+            require manual download from `nuscenes.org
+            <https://www.nuscenes.org/>`_.
     """
 
-    camera_names: ClassVar[list[str]] = CAMERA_NAMES
+    # Camera ordering for consistent multi-camera tensor layout
+    camera_names: ClassVar[tuple[str, ...]] = (
+        "CAM_FRONT",
+        "CAM_FRONT_RIGHT",
+        "CAM_BACK_RIGHT",
+        "CAM_BACK",
+        "CAM_BACK_LEFT",
+        "CAM_FRONT_LEFT",
+    )
+    # Row-major layout matching the physical rig. Indices reference
+    # ``camera_names`` positions. Rows may have different lengths.
+    camera_grid: ClassVar[tuple[tuple[int, ...], ...] | None] = (
+        (5, 0, 1),  # CAM_FRONT_LEFT, CAM_FRONT, CAM_FRONT_RIGHT
+        (2, 3, 4),  # CAM_BACK_RIGHT,  CAM_BACK,  CAM_BACK_LEFT
+    )
 
     classes: ClassVar[list[str]] = list(DETECTION_NAMES)
     class_to_idx: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(classes)}
+
+    data_url: ClassVar[str] = "https://www.nuscenes.org/data/"
+    mini_archive: ClassVar[str] = "v1.0-mini.tgz"
 
     def __init__(
         self,
@@ -61,6 +76,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         version: str = "v1.0-mini",
         split: str = "train",
         transforms: Any | None = None,
+        download: bool = False,
     ) -> None:
         try:
             from nuscenes.nuscenes import NuScenes
@@ -68,12 +84,22 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             msg = "nuscenes-devkit is required. Install with: uv sync --group nuscenes"
             raise ImportError(msg) from e
 
-        self.root = str(root)
+        self.root = Path(root)
         self.version = version
         self.split = split
         self.transforms = transforms
 
-        self._nusc = NuScenes(version=version, dataroot=self.root, verbose=False)
+        if download:
+            self.download()
+        if not self._check_exists():
+            raise RuntimeError(
+                f"Dataset not found at {str(self.root)!r}. "
+                f"You may use download=True to download the v1.0-mini split. "
+                f"Other versions require manual download from "
+                f"https://www.nuscenes.org."
+            )
+
+        self._nusc = NuScenes(version=version, dataroot=str(self.root), verbose=False)
 
         # Collect sample tokens for the requested split
         split_scenes = _get_split_scenes(version, split)
@@ -89,6 +115,35 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     def __len__(self) -> int:
         """Return the number of samples."""
         return len(self._sample_tokens)
+
+    def _check_exists(self) -> bool:
+        return (self.root / self.version).is_dir()
+
+    def download(self) -> None:
+        """Download the nuScenes dataset if it doesn't exist already.
+
+        Only the publicly available ``v1.0-mini`` split is supported.
+        Other versions require manual download from
+        `nuscenes.org <https://www.nuscenes.org/>`_.
+
+        Raises:
+            RuntimeError: If ``version`` is not ``"v1.0-mini"``.
+        """
+        if self._check_exists():
+            return
+        if self.version != "v1.0-mini":
+            msg = (
+                f"Automatic download is only supported for v1.0-mini. Got "
+                f"version={self.version!r}. Other versions require manual "
+                f"download from https://www.nuscenes.org."
+            )
+            raise RuntimeError(msg)
+        self.root.mkdir(parents=True, exist_ok=True)
+        download_and_extract_archive(
+            url=f"{self.data_url}{self.mini_archive}",
+            download_root=str(self.root),
+            filename=self.mini_archive,
+        )
 
     @override
     def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets]:
@@ -183,12 +238,12 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         return inputs, targets
 
     def _load_lidar(self, lidar_data: dict[str, Any]) -> Tensor:
-        path = os.path.join(self.root, lidar_data["filename"])
+        path = self.root / lidar_data["filename"]
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)
         return torch.from_numpy(points)
 
     def _load_image(self, cam_data: dict[str, Any]) -> Tensor:
-        path = os.path.join(self.root, cam_data["filename"])
+        path = self.root / cam_data["filename"]
         img = np.array(Image.open(path).convert("RGB"))
         return torch.from_numpy(img).permute(2, 0, 1).float() / 255.0
 

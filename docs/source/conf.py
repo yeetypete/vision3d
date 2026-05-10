@@ -19,10 +19,22 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
+    "sphinx_gallery.gen_gallery",
     "gfm_admonitions",
+    "rerun_embed",
+    "rerun_scraper",
 ]
 
 autosummary_ignore_module_all = False
+
+sphinx_gallery_conf = {
+    "examples_dirs": "../../gallery",
+    "gallery_dirs": "auto_examples",
+    "remove_config_comments": True,
+    "show_signature": False,
+    "image_scrapers": ("rerun_scraper",),
+    "reset_modules": ("rerun",),
+}
 
 autodoc_default_options = {
     "members": True,
@@ -45,9 +57,11 @@ intersphinx_mapping = {
     "torch": ("https://docs.pytorch.org/docs/stable/", None),
     "torchvision": ("https://docs.pytorch.org/vision/stable/", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "rerun": ("https://ref.rerun.io/docs/python/stable/", None),
 }
 
 templates_path = ["_templates"]
+html_static_path = ["_static"]
 
 html_theme = "pydata_sphinx_theme"
 html_title = f"vision3d {release}"

@@ -12,7 +12,19 @@ BUILDDIR      = build
 help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
 
-.PHONY: help Makefile
+# Live local rendering: rebuilds on save and opens the page in your browser.
+# --watch picks up edits outside SOURCEDIR (gallery scripts, vision3d docstrings).
+# --ignore breaks rebuild loops on paths Sphinx writes back into the source tree
+# (sphinx-gallery's MD5/output cache, autosummary's generated stubs).
+livehtml:
+	sphinx-autobuild "$(SOURCEDIR)" "$(BUILDDIR)/html" \
+		--watch ../gallery \
+		--watch ../src \
+		--ignore "$(SOURCEDIR)/auto_examples/*" \
+		--ignore "$(SOURCEDIR)/api/generated/*" \
+		$(SPHINXOPTS) $(O)
+
+.PHONY: help livehtml Makefile
 
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).

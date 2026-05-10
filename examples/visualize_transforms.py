@@ -19,7 +19,6 @@ import torch
 from torchvision.transforms import v2
 
 from vision3d.datasets import NuScenes3D, SampleInputs, SampleTargets
-from vision3d.datasets.nuscenes import CAMERA_NAMES
 from vision3d.transforms import (
     CopyPaste3D,
     PointJitter,
@@ -31,7 +30,7 @@ from vision3d.transforms import (
     RandomTranslate3D,
     RangeFilter3D,
 )
-from vision3d.viz import log_sample
+from vision3d.viz import fusion_layout, log_sample
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -139,33 +138,16 @@ def main() -> None:
         ("composition", "Composition", composition),
     ]
 
-    # Build blueprint: one tab per transform, each with 3D + 6 camera views
-    tabs = []
-    for prefix, name, _ in transforms:
-        cam_views = [
-            rrb.Spatial2DView(
-                name=cam_name,
-                origin=f"/{prefix}/cam_{i}",
-                contents=[
-                    "+ $origin/**",
-                    f"+ /{prefix}/boxes/**",
-                ],
-                overrides={
-                    f"/{prefix}/boxes": rr.Boxes3D.from_fields(
-                        fill_mode="majorwireframe"
-                    ),
-                },
-            )
-            for i, cam_name in enumerate(CAMERA_NAMES)
-        ]
-        tabs.append(
-            rrb.Vertical(
-                rrb.Spatial3DView(origin=f"/{prefix}", name="3D"),
-                rrb.Grid(*cam_views),
-                row_shares=[3, 2],
-                name=name,
-            )
+    # One tab per transform, each rooted at its own /{prefix} subtree.
+    tabs = [
+        fusion_layout(
+            NuScenes3D.camera_names,
+            NuScenes3D.camera_grid,
+            entity_prefix=prefix,
+            name=name,
         )
+        for prefix, name, _ in transforms
+    ]
 
     blueprint = rrb.Blueprint(rrb.Tabs(*tabs))
 
