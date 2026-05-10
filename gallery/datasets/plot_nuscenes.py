@@ -111,7 +111,10 @@ from vision3d.viz import fusion_layout, log_sample
 
 rr.init("vision3d_nuscenes", spawn=True)
 rr.send_blueprint(
-    rrb.Blueprint(fusion_layout(NuScenes3D.camera_names, NuScenes3D.camera_grid))
+    rrb.Blueprint(
+        fusion_layout(NuScenes3D.camera_names, NuScenes3D.camera_grid),
+        rrb.TimePanel(state="collapsed"),
+    )
 )
 rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 rr.log(
