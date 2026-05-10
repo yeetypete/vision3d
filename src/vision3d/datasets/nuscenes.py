@@ -123,7 +123,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         """Download the nuScenes dataset if it doesn't exist already.
 
         Only the publicly available ``v1.0-mini`` split is supported.
-        other versions require manual download from
+        Other versions require manual download from
         `nuscenes.org <https://www.nuscenes.org/>`_.
 
         Raises:
@@ -133,7 +133,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             return
         if self.version != "v1.0-mini":
             msg = (
-                f"Automatic download is only supported for v1.0-mini. got "
+                f"Automatic download is only supported for v1.0-mini. Got "
                 f"version={self.version!r}. Other versions require manual "
                 f"download from https://www.nuscenes.org."
             )

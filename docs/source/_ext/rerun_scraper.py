@@ -93,9 +93,10 @@ def _reset_rerun_init(gallery_conf: GalleryConfig, fname: str | None) -> None:
 def _get_sg_image_scraper() -> Callable[[Block, dict[str, Any], GalleryConfig], str]:
     """Sphinx-gallery scraper factory.
 
-    Lets ``sphinx_gallery_conf["image_scrapers"]`` reference this module by
-    name (string form) instead of holding a function reference, which keeps
-    the conf pickleable for Sphinx's config cache.
+    Invoked by sphinx-gallery via the string form ``"rerun_scraper"`` in
+    ``sphinx_gallery_conf["image_scrapers"]`` (see ``docs/source/conf.py``).
+    Lets the conf reference this module by name instead of holding a function
+    reference, which keeps it pickleable for Sphinx's config cache.
 
     Returns:
         The :func:`rerun_scraper` callable that sphinx-gallery will invoke

@@ -29,7 +29,7 @@ def camera_grid(
     Args:
         camera_names: Per-camera display names indexed by tensor position.
         grid: Row-major grid of indices into ``camera_names``. ``None`` if
-            the dataset hasn't declared a rig layout. falls back to a single
+            the dataset hasn't declared a rig layout. Falls back to a single
             row in tensor order.
         entity_prefix: Prefix for camera entity origins (e.g. ``"world/cam"``
             -> ``/world/cam_0``, ``/world/cam_1`` ...).
