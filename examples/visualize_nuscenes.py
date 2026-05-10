@@ -13,8 +13,7 @@ import rerun as rr
 import rerun.blueprint as rrb
 
 from vision3d.datasets import NuScenes3D
-from vision3d.datasets.nuscenes import CAMERA_NAMES
-from vision3d.viz import log_sample
+from vision3d.viz import fusion_layout, log_sample
 
 
 def main() -> None:
@@ -37,31 +36,8 @@ def main() -> None:
     rr.script_add_args(parser)
     args = parser.parse_args()
 
-    # Build camera views: one per camera with box projection
-    cam_views = [
-        rrb.Spatial2DView(
-            name=cam_name,
-            origin=f"/world/cam_{i}",
-            contents=[
-                "+ $origin/**",
-                "+ /world/boxes/**",
-            ],
-            overrides={
-                "/world/boxes": rr.Boxes3D.from_fields(fill_mode="majorwireframe"),
-            },
-        )
-        for i, cam_name in enumerate(CAMERA_NAMES)
-    ]
-
     blueprint = rrb.Blueprint(
-        rrb.Vertical(
-            rrb.Horizontal(
-                rrb.Spatial3DView(origin="/world", name="3D"),
-                column_shares=[1],
-            ),
-            rrb.Grid(*cam_views),
-            row_shares=[3, 2],
-        ),
+        fusion_layout(NuScenes3D.camera_names, NuScenes3D.camera_grid),
     )
 
     rr.script_setup(args, "vision3d_nuscenes")
