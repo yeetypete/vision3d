@@ -9,6 +9,22 @@ async function initRerunEmbeds() {
   const containers = document.querySelectorAll(".rerun-embed[data-rrd]");
   if (containers.length === 0) return;
 
+  // Patch focus() on input/textarea prototypes to default preventScroll:
+  // true. eframe (inside the rerun WASM) creates a hidden <input> as its
+  // text agent and focuses it on every keystroke to capture text input
+  // from the canvas. Without preventScroll, Chrome scrolls the page to
+  // wherever that hidden input sits (typically (0,0)), so each keystroke
+  // jerks the page to the top.
+  for (const proto of [
+    HTMLInputElement.prototype,
+    HTMLTextAreaElement.prototype,
+  ]) {
+    const orig = proto.focus;
+    proto.focus = function (opts) {
+      return orig.call(this, { ...opts, preventScroll: true });
+    };
+  }
+
   const version = containers[0].dataset.rerunVersion;
   const { WebViewer } = await import(
     `https://cdn.jsdelivr.net/npm/@rerun-io/web-viewer@${version}/+esm`
