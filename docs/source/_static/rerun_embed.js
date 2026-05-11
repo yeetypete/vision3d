@@ -16,28 +16,17 @@ async function initRerunEmbeds() {
   if (containers.length === 0) return;
 
   // The rerun web viewer is built on eframe, whose text agent is a
-  // hidden <input> at top:0;left:0 in <body> created with `autofocus`
-  // (eframe/src/web/text_agent.rs:25). The browser's autofocus
-  // algorithm scrolls the page to (0,0) on insertion, defeating scroll
-  // restoration on every embed page load. We shadow the IDL setter so
-  // eframe's `input.autofocus = true` is a no-op.
-  // Related: https://github.com/emilk/egui/issues/7887
-  Object.defineProperty(HTMLInputElement.prototype, "autofocus", {
-    get() {
-      return false;
-    },
-    set() {},
-    configurable: true,
-  });
-
-  // eframe re-focuses its hidden text-agent <input> on every keystroke
-  // as a workaround for an Android Gboard issue
-  // (eframe/src/web/text_agent.rs:67-68). Without `preventScroll: true`,
-  // Chrome scrolls the page to bring the input (pinned at top:0;left:0)
-  // into view, so every keystroke jerks the page to the top. Fix: Match
-  // the text agent by its 1x1 inline width/height and patch its focus() to
-  // default preventScroll, leaving unrelated inputs (Sphinx search, etc.)
-  // untouched.
+  // 1x1 hidden <input> appended to <body> with `autofocus` set and
+  // `position: absolute` (eframe/src/web/text_agent.rs). Two scroll
+  // bugs come out of this: (1) on page load the autofocus algorithm
+  // scrolls the page to wherever the input sits; (2) once focused,
+  // eframe moves the input via style.top to track the egui caret, and
+  // the browser auto-scrolls the page to keep the focused input
+  // visible (`preventScroll` on focus() does not cover this). Pin the
+  // input to `position: fixed` so its document position is anchored
+  // to the viewport: autofocus has nothing to scroll to, and moving
+  // style.top no longer drags the page. Match by the 1x1 inline size
+  // so unrelated inputs (Sphinx search, etc.) are untouched.
   // Related: https://github.com/emilk/egui/issues/7887
   new MutationObserver((mutations) => {
     for (const m of mutations) {
@@ -47,8 +36,7 @@ async function initRerunEmbeds() {
           node.style.width === "1px" &&
           node.style.height === "1px"
         ) {
-          const orig = node.focus.bind(node);
-          node.focus = (opts) => orig({ ...opts, preventScroll: true });
+          node.style.setProperty("position", "fixed", "important");
         }
       }
     }
