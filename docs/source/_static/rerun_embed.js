@@ -45,13 +45,9 @@ async function initRerunEmbeds() {
   for (const el of containers) {
     const rrdUrl = new URL(el.dataset.rrd, document.baseURI).href;
     const viewer = new WebViewer();
-    // start() creates and appends the canvas synchronously before its
-    // first await, so viewer.canvas is available immediately. eframe
-    // re-focuses the canvas on every repaint when not in IME mode
-    // (eframe/src/web/app_runner.rs:395-405), so each keystroke pulls
-    // the page to wherever the canvas sits unless we default focus() to
-    // preventScroll. Patch between start() and its await so the WASM
-    // never sees the unpatched method.
+    // eframe re-focuses the canvas on every repaint when not in IME
+    // mode (eframe/src/web/app_runner.rs:395-405), so each keystroke
+    // pulls the page to wherever the canvas sits.
     const startPromise = viewer.start(rrdUrl, el, {
       width: "100%",
       height: "100%",
