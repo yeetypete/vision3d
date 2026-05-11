@@ -35,12 +35,17 @@ async function initRerunEmbeds() {
   // (eframe/src/web/text_agent.rs:67-68). Without `preventScroll: true`,
   // Chrome scrolls the page to bring the input (pinned at top:0;left:0)
   // into view, so every keystroke jerks the page to the top. Fix: Match
-  // the text agent by its 1x1 inline size and patch its focus() to default
-  // preventScroll, leaving unrelated inputs (Sphinx search, etc.) untouched.
+  // the text agent by its 1x1 inline width/height and patch its focus() to
+  // default preventScroll, leaving unrelated inputs (Sphinx search, etc.)
+  // untouched.
   new MutationObserver((mutations) => {
     for (const m of mutations) {
       for (const node of m.addedNodes) {
-        if (node.tagName === "INPUT" && node.style.width === "1px") {
+        if (
+          node.tagName === "INPUT" &&
+          node.style.width === "1px" &&
+          node.style.height === "1px"
+        ) {
           const orig = node.focus.bind(node);
           node.focus = (opts) => orig({ ...opts, preventScroll: true });
         }
