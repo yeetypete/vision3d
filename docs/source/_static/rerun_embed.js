@@ -9,20 +9,13 @@ async function initRerunEmbeds() {
   const containers = document.querySelectorAll(".rerun-embed[data-rrd]");
   if (containers.length === 0) return;
 
-  // eframe's text agent (a hidden <input> at top:0;left:0 appended to
-  // <body> on init, see eframe/src/web/text_agent.rs) is created with
-  // the `autofocus` HTML attribute. The browser's autofocus algorithm
-  // focuses the input as soon as it's connected and scrolls the page
-  // to bring it into view (the input sits at (0,0)), so every page
-  // load and refresh of an embed page snaps to the top - defeating
-  // the browser's automatic scroll restoration. Browser-native
-  // autofocus bypasses the focus() prototype patch below.
-  //
-  // Shadow the `autofocus` IDL setter on HTMLInputElement: eframe sets
-  // autofocus via `input.autofocus = true` (wasm-bindgen
-  // `__wbg_set_autofocus_*`), and shadowing the property setter means
-  // the assignment is a no-op so the browser never marks the input as
-  // an autofocus candidate. The page no longer scrolls on init.
+  // The rerun web viewer is built on eframe, whose text agent is a
+  // hidden <input> at top:0;left:0 in <body> created with `autofocus`
+  // (eframe/src/web/text_agent.rs:25). The browser's autofocus
+  // algorithm scrolls the page to (0,0) on insertion, defeating scroll
+  // restoration on every embed page load. We shadow the IDL setter so
+  // eframe's `input.autofocus = true` is a no-op.
+  // Related: https://github.com/emilk/egui/issues/7887
   Object.defineProperty(HTMLInputElement.prototype, "autofocus", {
     get() {
       return false;
