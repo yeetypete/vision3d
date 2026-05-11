@@ -9,6 +9,6 @@
 :caption: Contents:
 :hidden:
 
-auto_examples/index
+gallery/index
 api/index
 ```

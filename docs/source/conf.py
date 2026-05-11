@@ -29,7 +29,7 @@ autosummary_ignore_module_all = False
 
 sphinx_gallery_conf = {
     "examples_dirs": "../../gallery",
-    "gallery_dirs": "auto_examples",
+    "gallery_dirs": "gallery",
     "remove_config_comments": True,
     "show_signature": False,
     "image_scrapers": ("rerun_scraper",),
