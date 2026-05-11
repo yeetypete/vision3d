@@ -15,18 +15,12 @@ async function initRerunEmbeds() {
   const containers = document.querySelectorAll(".rerun-embed[data-rrd]");
   if (containers.length === 0) return;
 
-  // The rerun web viewer is built on eframe, whose text agent is a
-  // 1x1 hidden <input> appended to <body> with `autofocus` set and
-  // `position: absolute` (eframe/src/web/text_agent.rs). Two scroll
-  // bugs come out of this: (1) on page load the autofocus algorithm
-  // scrolls the page to wherever the input sits; (2) once focused,
-  // eframe moves the input via style.top to track the egui caret, and
-  // the browser auto-scrolls the page to keep the focused input
-  // visible (`preventScroll` on focus() does not cover this). Pin the
-  // input to `position: fixed` so its document position is anchored
-  // to the viewport: autofocus has nothing to scroll to, and moving
-  // style.top no longer drags the page. Match by the 1x1 inline size
-  // so unrelated inputs (Sphinx search, etc.) are untouched.
+  // eframe's text agent is a 1x1 hidden <input> with `autofocus` and
+  // `position: absolute` (eframe/src/web/text_agent.rs). On page load
+  // the autofocus algorithm scrolls the page to where the input sits;
+  // once focused, eframe also moves it via style.top to track the
+  // egui caret, and the browser auto-scrolls the page to keep the
+  // focused input visible. Pin it to the viewport to defuse both.
   // Related: https://github.com/emilk/egui/issues/7887
   new MutationObserver((mutations) => {
     for (const m of mutations) {
