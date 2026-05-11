@@ -38,6 +38,7 @@ async function initRerunEmbeds() {
   // the text agent by its 1x1 inline width/height and patch its focus() to
   // default preventScroll, leaving unrelated inputs (Sphinx search, etc.)
   // untouched.
+  // Related: https://github.com/emilk/egui/issues/7887
   new MutationObserver((mutations) => {
     for (const m of mutations) {
       for (const node of m.addedNodes) {
