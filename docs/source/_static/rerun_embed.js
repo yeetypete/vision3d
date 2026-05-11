@@ -5,6 +5,12 @@
 // (set by the rerun-embed directive from the installed rerun.__version__),
 // keeping the embedded WebViewer pinned to the SDK that wrote the .rrd.
 
+function rerunThemeFromDocs() {
+  const mode = document.documentElement.dataset.mode;
+  if (mode === "light" || mode === "dark") return mode;
+  return "system";
+}
+
 async function initRerunEmbeds() {
   const containers = document.querySelectorAll(".rerun-embed[data-rrd]");
   if (containers.length === 0) return;
@@ -29,6 +35,7 @@ async function initRerunEmbeds() {
     `https://cdn.jsdelivr.net/npm/@rerun-io/web-viewer@${version}/+esm`
   );
 
+  const theme = rerunThemeFromDocs();
   for (const el of containers) {
     const rrdUrl = new URL(el.dataset.rrd, document.baseURI).href;
     const viewer = new WebViewer();
@@ -36,6 +43,7 @@ async function initRerunEmbeds() {
       width: "100%",
       height: "100%",
       allow_fullscreen: true,
+      theme,
     });
   }
 }
