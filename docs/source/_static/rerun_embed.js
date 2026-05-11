@@ -9,21 +9,27 @@ async function initRerunEmbeds() {
   const containers = document.querySelectorAll(".rerun-embed[data-rrd]");
   if (containers.length === 0) return;
 
-  // Patch focus() on input/textarea prototypes to default preventScroll:
-  // true. eframe (inside the rerun WASM) creates a hidden <input> as its
-  // text agent and focuses it on every keystroke to capture text input
-  // from the canvas. Without preventScroll, Chrome scrolls the page to
-  // wherever that hidden input sits (typically (0,0)), so each keystroke
-  // jerks the page to the top.
-  for (const proto of [
-    HTMLInputElement.prototype,
-    HTMLTextAreaElement.prototype,
-  ]) {
-    const orig = proto.focus;
-    proto.focus = function (opts) {
-      return orig.call(this, { ...opts, preventScroll: true });
-    };
-  }
+  // eframe's text agent (a hidden <input> at top:0;left:0 appended to
+  // <body> on init, see eframe/src/web/text_agent.rs) is created with
+  // the `autofocus` HTML attribute. The browser's autofocus algorithm
+  // focuses the input as soon as it's connected and scrolls the page
+  // to bring it into view (the input sits at (0,0)), so every page
+  // load and refresh of an embed page snaps to the top - defeating
+  // the browser's automatic scroll restoration. Browser-native
+  // autofocus bypasses the focus() prototype patch below.
+  //
+  // Shadow the `autofocus` IDL setter on HTMLInputElement: eframe sets
+  // autofocus via `input.autofocus = true` (wasm-bindgen
+  // `__wbg_set_autofocus_*`), and shadowing the property setter means
+  // the assignment is a no-op so the browser never marks the input as
+  // an autofocus candidate. The page no longer scrolls on init.
+  Object.defineProperty(HTMLInputElement.prototype, "autofocus", {
+    get() {
+      return false;
+    },
+    set() {},
+    configurable: true,
+  });
 
   const version = containers[0].dataset.rerunVersion;
   const { WebViewer } = await import(
@@ -33,24 +39,11 @@ async function initRerunEmbeds() {
   for (const el of containers) {
     const rrdUrl = new URL(el.dataset.rrd, document.baseURI).href;
     const viewer = new WebViewer();
-    // start() creates and appends the canvas synchronously before its
-    // first await, so viewer.canvas is set as soon as the call returns
-    // a promise. Patch focus() on the canvas to default preventScroll:
-    // true before the WASM (eframe) calls it on mount, otherwise Chrome
-    // scrolls the page to bring the focused canvas into view, jumping
-    // to the embed. Firefox does not exhibit this. The WebViewer API
-    // exposes no option to control this upstream.
-    const startPromise = viewer.start(rrdUrl, el, {
+    await viewer.start(rrdUrl, el, {
       width: "100%",
       height: "100%",
       allow_fullscreen: true,
     });
-    const canvas = viewer.canvas;
-    if (canvas) {
-      const origFocus = canvas.focus.bind(canvas);
-      canvas.focus = (opts) => origFocus({ ...opts, preventScroll: true });
-    }
-    await startPromise;
   }
 }
 
