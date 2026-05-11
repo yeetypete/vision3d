@@ -9,6 +9,21 @@ async function initRerunEmbeds() {
   const containers = document.querySelectorAll(".rerun-embed[data-rrd]");
   if (containers.length === 0) return;
 
+  // The rerun web viewer is built on eframe, whose text agent is a
+  // hidden <input> at top:0;left:0 in <body> created with `autofocus`
+  // (eframe/src/web/text_agent.rs:25). The browser's autofocus
+  // algorithm scrolls the page to (0,0) on insertion, defeating scroll
+  // restoration on every embed page load. We shadow the IDL setter so
+  // eframe's `input.autofocus = true` is a no-op.
+  // Related: https://github.com/emilk/egui/issues/7887
+  Object.defineProperty(HTMLInputElement.prototype, "autofocus", {
+    get() {
+      return false;
+    },
+    set() {},
+    configurable: true,
+  });
+
   const version = containers[0].dataset.rerunVersion;
   const { WebViewer } = await import(
     `https://cdn.jsdelivr.net/npm/@rerun-io/web-viewer@${version}/+esm`
