@@ -29,7 +29,11 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
-from vision3d.transforms._transform import Transform
+from vision3d.transforms._transform import (
+    ALL_VISION3D_TVTENSORS,
+    Transform,
+    _check_safety,
+)
 
 
 @dataclass
@@ -276,6 +280,8 @@ class CopyPaste3D(Transform):
         p: Probability of applying the augmentation. Default: ``1.0``.
     """
 
+    _safe_for = ALL_VISION3D_TVTENSORS
+
     def __init__(
         self,
         target_counts: dict[int, int],
@@ -315,6 +321,7 @@ class CopyPaste3D(Transform):
             The same pytree structure with modified leaves.
         """
         flat_inputs, spec = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
+        _check_safety(self._safe_for, flat_inputs, type(self).__name__)
 
         batch_inputs, batch_targets = self._extract_samples(flat_inputs)
 

@@ -5,7 +5,9 @@ from typing import Any, override
 
 import torch
 
-from ._transform import RandomTransform
+from vision3d.tensors import BoundingBoxes3D, PointCloud3D
+
+from ._transform import ALL_VISION3D_TVTENSORS, RandomTransform
 from .functional._geometry import (
     _rotation_matrix,
     flip_3d,
@@ -20,13 +22,17 @@ class RandomFlip3D(RandomTransform):
 
     Dispatches to type-specific kernels for
     :class:`~vision3d.tensors.BoundingBoxes3D` and
-    :class:`~vision3d.tensors.PointCloud3D`. Camera data (images, intrinsics,
-    extrinsics) passes through unchanged.
+    :class:`~vision3d.tensors.PointCloud3D`. Other TVTensor inputs (e.g.
+    camera images, extrinsics, intrinsics) are rejected: flipping the 3D
+    scene without coordinated changes to the camera side would break
+    geometric consistency.
 
     Args:
         axis: Axis to flip along. One of ``"x"``, ``"y"``, ``"z"``.
         p: Probability of applying the flip. Default: ``0.5``.
     """
+
+    _safe_for = frozenset({PointCloud3D, BoundingBoxes3D})
 
     def __init__(self, axis: str = "x", p: float = 0.5) -> None:
         super().__init__(p=p)
@@ -59,6 +65,8 @@ class RandomTranslate3D(RandomTransform):
             three floats ``(tx, ty, tz)`` for per-axis ranges.
         p: Probability of applying the translation. Default: ``0.5``.
     """
+
+    _safe_for = ALL_VISION3D_TVTENSORS
 
     def __init__(
         self,
@@ -116,6 +124,8 @@ class RandomRotate3D(RandomTransform):
         p: Probability of applying the rotation. Default: ``0.5``.
     """
 
+    _safe_for = ALL_VISION3D_TVTENSORS
+
     def __init__(
         self,
         angle_range: float = math.pi / 4,
@@ -162,6 +172,8 @@ class RandomScale3D(RandomTransform):
             Default: ``(0.95, 1.05)``.
         p: Probability of applying the scaling. Default: ``0.5``.
     """
+
+    _safe_for = ALL_VISION3D_TVTENSORS
 
     def __init__(
         self,

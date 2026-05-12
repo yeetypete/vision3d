@@ -5,7 +5,7 @@ from typing import Any, override
 import torch
 from torch import Tensor
 
-from ._transform import RandomTransform, Transform
+from ._transform import ALL_VISION3D_TVTENSORS, RandomTransform, Transform
 from .functional._point_cloud import (
     jitter_points,
     sample_points,
@@ -19,6 +19,8 @@ class PointShuffle(RandomTransform):
     Args:
         p: Probability of applying. Default: ``0.5``.
     """
+
+    _safe_for = ALL_VISION3D_TVTENSORS
 
     @override
     def make_params(self, flat_inputs: list[Any]) -> dict[str, Any]:
@@ -50,6 +52,8 @@ class PointSample(Transform):
     Args:
         n: Target number of points.
     """
+
+    _safe_for = ALL_VISION3D_TVTENSORS
 
     def __init__(self, n: int) -> None:
         super().__init__()
@@ -88,6 +92,8 @@ class PointJitter(RandomTransform):
         sigma: Standard deviation of the Gaussian noise. Default: ``0.01``.
         p: Probability of applying. Default: ``0.5``.
     """
+
+    _safe_for = ALL_VISION3D_TVTENSORS
 
     def __init__(self, sigma: float = 0.01, p: float = 0.5) -> None:
         super().__init__(p=p)
