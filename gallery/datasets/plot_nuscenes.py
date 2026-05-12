@@ -117,11 +117,6 @@ rr.send_blueprint(
     )
 )
 rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
-rr.log(
-    "world/boxes",
-    rr.AnnotationContext([(i, name) for name, i in dataset.class_to_idx.items()]),
-    static=True,
-)
 
 for frame_idx in range(10):
     f_inputs, f_targets = dataset[frame_idx]
