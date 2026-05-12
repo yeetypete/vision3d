@@ -1,4 +1,4 @@
-"""Mirror of :mod:`torchvision.transforms.v2` with geometric safety guarantees.
+"""Mirror of ``torchvision.transforms.v2`` with geometric safety guarantees.
 
 Swap
 

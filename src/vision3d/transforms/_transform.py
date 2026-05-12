@@ -86,7 +86,7 @@ class Transform(nn.Module):
     to dispatch to the correct kernel for each input type.
 
     Transforms are unsafe by default: a TVTensor input is accepted only
-    if its type is listed in the class-level :attr:`_safe_for` attribute.
+    if its type is listed in the class-level ``_safe_for`` attribute.
     Subclasses must include every type the transform handles, whether by
     updating it or by intentionally leaving it untouched. This prevents
     silently producing geometrically inconsistent scenes (e.g. flipping

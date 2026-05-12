@@ -60,6 +60,23 @@ intersphinx_mapping = {
     "rerun": ("https://ref.rerun.io/docs/python/stable/", None),
 }
 
+# Suppress nitpicky reference errors for type names that torchvision uses
+# loosely in its docstrings (e.g. "sequence", "number", "float (min, max)").
+# vision3d.transforms.v2 copies the parent class docstring on each wrapped
+# transform, so these surface even though they originate upstream.
+nitpick_ignore = [
+    ("py:class", "sequence"),
+    ("py:class", "number"),
+    ("py:class", "float (min"),
+    ("py:class", "max)"),
+    ("py:class", "bool, optional"),
+    ("py:class", "bool,optional"),
+    ("py:class", "InterpolationMode"),
+    ("py:class", "torchvision.transforms.InterpolationMode"),
+    ("py:class", "PIL Image"),
+    ("py:class", "Tensor"),
+]
+
 templates_path = ["_templates"]
 html_static_path = ["_static"]
 
