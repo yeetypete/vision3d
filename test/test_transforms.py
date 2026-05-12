@@ -1,4 +1,5 @@
 import math
+from typing import override
 
 import pytest
 import torch
@@ -23,6 +24,7 @@ from vision3d.transforms import (
     RandomRotate3D,
     RandomScale3D,
     RandomTranslate3D,
+    Transform,
 )
 from vision3d.transforms.functional import (
     flip_3d,
@@ -338,29 +340,24 @@ class TestRandomFlip3D:
 
 
 class TestRandomFlip3DFusion:
-    def test_camera_data_passthrough(self) -> None:
-        sample = _make_fusion_sample()
+    @pytest.mark.parametrize("key", ["images", "extrinsics", "intrinsics"])
+    def test_raises_on_camera_types(self, key: str) -> None:
+        sample = {
+            "points": make_point_cloud_3d(num_points=20),
+            "boxes": make_bounding_boxes_3d(
+                format=BoundingBox3DFormat.XYZLWHYPR, num_boxes=3
+            ),
+            key: _make_fusion_sample()[key],
+        }
         transform = RandomFlip3D(axis="x", p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["images"], sample["images"])
-        assert torch.equal(out["extrinsics"], sample["extrinsics"])
-        assert torch.equal(out["intrinsics"], sample["intrinsics"])
+        with pytest.raises(TypeError, match="RandomFlip3D"):
+            transform(sample)
 
-    def test_labels_passthrough(self) -> None:
+    def test_raises_even_when_skipped_by_probability(self) -> None:
         sample = _make_fusion_sample()
-        transform = RandomFlip3D(axis="x", p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["labels"], sample["labels"])
-
-    def test_all_types_preserved(self) -> None:
-        sample = _make_fusion_sample()
-        transform = RandomFlip3D(axis="x", p=1.0)
-        out = transform(sample)
-        assert isinstance(out["points"], PointCloud3D)
-        assert isinstance(out["boxes"], BoundingBoxes3D)
-        assert isinstance(out["images"], CameraImages)
-        assert isinstance(out["extrinsics"], CameraExtrinsics)
-        assert isinstance(out["intrinsics"], CameraIntrinsics)
+        transform = RandomFlip3D(axis="x", p=0.0)
+        with pytest.raises(TypeError, match="RandomFlip3D"):
+            transform(sample)
 
 
 # Reference implementations
@@ -1128,3 +1125,51 @@ class TestPointsAndBoxesStayConsistent:
         point_delta = out["points"][0, :3] - points_before[0, :3]
         box_delta = out["boxes"][0, :3] - boxes_before[0, :3]
         assert torch.allclose(point_delta, box_delta, atol=1e-5)
+
+
+class _TestTransform(Transform):
+    """Minimal Transform with no kernels, used to probe ``_safe_for``."""
+
+    @override
+    def transform(self, inpt: object, params: dict[str, object]) -> object:
+        return inpt
+
+
+class _PointCloudSafe(_TestTransform):
+    _safe_for = frozenset({PointCloud3D})
+
+
+class TestSafeForContract:
+    def test_default_empty_rejects_every_tvtensor(self) -> None:
+        sample = _make_fusion_sample()
+        with pytest.raises(TypeError):
+            _TestTransform()(sample)
+
+    def test_default_empty_accepts_plain_tensors(self) -> None:
+        _TestTransform()({"labels": torch.tensor([0, 1, 2])})
+
+    def test_accepts_listed_types(self) -> None:
+        sample = {"points": make_point_cloud_3d(num_points=10)}
+        _PointCloudSafe()(sample)
+
+    def test_rejects_unlisted_tvtensors(self) -> None:
+        sample = _make_fusion_sample()
+        with pytest.raises(TypeError, match="CameraImages"):
+            _PointCloudSafe()(sample)
+
+    def test_plain_tensors_always_pass(self) -> None:
+        sample = {
+            "points": make_point_cloud_3d(num_points=10),
+            "labels": torch.tensor([0, 1, 2]),
+        }
+        _PointCloudSafe()(sample)
+
+    def test_subtype_matches(self) -> None:
+        from torchvision.tv_tensors import Image
+
+        class _ImageSafe(_TestTransform):
+            _safe_for = frozenset({Image})
+
+        # CameraImages is a subclass of Image
+        sample = {"images": make_camera_images(num_cameras=2, height=8, width=8)}
+        _ImageSafe()(sample)
