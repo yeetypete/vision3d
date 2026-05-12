@@ -193,6 +193,15 @@ log_sample(
 # View every transform side by side in the embedded Rerun viewer, each
 # on its own tab. Compare each tab against the baseline viewer at the
 # top of the page.
+#
+# .. warning::
+#
+#    Not every transform is meaningful for fusion samples that include
+#    camera images. :class:`~vision3d.transforms.RandomFlip3D`, for
+#    example, mirrors the 3D scene but cannot reflect the cameras' fields
+#    of view without assuming a sensor rig that is symmetric across the
+#    flip axis, so the lidar and image streams drift out of
+#    correspondence. Use such transforms on lidar-only samples.
 
 from vision3d.transforms import PointSample, PointShuffle, RandomFlip3D
 
