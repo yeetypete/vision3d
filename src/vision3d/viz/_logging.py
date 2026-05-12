@@ -56,6 +56,7 @@ def log_boxes_3d(
     *,
     labels: list[str] | None = None,
     class_ids: list[int] | None = None,
+    label_to_id: dict[str, int] | None = None,
     log_heading: bool = True,
 ) -> None:
     """Log 3D bounding boxes to Rerun.
@@ -63,17 +64,24 @@ def log_boxes_3d(
     Logs boxes as ``rr.Boxes3D`` and optionally heading arrows as
     ``rr.Arrows3D`` on a ``/heading`` sub-entity.
 
-    For consistent class coloring across frames, pass ``class_ids`` and
-    log an ``rr.AnnotationContext`` on the entity once before logging
-    any boxes.
-
     Args:
         entity: Rerun entity path (e.g. ``"world/boxes"``).
         boxes: Bounding boxes in any supported format.
         labels: Per-box label strings for display.
         class_ids: Per-box class IDs for coloring via AnnotationContext.
+        label_to_id: Mapping from class name to class ID. When provided,
+            an ``rr.AnnotationContext`` is logged statically on the
+            entity so ``class_ids`` resolve to consistent colors and
+            display names across frames.
         log_heading: If True and boxes have rotation, log heading arrows.
     """
+    if label_to_id is not None:
+        rr.log(
+            entity,
+            rr.AnnotationContext([(i, name) for name, i in label_to_id.items()]),
+            static=True,
+        )
+
     raw = boxes.as_subclass(Tensor).detach().cpu()
     fmt = boxes.format
     n = raw.shape[0]
@@ -245,19 +253,12 @@ def log_sample(
         )
 
     if targets and "boxes" in targets:
-        class_ids = None
-        labels_list = None
-        if "labels" in targets:
-            class_ids = targets["labels"].tolist()
-        if label_to_id is not None and class_ids is not None:
-            id_to_label = {v: k for k, v in label_to_id.items()}
-            labels_list = [id_to_label.get(i, str(i)) for i in class_ids]
-
+        class_ids = targets["labels"].tolist() if "labels" in targets else None
         log_boxes_3d(
             f"{entity_prefix}/boxes",
             targets["boxes"],
-            labels=labels_list,
             class_ids=class_ids,
+            label_to_id=label_to_id,
         )
 
 
