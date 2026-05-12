@@ -38,6 +38,40 @@ inputs, targets = dataset[FRAME_INDEX]
 print(f"num boxes: {targets['boxes'].shape[0]} boxes")
 
 # %%
+# Visualize the baseline sample
+# -----------------------------
+# Render the original sample in an embedded Rerun viewer to use as
+# a reference for the transformed scenes shown later in this example.
+
+import rerun as rr
+import rerun.blueprint as rrb
+
+from vision3d.viz import fusion_layout, log_sample
+
+label_to_id = dataset.class_to_idx
+
+rr.init("vision3d_original", spawn=True)
+rr.send_blueprint(
+    rrb.Blueprint(
+        fusion_layout(
+            NuScenes3D.camera_names,
+            NuScenes3D.camera_grid,
+            entity_prefix="original",
+            name="Original",
+        ),
+        rrb.TimePanel(state="hidden"),
+    )
+)
+rr.log("original", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+log_sample(
+    inputs,
+    targets,
+    entity_prefix="original",
+    label_to_id=label_to_id,
+    jpeg_quality=75,
+)
+
+# %%
 # Apply a single transform
 # ------------------------
 # Every transform is a :class:`torchvision.transforms.v2.Transform` that
@@ -101,25 +135,26 @@ print(f"composed boxes:  {tuple(c_targets['boxes'].shape)}")
 # method based on the ground-truth sampling technique first introduced
 # in `SECOND <https://www.mdpi.com/1424-8220/18/10/3337>`_. It improves
 # scene diversity by injecting instances from other scenes into the
-# current frame. Unlike single-sample transforms
+# current one. Unlike single-sample transforms
 # :class:`~vision3d.transforms.CopyPaste3D`
 # operates on collated batches and reads from an internal object
 # database that grows lazily as batches pass through.
 
 from torch.utils.data import DataLoader, Subset
 
-from vision3d.datasets import SampleInputs, SampleTargets, collate_fn
+from vision3d.datasets import collate_fn
 from vision3d.transforms import CopyPaste3D
 
 target_counts = {
     dataset.class_to_idx["car"]: 30,
     dataset.class_to_idx["pedestrian"]: 20,
+    dataset.class_to_idx["traffic_cone"]: 15,
 }
 copy_paste = CopyPaste3D(target_counts=target_counts, min_points=5)
 
-warmup_indices = list(range(max(0, FRAME_INDEX - 10), FRAME_INDEX))
+dataset_range = list(range(max(0, FRAME_INDEX - 10), FRAME_INDEX))
 dataset_loader = DataLoader(
-    Subset(dataset, warmup_indices),
+    Subset(dataset, dataset_range),
     batch_size=2,
     collate_fn=collate_fn,
 )
@@ -127,35 +162,41 @@ for epoch in range(2):
     for batch_inputs, batch_targets in dataset_loader:
         copy_paste(batch_inputs, batch_targets)
 
+cp_inputs, cp_targets = copy_paste((inputs,), (targets,))
+print(f"boxes before: {targets['boxes'].shape[0]}")
+print(f"boxes after CopyPaste3D:  {cp_targets[0]['boxes'].shape[0]}")
+
+rr.init("vision3d_copy_paste", spawn=True)
+rr.send_blueprint(
+    rrb.Blueprint(
+        fusion_layout(
+            NuScenes3D.camera_names,
+            NuScenes3D.camera_grid,
+            entity_prefix="copy_paste",
+            name="CopyPaste3D",
+        ),
+        rrb.TimePanel(state="hidden"),
+    )
+)
+rr.log("copy_paste", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+log_sample(
+    cp_inputs[0],
+    cp_targets[0],
+    entity_prefix="copy_paste",
+    label_to_id=label_to_id,
+    jpeg_quality=75,
+)
 
 # %%
-# Wrap the batched signature with a small adapter so it fits the
-# single-sample ``(inputs, targets)`` interface used by the
-# visualization loop below.
-
-
-def copy_paste_one(
-    inp: SampleInputs, tgt: SampleTargets
-) -> tuple[SampleInputs, SampleTargets]:
-    out_inp, out_tgt = copy_paste((inp,), (tgt,))
-    return out_inp[0], out_tgt[0]
-
-
-# %%
-# Transform showcase
+# Transforms showcase
 # ------------------------
-# View every transform side by side in the embedded Rerun viewer,
-# each on its own tab. The first tab shows the original, untransformed
-# sample as a reference.
-
-import rerun as rr
-import rerun.blueprint as rrb
+# View every transform side by side in the embedded Rerun viewer, each
+# on its own tab. Compare each tab against the baseline viewer at the
+# top of the page.
 
 from vision3d.transforms import PointSample, PointShuffle, RandomFlip3D
-from vision3d.viz import fusion_layout, log_sample
 
 transforms = [
-    ("original", "Original", lambda i, t: (i, t)),
     ("flip_z", "RandomFlip3D(axis='z')", RandomFlip3D(axis="z", p=1.0)),
     (
         "translate",
@@ -186,7 +227,6 @@ transforms = [
         "RangeFilter3D()",
         RangeFilter3D(point_cloud_range=(-30, -30, -5, 30, 30, 3)),
     ),
-    ("copy_paste", "CopyPaste3D", copy_paste_one),
     ("compose", "Compose", compose),
 ]
 
@@ -208,12 +248,8 @@ rr.send_blueprint(
     )
 )
 
-label_to_id = dataset.class_to_idx
-annotation_context = [(i, label) for label, i in label_to_id.items()]
-
 for prefix, name, pipeline in transforms:
     rr.log(prefix, rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
-    rr.log(f"{prefix}/boxes", rr.AnnotationContext(annotation_context), static=True)
     t_inputs, t_targets = pipeline(inputs, targets)
     log_sample(
         t_inputs,
