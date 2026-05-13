@@ -44,7 +44,7 @@ docs = [
 ]
 
 [build-system]
-requires = ["numpy>=2", "setuptools<82", "torch>=2.10"]
+requires = ["numpy>=2", "setuptools<82"]
 build-backend = "setuptools.build_meta"
 
 # Build vision3d against the torch version already installed in the project
