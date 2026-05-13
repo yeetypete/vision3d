@@ -69,6 +69,18 @@ if _HAS_CUDA:
 
 Extension = CUDAExtension if _HAS_CUDA else CppExtension
 
+# Define TORCH_TARGET_VERSION with min version 2.10 to expose only the
+# stable API subset from torch
+_DEFINE_MACROS: list[tuple[str, str | None]] = [
+    (
+        "TORCH_TARGET_VERSION",
+        "0x020a000000000000",
+    ),
+]
+if _HAS_CUDA:
+    # ``USE_CUDA`` exposes the CUDA-specific stable C shim functions
+    _DEFINE_MACROS.extend([("WITH_CUDA", None), ("USE_CUDA", None)])
+
 setup(
     version=get_version(),
     ext_modules=[
@@ -76,8 +88,10 @@ setup(
             name="vision3d._C",
             sources=_SOURCES,
             include_dirs=[str(_CSRC)],
-            define_macros=[("WITH_CUDA", None)] if _HAS_CUDA else [],
+            define_macros=_DEFINE_MACROS,
+            py_limited_api=True,
         ),
     ],
     cmdclass={"build_ext": BuildExtension, "sdist": VersionedSdist},
+    options={"bdist_wheel": {"py_limited_api": "cp312"}},
 )
