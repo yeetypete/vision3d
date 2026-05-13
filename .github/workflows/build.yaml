@@ -16,7 +16,7 @@ permissions: {}
 
 jobs:
   build-wheels:
-    name: "build-wheel (py${{ matrix.python-version }}, torch ${{ matrix.torch-version }}+${{ matrix.cuda-tag }})"
+    name: "build-wheel (${{ matrix.cuda-tag }})"
     runs-on: ubuntu-24.04
     container:
       image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04
@@ -32,13 +32,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12", "3.13", "3.14"]
-        torch-version: ["2.10.0", "2.11.0"]
+        # One abi3 wheel per CUDA variant. The CUDA runtime is not ABI-stable between major versions.
         include:
           - torch-version: "2.10.0"
             cuda-version: "12.8.1"
             cuda-tag: "cu128"
-          - torch-version: "2.11.0"
+          - torch-version: "2.12.0"
             cuda-version: "13.0.2"
             cuda-tag: "cu130"
     steps:
@@ -68,10 +67,10 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ github.workspace }}/.uv-cache
-          cache-suffix: build-wheel-torch-${{ matrix.torch-version }}+${{ matrix.cuda-tag }}
+          cache-suffix: build-wheel-${{ matrix.cuda-tag }}
       - name: Pin torch version
         run: |
           cat >> pyproject.toml <<EOF
@@ -86,7 +85,7 @@ jobs:
       - name: Upload wheel artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: wheel-py${{ matrix.python-version }}-torch${{ matrix.torch-version }}-${{ matrix.cuda-tag }}
+          name: wheel-${{ matrix.cuda-tag }}
           if-no-files-found: error
           retention-days: 5
           path: dist/*.whl
