@@ -34,11 +34,9 @@ jobs:
       matrix:
         # One abi3 wheel per CUDA variant. The CUDA runtime is not ABI-stable between major versions.
         include:
-          - torch-version: "2.10.0"
-            cuda-version: "12.8.1"
+          - cuda-version: "12.8.1"
             cuda-tag: "cu128"
-          - torch-version: "2.12.0"
-            cuda-version: "13.0.2"
+          - cuda-version: "13.0.2"
             cuda-tag: "cu130"
     steps:
       - name: Free disk space
@@ -71,17 +69,12 @@ jobs:
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ github.workspace }}/.uv-cache
           cache-suffix: build-wheel-${{ matrix.cuda-tag }}
-      - name: Pin torch version
-        run: |
-          cat >> pyproject.toml <<EOF
-
-          [tool.uv]
-          build-constraint-dependencies = ["torch==${{ matrix.torch-version }}"]
-          EOF
       - name: Set BUILD_VERSION
         run: echo "BUILD_VERSION=${{ inputs.version }}+${{ matrix.cuda-tag }}" >> "$GITHUB_ENV"
       - name: Build wheel
-        run: uv build --wheel
+        run: |
+          uv build --wheel \
+            --index https://download.pytorch.org/whl/${{ matrix.cuda-tag }}
       - name: Upload wheel artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
