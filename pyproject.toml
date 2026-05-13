@@ -47,6 +47,9 @@ docs = [
 requires = ["numpy>=2", "setuptools<82", "torch>=2.10"]
 build-backend = "setuptools.build_meta"
 
+[tool.uv.extra-build-dependencies]
+vision3d = [{ requirement = "torch", match-runtime = true }]
+
 [tool.pyrefly]
 min-severity = "ignore"
 search-path = ["examples", "test", "gallery", "docs/source/_ext"]
