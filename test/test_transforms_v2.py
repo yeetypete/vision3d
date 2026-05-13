@@ -22,6 +22,7 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
+from vision3d.transforms import GeometricConsistencyError
 from vision3d.transforms import v2 as v3d_v2
 
 
@@ -101,7 +102,7 @@ class TestImageGeometricUnsafeAlongside3D:
     )
     def test_raises_on_fusion(self, transform: nn.Module) -> None:
         sample = _fusion_sample()
-        with pytest.raises(TypeError):
+        with pytest.raises(GeometricConsistencyError):
             transform(sample)
 
     def test_raises_when_only_intrinsics_present(self) -> None:
@@ -111,7 +112,7 @@ class TestImageGeometricUnsafeAlongside3D:
             "images": make_camera_images(num_cameras=2, height=8, width=8),
             "intrinsics": make_camera_intrinsics(num_cameras=2),
         }
-        with pytest.raises(TypeError, match="CameraIntrinsics"):
+        with pytest.raises(GeometricConsistencyError, match="CameraIntrinsics"):
             v3d_v2.RandomHorizontalFlip(p=1.0)(sample)
 
     def test_passes_on_plain_image_only(self) -> None:
@@ -180,5 +181,5 @@ class TestComposeInterop:
                 v3d_v2.RandomHorizontalFlip(p=1.0),
             ]
         )
-        with pytest.raises(TypeError):
+        with pytest.raises(GeometricConsistencyError):
             chain(sample)

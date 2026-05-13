@@ -20,6 +20,7 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 from vision3d.transforms import (
+    GeometricConsistencyError,
     RandomFlip3D,
     RandomRotate3D,
     RandomScale3D,
@@ -350,13 +351,13 @@ class TestRandomFlip3DFusion:
             key: _make_fusion_sample()[key],
         }
         transform = RandomFlip3D(axis="x", p=1.0)
-        with pytest.raises(TypeError, match="RandomFlip3D"):
+        with pytest.raises(GeometricConsistencyError, match="RandomFlip3D"):
             transform(sample)
 
     def test_raises_even_when_skipped_by_probability(self) -> None:
         sample = _make_fusion_sample()
         transform = RandomFlip3D(axis="x", p=0.0)
-        with pytest.raises(TypeError, match="RandomFlip3D"):
+        with pytest.raises(GeometricConsistencyError, match="RandomFlip3D"):
             transform(sample)
 
 
@@ -1142,7 +1143,7 @@ class _PointCloudSafe(_TestTransform):
 class TestSafeForContract:
     def test_default_empty_rejects_every_tvtensor(self) -> None:
         sample = _make_fusion_sample()
-        with pytest.raises(TypeError):
+        with pytest.raises(GeometricConsistencyError):
             _TestTransform()(sample)
 
     def test_default_empty_accepts_plain_tensors(self) -> None:
@@ -1154,7 +1155,7 @@ class TestSafeForContract:
 
     def test_rejects_unlisted_tvtensors(self) -> None:
         sample = _make_fusion_sample()
-        with pytest.raises(TypeError, match="CameraImages"):
+        with pytest.raises(GeometricConsistencyError, match="CameraImages"):
             _PointCloudSafe()(sample)
 
     def test_plain_tensors_always_pass(self) -> None:

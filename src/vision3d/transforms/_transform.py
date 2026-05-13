@@ -34,6 +34,14 @@ ALL_VISION3D_TVTENSORS: frozenset[type[TVTensor]] = frozenset(
 )
 
 
+class GeometricConsistencyError(TypeError):
+    """Raised when a transform would break scene geometric consistency.
+
+    Signals that a transform received a TVTensor it does not know how to
+    update jointly with the rest of the scene.
+    """
+
+
 def _needs_transform(inpt: Any) -> bool:
     """Only TVTensor subclasses are transformed. Plain tensors pass through.
 
@@ -51,8 +59,8 @@ def _check_safety(
     """Raise if any TVTensor input is outside the declared safe set.
 
     Raises:
-        TypeError: If any input is a TVTensor whose type (or any base)
-            is not in ``safe_for``.
+        GeometricConsistencyError: If any input is a TVTensor whose type
+            (or any base) is not in ``safe_for``.
     """
     safe_types = tuple(safe_for)
     unsafe = {
@@ -71,7 +79,7 @@ def _check_safety(
         f"the input, use a different transform, or extend `_safe_for` "
         f"if you have verified the behaviour is correct."
     )
-    raise TypeError(msg)
+    raise GeometricConsistencyError(msg)
 
 
 class Transform(nn.Module):
