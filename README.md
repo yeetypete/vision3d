@@ -33,8 +33,16 @@ using [`uv`](https://docs.astral.sh/uv/) your package manager.
 uv add vision3d
 ```
 
-> [!NOTE]
-> Installing from PyPI builds the C++/CUDA extension on your machine, so
+Alternatively with `pip`, install PyTorch first and then build `vision3d`
+against it without build isolation, so the build links against the same torch
+ABI used at runtime:
+
+```bash
+pip install 'torch>=2.10'
+pip install vision3d --no-build-isolation
+```
+
+> [!NOTE] Installing from PyPI builds the C++/CUDA extension on your machine, so
 > the build-time requirements above apply. Use a pre-built wheel if you want to
 > skip the compile step.
 
