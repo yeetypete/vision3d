@@ -79,7 +79,7 @@ _DEFINE_MACROS: list[tuple[str, str | None]] = [
 ]
 if _HAS_CUDA:
     # ``USE_CUDA`` exposes the CUDA-specific stable C shim functions
-    _DEFINE_MACROS.extend([("WITH_CUDA", None), ("USE_CUDA", None)])
+    _DEFINE_MACROS.append(("USE_CUDA", None))
 
 setup(
     version=get_version(),
