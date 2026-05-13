@@ -6,10 +6,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <ATen/ATen.h>
 #include <assert.h>
-#include <torch/extension.h>
-#include <torch/torch.h>
 #include <algorithm>
 #include <list>
 #include <numeric>
@@ -343,13 +340,18 @@ inline float BoxVolume(
 // Returns
 //    vec3: coordinates of the center of the box
 //
-inline vec3<float> BoxCenter(const at::Tensor& box_verts) {
-  const auto& box_center_t = at::mean(box_verts, 0);
-  const vec3<float> box_center(
-      box_center_t[0].item<float>(),
-      box_center_t[1].item<float>(),
-      box_center_t[2].item<float>());
-  return box_center;
+template <typename Box>
+inline vec3<float> BoxCenter(const Box& box) {
+  float cx = 0.0f;
+  float cy = 0.0f;
+  float cz = 0.0f;
+  for (int i = 0; i < 8; ++i) {
+    cx += box[i][0];
+    cy += box[i][1];
+    cz += box[i][2];
+  }
+  constexpr float k = 1.0f / 8.0f;
+  return vec3<float>(cx * k, cy * k, cz * k);
 }
 
 // Compute the polyhedron center as the mean of the face centers

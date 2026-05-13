@@ -6,37 +6,43 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <torch/extension.h>
-#include <torch/library.h>
-#include <list>
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/tensor.h>
 #include <tuple>
+#include "iou_box3d/iou_box3d.h"
 #include "iou_box3d/iou_utils.h"
+#include "utils/pytorch3d_cutils.h"
 
-std::tuple<at::Tensor, at::Tensor> IoUBox3DCpu(
-    const at::Tensor& boxes1,
-    const at::Tensor& boxes2) {
-  const int N = boxes1.size(0);
-  const int M = boxes2.size(0);
-  auto float_opts = boxes1.options().dtype(torch::kFloat32);
-  torch::Tensor vols = torch::zeros({N, M}, float_opts);
-  torch::Tensor ious = torch::zeros({N, M}, float_opts);
+std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
+    torch::stable::Tensor boxes1,
+    torch::stable::Tensor boxes2) {
+  CHECK_CPU(boxes1);
+  CHECK_CPU(boxes2);
+  boxes1 = torch::stable::contiguous(boxes1);
+  boxes2 = torch::stable::contiguous(boxes2);
 
-  // Create tensor accessors
-  auto boxes1_a = boxes1.accessor<float, 3>();
-  auto boxes2_a = boxes2.accessor<float, 3>();
-  auto vols_a = vols.accessor<float, 2>();
-  auto ious_a = ious.accessor<float, 2>();
+  const int64_t N = boxes1.size(0);
+  const int64_t M = boxes2.size(0);
+
+  auto vols = torch::stable::new_zeros(boxes1, {N, M});
+  auto ious = torch::stable::new_zeros(boxes1, {N, M});
+
+  const float* boxes1_data = boxes1.const_data_ptr<float>();
+  const float* boxes2_data = boxes2.const_data_ptr<float>();
+  float* vols_data = vols.mutable_data_ptr<float>();
+  float* ious_data = ious.mutable_data_ptr<float>();
 
   // Iterate through the N boxes in boxes1
-  for (int n = 0; n < N; ++n) {
-    const auto& box1 = boxes1_a[n];
+  for (int64_t n = 0; n < N; ++n) {
+    const BoxView box1{boxes1_data + n * 8 * 3};
     // Convert to vector of face vertices i.e. effectively (F, 3, 3)
     // face_verts is a data type defined in iou_utils.h
     const face_verts box1_tris = GetBoxTris(box1);
 
     // Calculate the position of the center of the box which is used in
-    // several calculations. This requires a tensor as input.
-    const vec3<float> box1_center = BoxCenter(boxes1[n]);
+    // several calculations.
+    const vec3<float> box1_center = BoxCenter(box1);
 
     // Convert to vector of face vertices i.e. effectively (P, 4, 3)
     const face_verts box1_planes = GetBoxPlanes(box1);
@@ -45,12 +51,12 @@ std::tuple<at::Tensor, at::Tensor> IoUBox3DCpu(
     const float box1_vol = BoxVolume(box1_tris, box1_center);
 
     // Iterate through the M boxes in boxes2
-    for (int m = 0; m < M; ++m) {
+    for (int64_t m = 0; m < M; ++m) {
       // Repeat above steps for box2
       // TODO: check if caching these value helps performance.
-      const auto& box2 = boxes2_a[m];
+      const BoxView box2{boxes2_data + m * 8 * 3};
       const face_verts box2_tris = GetBoxTris(box2);
-      const vec3<float> box2_center = BoxCenter(boxes2[m]);
+      const vec3<float> box2_center = BoxCenter(box2);
       const face_verts box2_planes = GetBoxPlanes(box2);
       const float box2_vol = BoxVolume(box2_tris, box2_center);
 
@@ -112,13 +118,13 @@ std::tuple<at::Tensor, at::Tensor> IoUBox3DCpu(
         iou = vol / (box1_vol + box2_vol - vol);
       }
       // Save out volume and IoU
-      vols_a[n][m] = vol;
-      ious_a[n][m] = iou;
+      vols_data[n * M + m] = vol;
+      ious_data[n * M + m] = iou;
     }
   }
-  return std::make_tuple(vols, ious);
+  return std::make_tuple(std::move(vols), std::move(ious));
 }
 
-TORCH_LIBRARY_IMPL(vision3d, CPU, m) {
-  m.impl(TORCH_SELECTIVE_NAME("vision3d::iou_box3d"), TORCH_FN(IoUBox3DCpu));
+STABLE_TORCH_LIBRARY_IMPL(vision3d, CPU, m) {
+  m.impl("iou_box3d", TORCH_BOX(IoUBox3DCpu));
 }
