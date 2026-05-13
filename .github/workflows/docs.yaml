@@ -62,7 +62,7 @@ jobs:
           cat >> pyproject.toml <<EOF
 
           [tool.uv]
-          build-constraint-dependencies = ["torch==2.11.0"]
+          build-constraint-dependencies = ["torch==2.12.0"]
           EOF
       - name: Install dependencies
         run: uv sync --all-extras --all-groups
