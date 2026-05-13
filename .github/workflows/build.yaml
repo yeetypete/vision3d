@@ -74,11 +74,7 @@ jobs:
           cache-suffix: build-wheel-torch-${{ matrix.torch-version }}+${{ matrix.cuda-tag }}
       - name: Pin torch version
         run: |
-          cat >> pyproject.toml <<EOF
-
-          [tool.uv]
-          build-constraint-dependencies = ["torch==${{ matrix.torch-version }}"]
-          EOF
+          sed -i '/^\[tool\.uv\]/a constraint-dependencies = ["torch==${{ matrix.torch-version }}"]' pyproject.toml
       - name: Set BUILD_VERSION
         run: echo "BUILD_VERSION=${{ inputs.version }}+${{ matrix.cuda-tag }}" >> "$GITHUB_ENV"
       - name: Build wheel
