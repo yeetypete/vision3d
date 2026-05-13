@@ -41,18 +41,20 @@ uv add vision3d
 ### From a release wheel
 
 Pre-built wheels are published as assets on each
-[GitHub release](https://github.com/yeetypete/vision3d/releases) for the
-following combinations:
+[GitHub release](https://github.com/yeetypete/vision3d/releases). vision3d
+wheels are built against the
+[LibTorch Stable ABI](https://docs.pytorch.org/docs/stable/notes/libtorch_stable_abi.html),
+so a single wheel per CUDA variant works for any Python 3.12+ and torch 2.10+.
+Wheels are currently built for:
 
-- Python 3.12, 3.13, 3.14
-- CUDA 13.0 (torch 2.11) and CUDA 12.8 (torch 2.10)
+- CUDA 12.8 and CUDA 13.0
 - Linux x86_64
 
-Pick the wheel that matches your Python interpreter and PyTorch/CUDA version,
-then install it directly from the release URL:
+Pick the wheel that matches your CUDA runtime, then install it directly from the
+release URL:
 
 ```bash
-uv add https://github.com/yeetypete/vision3d/releases/download/v0.2.2/vision3d-0.2.2+cu130-cp314-cp314-linux_x86_64.whl
+uv add https://github.com/yeetypete/vision3d/releases/download/v0.2.2/vision3d-0.2.2+cu130-cp312-abi3-linux_x86_64.whl
 ```
 
 ### From source
