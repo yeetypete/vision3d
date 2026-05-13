@@ -7,15 +7,15 @@
  */
 
 #pragma once
-#include <torch/extension.h>
+#include <torch/headeronly/util/Exception.h>
 
-#define CHECK_CUDA(x) TORCH_CHECK(x.is_cuda(), #x " must be a CUDA tensor.")
+#define CHECK_CUDA(x) \
+  STD_TORCH_CHECK((x).is_cuda(), #x " must be a CUDA tensor.")
 #define CHECK_CONTIGUOUS(x) \
-  TORCH_CHECK(x.is_contiguous(), #x " must be contiguous.")
+  STD_TORCH_CHECK((x).is_contiguous(), #x " must be contiguous.")
 #define CHECK_CONTIGUOUS_CUDA(x) \
   CHECK_CUDA(x);                 \
   CHECK_CONTIGUOUS(x)
-#define CHECK_CPU(x)                    \
-  TORCH_CHECK(                          \
-      x.device().type() == torch::kCPU, \
-      "Cannot use CPU implementation: " #x " not on CPU.")
+#define CHECK_CPU(x) \
+  STD_TORCH_CHECK(   \
+      (x).is_cpu(), "Cannot use CPU implementation: " #x " not on CPU.")

@@ -7,9 +7,30 @@
  */
 
 #pragma once
-#include <torch/extension.h>
+
+#include <torch/csrc/stable/tensor.h>
+#include <torch/headeronly/macros/Macros.h>
 #include <tuple>
-#include "utils/pytorch3d_cutils.h"
+
+// Lightweight view of a single (8, 3) box from contiguous float data.
+struct BoxView {
+  const float* data;
+
+  struct Row {
+    const float* p;
+    C10_HOST_DEVICE float operator[](int j) const {
+      return p[j];
+    }
+  };
+
+  C10_HOST_DEVICE Row operator[](int i) const {
+    return Row{data + i * 3};
+  }
+
+  C10_HOST_DEVICE int size(int /*dim*/) const {
+    return 8;
+  }
+};
 
 // Calculate the intersection volume and IoU metric for two batches of boxes
 //
@@ -22,29 +43,11 @@
 //          defined as: `iou = vol / (vol1 + vol2 - vol)`
 
 // CPU implementation
-std::tuple<at::Tensor, at::Tensor> IoUBox3DCpu(
-    const at::Tensor& boxes1,
-    const at::Tensor& boxes2);
+std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
+    torch::stable::Tensor boxes1,
+    torch::stable::Tensor boxes2);
 
 // CUDA implementation
-std::tuple<at::Tensor, at::Tensor> IoUBox3DCuda(
-    const at::Tensor& boxes1,
-    const at::Tensor& boxes2);
-
-// Implementation which is exposed
-inline std::tuple<at::Tensor, at::Tensor> IoUBox3D(
-    const at::Tensor& boxes1,
-    const at::Tensor& boxes2) {
-  if (boxes1.is_cuda() || boxes2.is_cuda()) {
-#ifdef WITH_CUDA
-    CHECK_CUDA(boxes1);
-    CHECK_CUDA(boxes2);
-    return IoUBox3DCuda(boxes1.contiguous(), boxes2.contiguous());
-#else
-    AT_ERROR("Not compiled with GPU support.");
-#endif
-  }
-  CHECK_CPU(boxes1);
-  CHECK_CPU(boxes2);
-  return IoUBox3DCpu(boxes1.contiguous(), boxes2.contiguous());
-}
+std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCuda(
+    torch::stable::Tensor boxes1,
+    torch::stable::Tensor boxes2);

@@ -6,26 +6,29 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDAGuard.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <torch/library.h>
+#include <torch/csrc/inductor/aoti_torch/c/shim.h>
+#include <torch/csrc/stable/accelerator.h>
+#include <torch/csrc/stable/library.h>
+#include <torch/csrc/stable/ops.h>
+#include <torch/csrc/stable/tensor.h>
+#include <torch/headeronly/util/Exception.h>
+#include <tuple>
 #include "iou_box3d/iou_box3d.h"
 #include "iou_box3d/iou_utils.cuh"
+#include "utils/pytorch3d_cutils.h"
 
 // Parallelize over N*M computations which can each be done
 // independently
 __global__ void IoUBox3DKernel(
-    const at::PackedTensorAccessor64<float, 3, at::RestrictPtrTraits> boxes1,
-    const at::PackedTensorAccessor64<float, 3, at::RestrictPtrTraits> boxes2,
-    at::PackedTensorAccessor64<float, 2, at::RestrictPtrTraits> vols,
-    at::PackedTensorAccessor64<float, 2, at::RestrictPtrTraits> ious) {
-  const size_t N = boxes1.size(0);
-  const size_t M = boxes2.size(0);
-
+    const float* __restrict__ boxes1,
+    const float* __restrict__ boxes2,
+    float* __restrict__ vols,
+    float* __restrict__ ious,
+    int64_t N,
+    int64_t M) {
   const size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
   const size_t stride = gridDim.x * blockDim.x;
 
@@ -34,23 +37,26 @@ __global__ void IoUBox3DKernel(
   FaceVerts box1_planes[NUM_PLANES];
   FaceVerts box2_planes[NUM_PLANES];
 
-  for (size_t i = tid; i < N * M; i += stride) {
+  for (size_t i = tid; i < static_cast<size_t>(N * M); i += stride) {
     const size_t n = i / M; // box1 index
     const size_t m = i % M; // box2 index
 
+    const BoxView box1{boxes1 + n * 8 * 3};
+    const BoxView box2{boxes2 + m * 8 * 3};
+
     // Convert to array of structs of face vertices i.e. effectively (F, 3, 3)
     // FaceVerts is a data type defined in iou_utils.cuh
-    GetBoxTris(boxes1[n], box1_tris);
-    GetBoxTris(boxes2[m], box2_tris);
+    GetBoxTris(box1, box1_tris);
+    GetBoxTris(box2, box2_tris);
 
     // Calculate the position of the center of the box which is used in
-    // several calculations. This requires a tensor as input.
-    const float3 box1_center = BoxCenter(boxes1[n]);
-    const float3 box2_center = BoxCenter(boxes2[m]);
+    // several calculations.
+    const float3 box1_center = BoxCenter(box1);
+    const float3 box2_center = BoxCenter(box2);
 
     // Convert to an array of face vertices
-    GetBoxPlanes(boxes1[n], box1_planes);
-    GetBoxPlanes(boxes2[m], box2_planes);
+    GetBoxPlanes(box1, box1_planes);
+    GetBoxPlanes(box2, box2_planes);
 
     // Get Box Volumes
     const float box1_vol = BoxVolume(box1_tris, box1_center, NUM_TRIS);
@@ -127,55 +133,69 @@ __global__ void IoUBox3DKernel(
     }
 
     // Write the volume and IoU to global memory
-    vols[n][m] = vol;
-    ious[n][m] = iou;
+    vols[n * M + m] = vol;
+    ious[n * M + m] = iou;
   }
 }
 
-std::tuple<at::Tensor, at::Tensor> IoUBox3DCuda(
-    const at::Tensor& boxes1, // (N, 8, 3)
-    const at::Tensor& boxes2) { // (M, 8, 3)
+std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCuda(
+    torch::stable::Tensor boxes1, // (N, 8, 3)
+    torch::stable::Tensor boxes2) { // (M, 8, 3)
   // Check inputs are on the same device
-  at::TensorArg boxes1_t{boxes1, "boxes1", 1}, boxes2_t{boxes2, "boxes2", 2};
-  at::CheckedFrom c = "IoUBox3DCuda";
-  at::checkAllSameGPU(c, {boxes1_t, boxes2_t});
-  at::checkAllSameType(c, {boxes1_t, boxes2_t});
+  CHECK_CUDA(boxes1);
+  CHECK_CUDA(boxes2);
+  STD_TORCH_CHECK(
+      boxes1.get_device_index() == boxes2.get_device_index(),
+      "boxes1 and boxes2 must be on the same CUDA device");
+  STD_TORCH_CHECK(
+      boxes1.scalar_type() == boxes2.scalar_type(),
+      "boxes1 and boxes2 must have the same dtype");
+  STD_TORCH_CHECK(
+      boxes1.dim() == 3 && boxes1.size(1) == 8 && boxes1.size(2) == 3,
+      "boxes1 must have shape (N, 8, 3)");
+  STD_TORCH_CHECK(
+      boxes2.dim() == 3 && boxes2.size(1) == 8 && boxes2.size(2) == 3,
+      "boxes2 must have shape (M, 8, 3)");
 
-  // Set the device for the kernel launch based on the device of boxes1
-  at::cuda::CUDAGuard device_guard(boxes1.device());
-  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
-
-  TORCH_CHECK(boxes2.size(2) == boxes1.size(2), "Boxes must have shape (8, 3)");
-
-  TORCH_CHECK(
-      (boxes2.size(1) == 8) && (boxes1.size(1) == 8),
-      "Boxes must have shape (8, 3)");
+  boxes1 = torch::stable::contiguous(boxes1);
+  boxes2 = torch::stable::contiguous(boxes2);
 
   const int64_t N = boxes1.size(0);
   const int64_t M = boxes2.size(0);
 
-  auto vols = at::zeros({N, M}, boxes1.options());
-  auto ious = at::zeros({N, M}, boxes1.options());
+  auto vols = torch::stable::new_zeros(boxes1, {N, M});
+  auto ious = torch::stable::new_zeros(boxes1, {N, M});
 
-  if (vols.numel() == 0) {
-    AT_CUDA_CHECK(cudaGetLastError());
-    return std::make_tuple(vols, ious);
+  if (N == 0 || M == 0) {
+    return std::make_tuple(std::move(vols), std::move(ious));
   }
+
+  // Set the device for the kernel launch based on the device of boxes1
+  const int32_t device_index = boxes1.get_device_index();
+  torch::stable::accelerator::DeviceGuard device_guard(device_index);
+
+  void* raw_stream = nullptr;
+  TORCH_ERROR_CODE_CHECK(
+      aoti_torch_get_current_cuda_stream(device_index, &raw_stream));
+  auto stream = static_cast<cudaStream_t>(raw_stream);
 
   const size_t blocks = 512;
   const size_t threads = 256;
 
   IoUBox3DKernel<<<blocks, threads, 0, stream>>>(
-      boxes1.packed_accessor64<float, 3, at::RestrictPtrTraits>(),
-      boxes2.packed_accessor64<float, 3, at::RestrictPtrTraits>(),
-      vols.packed_accessor64<float, 2, at::RestrictPtrTraits>(),
-      ious.packed_accessor64<float, 2, at::RestrictPtrTraits>());
+      boxes1.const_data_ptr<float>(),
+      boxes2.const_data_ptr<float>(),
+      vols.mutable_data_ptr<float>(),
+      ious.mutable_data_ptr<float>(),
+      N,
+      M);
 
-  AT_CUDA_CHECK(cudaGetLastError());
+  STD_TORCH_CHECK(
+      cudaGetLastError() == cudaSuccess, "IoUBox3DKernel launch failed");
 
-  return std::make_tuple(vols, ious);
+  return std::make_tuple(std::move(vols), std::move(ious));
 }
 
-TORCH_LIBRARY_IMPL(vision3d, CUDA, m) {
-  m.impl(TORCH_SELECTIVE_NAME("vision3d::iou_box3d"), TORCH_FN(IoUBox3DCuda));
+STABLE_TORCH_LIBRARY_IMPL(vision3d, CUDA, m) {
+  m.impl("iou_box3d", TORCH_BOX(IoUBox3DCuda));
 }

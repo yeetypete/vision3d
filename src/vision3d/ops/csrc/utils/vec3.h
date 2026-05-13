@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <torch/headeronly/util/Exception.h>
+
 // A fixed-sized vector with basic arithmetic operators useful for
 // representing 3D coordinates.
 // TODO: switch to Eigen if more functionality is needed.
@@ -35,8 +37,7 @@ inline vec3<T> operator-(const vec3<T>& a, const vec3<T>& b) {
 template <typename T>
 inline vec3<T> operator/(const vec3<T>& a, const T b) {
   if (b == 0.0) {
-    AT_ERROR(
-        "denominator in vec3 division is 0"); // prevent divide by 0 errors.
+    STD_TORCH_CHECK(false, "denominator in vec3 division is 0");
   }
   return vec3<T>(a.x / b, a.y / b, a.z / b);
 }
