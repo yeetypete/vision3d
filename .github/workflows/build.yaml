@@ -74,10 +74,12 @@ jobs:
           cache-suffix: build-wheel-torch-${{ matrix.torch-version }}+${{ matrix.cuda-tag }}
       - name: Pin torch version
         run: uv lock --upgrade-package "torch==${{ matrix.torch-version }}"
+      - name: Export build constraints
+        run: uv export --no-dev --no-emit-project -o /tmp/build-constraints.txt
       - name: Set BUILD_VERSION
         run: echo "BUILD_VERSION=${{ inputs.version }}+${{ matrix.cuda-tag }}" >> "$GITHUB_ENV"
       - name: Build wheel
-        run: uv build --wheel
+        run: uv build --wheel --build-constraints /tmp/build-constraints.txt
       - name: Upload wheel artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
