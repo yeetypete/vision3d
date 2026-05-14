@@ -73,11 +73,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
-      - name: Download wheel and sdist artifacts
+      - name: Download dist artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: dist
-          merge-multiple: true
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -87,10 +86,10 @@ jobs:
             --target "${{ github.sha }}" \
             --title "$tag" \
             --generate-notes \
-            dist/*.whl dist/*.tar.gz
+            dist/*
 
   publish-pypi:
-    name: Publish sdist to PyPI
+    name: Publish release to PyPI
     needs: announce
     runs-on: ubuntu-24.04
     environment:
@@ -103,10 +102,9 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8
         with:
           enable-cache: false
-      - name: Download sdist artifact
+      - name: Download dist artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: sdist
           path: dist
       - name: Publish
         run: uv publish
