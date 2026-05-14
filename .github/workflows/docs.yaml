@@ -17,7 +17,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     container:
-      image: pytorch/manylinux2_28-builder:cuda12.8
+      image: pytorch/manylinux2_28-builder:cuda13.0
       volumes:
         - /usr/share/dotnet:/host/dotnet
         - /usr/local/lib/android:/host/android
