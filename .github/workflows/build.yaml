@@ -15,11 +15,16 @@ on:
 permissions: {}
 
 jobs:
-  build-wheels:
-    name: "build-wheel (${{ matrix.cuda-tag }})"
+  build:
+    name: build
     runs-on: ubuntu-24.04
+    # Build inside the oldest CUDA toolkit we support (CUDA 12.8). Combined with the
+    # static cudart linkage configured in ``setup.py``, the resulting wheel
+    # has no ``libcudart.so.<MAJOR>`` SONAME dependency and runs on any NVIDIA
+    # driver that supports the CUDA 12.8 toolkit or newer (Linux driver ≥ 570;
+    # newer CUDA majors are covered by driver backward compatibility).
     container:
-      image: nvidia/cuda:${{ matrix.cuda-version }}-devel-ubuntu24.04
+      image: nvidia/cuda:12.8.1-devel-ubuntu24.04
       volumes:
         - /usr/share/dotnet:/host/dotnet
         - /usr/local/lib/android:/host/android
@@ -29,15 +34,6 @@ jobs:
     env:
       FORCE_CUDA: "1"
       TORCH_CUDA_ARCH_LIST: "7.5;8.0;8.6;9.0;10.0;12.0+PTX"
-    strategy:
-      fail-fast: false
-      matrix:
-        # One abi3 wheel per CUDA variant. The CUDA runtime is not ABI-stable between major versions.
-        include:
-          - cuda-version: "12.8.1"
-            cuda-tag: "cu128"
-          - cuda-version: "13.0.2"
-            cuda-tag: "cu130"
     steps:
       - name: Free disk space
         shell: bash
@@ -68,44 +64,15 @@ jobs:
           python-version: "3.12"
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ github.workspace }}/.uv-cache
-          cache-suffix: build-wheel-${{ matrix.cuda-tag }}
-      - name: Set BUILD_VERSION
-        run: echo "BUILD_VERSION=${{ inputs.version }}+${{ matrix.cuda-tag }}" >> "$GITHUB_ENV"
-      - name: Build wheel
-        run: |
-          uv build --wheel \
-            --index https://download.pytorch.org/whl/${{ matrix.cuda-tag }}
-      - name: Upload wheel artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: wheel-${{ matrix.cuda-tag }}
-          if-no-files-found: error
-          retention-days: 5
-          path: dist/*.whl
-
-  build-sdist:
-    name: Build sdist
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-      - name: Set up uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8
-        with:
-          enable-cache: ${{ inputs.cache }}
-          cache-suffix: build-sdist
+          cache-suffix: build
       - name: Set BUILD_VERSION
         run: echo "BUILD_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
-      - name: Build sdist
-        run: uv build --sdist
-      - name: Upload sdist artifact
+      - name: Build
+        run: uv build
+      - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: sdist
+          name: dist
           if-no-files-found: error
           retention-days: 5
-          path: dist/*.tar.gz
+          path: dist/*
