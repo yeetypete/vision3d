@@ -74,6 +74,17 @@ To produce a wheel locally:
 uv build
 ```
 
+By default `uv build` resolves torch from PyPI, which currently ships the `cu130`
+variant. If your local CUDA toolkit is a different major version, point uv at
+the matching PyTorch wheel index instead:
+
+```bash
+uv build --index https://download.pytorch.org/whl/cu128
+```
+
+Replace `cu128` with whatever CUDA major version your installed CUDA toolkit
+ships, e.g. `cu130`, `cu132`.
+
 ### Extras
 
 - `nuscenes`: pulls in `nuscenes-devkit` for the nuScenes dataset loader.
