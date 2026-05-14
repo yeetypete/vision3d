@@ -7,10 +7,10 @@ from typing import Any, ClassVar, override
 
 import numpy as np
 import torch
-from PIL import Image
 from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision.datasets.utils import download_and_extract_archive
+from torchvision.io import ImageReadMode, decode_image
 
 from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.tensors import (
@@ -199,9 +199,8 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
     def _load_image(self, base: Path, frame_id: str) -> Tensor:
         path = base / self.image_dir_name / f"{frame_id}.png"
         if path.exists():
-            img = np.array(Image.open(path).convert("RGB"))
-            # [H, W, 3] -> [1, 3, H, W]
-            return torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float() / 255.0
+            img = decode_image(str(path), mode=ImageReadMode.RGB)  # [3, H, W] uint8
+            return img.unsqueeze(0).float() / 255.0
         return torch.zeros(1, 3, 1, 1)
 
     def _load_calib(self, base: Path, frame_id: str) -> dict[str, Tensor]:
