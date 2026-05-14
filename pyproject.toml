@@ -3,8 +3,7 @@ name = "vision3d"
 description = "A 3D extension of torchvision."
 readme = "README.md"
 requires-python = ">=3.12"
-license = "BSD-3-Clause"
-license-files = ["LICENSE"]
+license = { text = "BSD-3-Clause" }
 authors = [{ name = "Peter Siegel" }]
 dependencies = [
   "torch>=2.10",
@@ -44,11 +43,10 @@ docs = [
 ]
 
 [build-system]
-# ``setuptools>=77`` is the floor for PEP 639 ``license = "BSD-3-Clause"``
-# support. The ``<82`` upper bound mirrors torch's own ``Requires-Dist:
-# setuptools<82`` setuptools 82 removed ``pkg_resources``, which
-# the torch build path still relies on.
-requires = ["numpy>=2", "setuptools>=77,<82", "torch>=2.10"]
+# The ``<82`` upper bound mirrors torch's own ``Requires-Dist: setuptools<82``.
+# Setuptools 82 removed ``pkg_resources``, which the torch build path still
+# relies on.
+requires = ["numpy>=2", "setuptools<82", "torch>=2.10"]
 build-backend = "setuptools.build_meta"
 
 [tool.pyrefly]

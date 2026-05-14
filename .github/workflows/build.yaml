@@ -68,7 +68,9 @@ jobs:
       - name: Set BUILD_VERSION
         run: echo "BUILD_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
       - name: Build
-        run: uv build
+        # Pull torch from PyTorch's cu128 index to match this container's CUDA
+        # toolkit (PyPI's default is cu130).
+        run: uv build --index https://download.pytorch.org/whl/cu128
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
