@@ -17,7 +17,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     container:
-      image: nvidia/cuda:13.0.2-devel-ubuntu24.04 # TODO: use custom image which contains all build dependencies
+      image: pytorch/manylinux2_28-builder:cuda13.0
       volumes:
         - /usr/share/dotnet:/host/dotnet
         - /usr/local/lib/android:/host/android
@@ -38,15 +38,12 @@ jobs:
           wait
       - name: Install system dependencies
         run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            git \
-            libgl1 \
-            libglib2.0-0 \
-            libsm6 \
-            libxcb1 \
-            libxext6 \
-            libxrender1 \
-            ninja-build
+          yum install -y \
+            libSM \
+            libXext \
+            libXrender \
+            libxcb \
+            mesa-libGL
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:

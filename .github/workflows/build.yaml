@@ -18,13 +18,13 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-24.04
-    # Build with the oldest CUDA toolkit we support (CUDA 12.8). Combined with the
-    # static cudart linkage configured in `setup.py`, the resulting wheel
-    # has no `libcudart.so.<MAJOR>` SONAME dependency and runs on any NVIDIA
-    # driver that supports the CUDA 12.8 toolkit or newer (Linux driver ≥ 570;
-    # newer CUDA majors are covered by driver backward compatibility).
+    # Build with the oldest CUDA toolkit we support (CUDA 12.8) inside PyTorch's
+    # manylinux_2_28 builder image. The resulting wheel is tagged
+    # manylinux_2_28_x86_64, and runs on any NVIDIA driver that supports the
+    # CUDA 12.8 toolkit or newer (Linux driver ≥ 570; newer CUDA majors are
+    # covered by driver backward compatibility).
     container:
-      image: nvidia/cuda:12.8.1-devel-ubuntu24.04
+      image: pytorch/manylinux2_28-builder:cuda12.8
       volumes:
         - /usr/share/dotnet:/host/dotnet
         - /usr/local/lib/android:/host/android
@@ -43,11 +43,6 @@ jobs:
           rm -rf /host/android/* &
           rm -rf /host/hostedtoolcache/* &
           wait
-      - name: Install system dependencies
-        run: |
-          apt-get update && apt-get install -y --no-install-recommends \
-            git \
-            ninja-build
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -65,6 +60,19 @@ jobs:
         # Pull torch from PyTorch's cu128 index to match this container's CUDA
         # toolkit (PyPI's default is cu130).
         run: uv build --index https://download.pytorch.org/whl/cu128
+      - name: Repair wheel
+        # `uv build` tags the wheel `linux_x86_64`; PyPI requires a manylinux
+        # tag. The build image is manylinux_2_28-compliant, so retag without
+        # bundling shared libs (torch libs are resolved at runtime against the
+        # user's installed PyTorch).
+        run: |
+          uvx auditwheel repair \
+            --plat manylinux_2_28_x86_64 \
+            --only-plat \
+            --exclude '*' \
+            --wheel-dir dist \
+            dist/*-linux_x86_64.whl
+          rm dist/*-linux_x86_64.whl
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
