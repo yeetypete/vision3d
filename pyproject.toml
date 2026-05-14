@@ -3,8 +3,7 @@ name = "vision3d"
 description = "A 3D extension of torchvision."
 readme = "README.md"
 requires-python = ">=3.12"
-license = "BSD-3-Clause"
-license-files = ["LICENSE"]
+license = { text = "BSD-3-Clause" }
 authors = [{ name = "Peter Siegel" }]
 dependencies = [
   "torch>=2.10",
@@ -44,6 +43,9 @@ docs = [
 ]
 
 [build-system]
+# The `<82` upper bound mirrors torch's own `Requires-Dist: setuptools<82`.
+# Setuptools 82 removed `pkg_resources`, which the torch build path still
+# relies on.
 requires = ["numpy>=2", "setuptools<82", "torch>=2.10"]
 build-backend = "setuptools.build_meta"
 
@@ -88,7 +90,7 @@ docstring-code-format = true
 [tool.pytest.ini_options]
 addopts = "--cov --cov-report=term-missing --strict-markers"
 filterwarnings = [
-  # Unrelated warning from ``@torch.jit.script_method`` in torch/utils/mkldnn.py.
+  # Unrelated warning from `@torch.jit.script_method` in torch/utils/mkldnn.py.
   "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
 ]
 

@@ -38,6 +38,20 @@ FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="12.0+PTX" uv sync --all-extras --all-groups
 Set `TORCH_CUDA_ARCH_LIST` to the compute capabilities you require. The value
 above covers Blackwell GPUs.
 
+### Using a different CUDA toolkit version
+
+`uv.lock` pins torch to the variant published on PyPI (currently the `cu130`
+build). If your local CUDA toolkit is a different major version vision3d will
+not build. To resolve this, point uv at the PyTorch wheel index which matches
+your installed CUDA toolkit during sync:
+
+```bash
+uv sync --all-extras --all-groups --index https://download.pytorch.org/whl/cu128
+```
+
+Replace `cu128` with whatever CUDA major version your installed CUDA toolkit
+ships, e.g. `cu130`, `cu132`.
+
 ## Pre-commit hooks
 
 We use [`prek`](https://github.com/j178/prek) (a fast drop-in for `pre-commit`)

@@ -21,8 +21,8 @@ _ROOT = Path(__file__).resolve().parent
 def get_version() -> str:
     """Return the project version.
 
-    If the ``BUILD_VERSION`` environment variable is set, it fully overrides the
-    base version read from ``version.txt``. Otherwise, for local builds the
+    If the `BUILD_VERSION` environment variable is set, it fully overrides the
+    base version read from `version.txt`. Otherwise, for local builds the
     the short git commit SHA is appened as a PEP 440 local version identifier.
     """
     if build_version := os.getenv("BUILD_VERSION"):
@@ -47,11 +47,11 @@ def get_version() -> str:
 
 
 class VersionedSdist(sdist):
-    """Bake the fully-resolved version into the sdist's ``version.txt``."""
+    """Bake the fully-resolved version into the sdist's `version.txt`."""
 
     @override
     def make_release_tree(self, base_dir: str, files: list[str]) -> None:
-        """Write the resolved version into ``version.txt`` in the release tree."""
+        """Write the resolved version into `version.txt` in the release tree."""
         super().make_release_tree(base_dir, files)
         (Path(base_dir) / "version.txt").write_text(f"{get_version()}\n")
 
@@ -78,20 +78,35 @@ _DEFINE_MACROS: list[tuple[str, str | None]] = [
     ),
 ]
 if _HAS_CUDA:
-    # ``USE_CUDA`` exposes the CUDA-specific stable C shim functions
+    # `USE_CUDA` exposes the CUDA-specific stable C shim functions
     _DEFINE_MACROS.append(("USE_CUDA", None))
+
+# Statically link the CUDA runtime so the wheel doesn't carry a
+# `libcudart.so.<MAJOR>` SONAME dependency. Combined with building against
+# the oldest CUDA major we support, this produces a single wheel that works
+# across all CUDA majors (driver backward compatibility handles execution).
+#
+# `--cudart=static` makes nvcc emit references to the static cudart symbols
+# during .cu compilation. At link time, `CUDAExtension` would normally append
+# `-lcudart` (dynamic) automatically; we strip that and explicitly link
+# `libcudart_static.a` instead. cudart_static's internal pthread/dl/rt
+# references are satisfied by libc on glibc 2.34+. Produced wheels require
+# glibc 2.34+ at runtime.
+_ext = Extension(
+    name="vision3d._C",
+    sources=_SOURCES,
+    include_dirs=[str(_CSRC)],
+    define_macros=_DEFINE_MACROS,
+    extra_compile_args={"nvcc": ["--cudart=static"]} if _HAS_CUDA else {},
+    py_limited_api=True,
+)
+if _HAS_CUDA:
+    _ext.libraries = [lib for lib in _ext.libraries if lib != "cudart"]
+    _ext.extra_link_args = ["-l:libcudart_static.a"]
 
 setup(
     version=get_version(),
-    ext_modules=[
-        Extension(
-            name="vision3d._C",
-            sources=_SOURCES,
-            include_dirs=[str(_CSRC)],
-            define_macros=_DEFINE_MACROS,
-            py_limited_api=True,
-        ),
-    ],
+    ext_modules=[_ext],
     cmdclass={"build_ext": BuildExtension, "sdist": VersionedSdist},
     options={"bdist_wheel": {"py_limited_api": "cp312"}},
 )
