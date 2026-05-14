@@ -69,7 +69,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
     labels_dir_name: ClassVar[str] = "label_2"
     calib_dir_name: ClassVar[str] = "calib"
 
-    classes: ClassVar[list[str]] = [
+    classes: ClassVar[tuple[str, ...]] = (
         "Car",
         "Pedestrian",
         "Cyclist",
@@ -78,7 +78,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         "Person_sitting",
         "Tram",
         "Misc",
-    ]
+    )
     class_to_idx: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(classes)}
 
     def __init__(
