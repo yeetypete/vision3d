@@ -22,39 +22,26 @@ Documentation is available at [vision3d.dev](https://vision3d.dev).
 
 ## Installation
 
-`vision3d` is distributed as a source package on PyPI. There are also pre-built
-wheels attached to each
-[GitHub release](https://github.com/yeetypete/vision3d/releases). We recommend
-using [`uv`](https://docs.astral.sh/uv/) your package manager.
+`vision3d` is published on PyPI as a pre-built wheel and sdist.
+The wheel is built against the
+[LibTorch Stable ABI](https://docs.pytorch.org/docs/stable/notes/libtorch_stable_abi.html)
+and statically links the CUDA runtime, so one wheel works for any
+Python 3.12+, torch 2.10+, and any
+[NVIDIA driver that supports CUDA 12.8 or newer](https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html)
+(Linux driver ≥ 570).
 
 ### From PyPI
+
+We recommend using [`uv`](https://docs.astral.sh/uv/) as your package manager:
 
 ```bash
 uv add vision3d
 ```
 
-> [!NOTE]
-> Installing from PyPI builds the C++/CUDA extension on your machine, so
-> the build-time requirements above apply. Use a pre-built wheel if you want to
-> skip the compile step.
-
-### From a release wheel
-
-Pre-built wheels are published as assets on each
-[GitHub release](https://github.com/yeetypete/vision3d/releases). vision3d
-wheels are built against the
-[LibTorch Stable ABI](https://docs.pytorch.org/docs/stable/notes/libtorch_stable_abi.html),
-so a single wheel per CUDA variant works for any Python 3.12+ and torch 2.10+.
-Wheels are currently built for:
-
-- CUDA 12.8 and CUDA 13.0
-- Linux x86_64
-
-Pick the wheel that matches your CUDA runtime, then install it directly from the
-release URL:
+Or with `pip`:
 
 ```bash
-uv add https://github.com/yeetypete/vision3d/releases/download/v0.2.2/vision3d-0.2.2+cu130-cp312-abi3-linux_x86_64.whl
+pip install vision3d
 ```
 
 ### From source
