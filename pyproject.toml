@@ -50,14 +50,9 @@ docs = [
 requires = ["numpy>=2", "setuptools>=77,<82", "torch>=2.10"]
 build-backend = "setuptools.build_meta"
 
-[tool.uv]
-# The PyTorch wheel index (download.pytorch.org/whl/cuXXX) mirrors only
-# setuptools 70.x, which predates PEP 639 SPDX-string licenses. Use
-# `unsafe-first-match` so the resolver exhausts the user-supplied
-# `--index <pytorch>` first (keeping torch on the requested CUDA variant)
-# and only falls through to PyPI for build dependencies that no version on
-# the PyTorch mirror can satisfy (i.e. `setuptools>=77`).
-index-strategy = "unsafe-first-match"
+[tool.coverage.run]
+source = ["vision3d"]
+branch = true
 
 [tool.pyrefly]
 min-severity = "ignore"
@@ -79,6 +74,13 @@ unannotated-return = "warn"
 untyped-import = "warn"
 unused-ignore = "warn"
 
+[tool.pytest.ini_options]
+addopts = "--cov --cov-report=term-missing --strict-markers"
+filterwarnings = [
+  # Unrelated warning from `@torch.jit.script_method` in torch/utils/mkldnn.py.
+  "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
+]
+
 [tool.ruff.lint]
 preview = true
 extend-select = ["D", "DOC", "PT", "TC"]
@@ -97,13 +99,11 @@ convention = "google"
 [tool.ruff.format]
 docstring-code-format = true
 
-[tool.pytest.ini_options]
-addopts = "--cov --cov-report=term-missing --strict-markers"
-filterwarnings = [
-  # Unrelated warning from `@torch.jit.script_method` in torch/utils/mkldnn.py.
-  "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
-]
-
-[tool.coverage.run]
-source = ["vision3d"]
-branch = true
+[tool.uv]
+# The PyTorch wheel index (download.pytorch.org/whl/cuXXX) mirrors only
+# setuptools 70.x, which predates PEP 639 SPDX-string licenses. Use
+# `unsafe-first-match` so the resolver exhausts the user-supplied
+# `--index <pytorch>` first (keeping torch on the requested CUDA variant)
+# and only falls through to PyPI for build dependencies that no version on
+# the PyTorch mirror can satisfy (i.e. `setuptools>=77`).
+index-strategy = "unsafe-first-match"
