@@ -3,7 +3,8 @@ name = "vision3d"
 description = "A 3D extension of torchvision."
 readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "BSD-3-Clause" }
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 authors = [{ name = "Peter Siegel" }]
 dependencies = [
   "torch>=2.10",
@@ -46,8 +47,17 @@ docs = [
 # The `<82` upper bound mirrors torch's own `Requires-Dist: setuptools<82`.
 # Setuptools 82 removed `pkg_resources`, which the torch build path still
 # relies on.
-requires = ["numpy>=2", "setuptools<82", "torch>=2.10"]
+requires = ["numpy>=2", "setuptools>=77,<82", "torch>=2.10"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv]
+# The PyTorch wheel index (download.pytorch.org/whl/cuXXX) mirrors only
+# setuptools 70.x, which predates PEP 639 SPDX-string licenses. Use
+# `unsafe-first-match` so the resolver exhausts the user-supplied
+# `--index <pytorch>` first (keeping torch on the requested CUDA variant)
+# and only falls through to PyPI for build dependencies that no version on
+# the PyTorch mirror can satisfy (i.e. `setuptools>=77`).
+index-strategy = "unsafe-first-match"
 
 [tool.pyrefly]
 min-severity = "ignore"
