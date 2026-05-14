@@ -46,7 +46,7 @@ not build. To resolve this, point uv at the PyTorch wheel index which matches
 your installed CUDA toolkit during sync:
 
 ```bash
-uv sync --index https://download.pytorch.org/whl/cu128
+uv sync --all-extras --all-groups --index https://download.pytorch.org/whl/cu128
 ```
 
 Replace `cu128` with whatever CUDA major version your installed CUDA toolkit
