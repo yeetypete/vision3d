@@ -8,6 +8,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Peter Siegel" }]
 dependencies = [
   "numpy",
+  "pillow>=11.3",
   "torch>=2.10",
   "torchvision>=0.25",
   "typing-extensions>=4.13; python_version < '3.13'",
