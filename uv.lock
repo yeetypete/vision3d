@@ -3111,6 +3111,7 @@ wheels = [
 name = "vision3d"
 source = { editable = "." }
 dependencies = [
+    { name = "numpy" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "typing-extensions", marker = "python_full_version < '3.13'" },
@@ -3143,6 +3144,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
+    { name = "numpy" },
     { name = "nuscenes-devkit", marker = "extra == 'nuscenes'", specifier = ">=1.1.9" },
     { name = "rerun-sdk", marker = "extra == 'viz'", specifier = ">=0.31.1" },
     { name = "torch", specifier = ">=2.10" },
