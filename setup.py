@@ -89,9 +89,9 @@ if _HAS_CUDA:
 # `--cudart=static` makes nvcc emit references to the static cudart symbols
 # during .cu compilation. At link time, `CUDAExtension` would normally append
 # `-lcudart` (dynamic) automatically; we strip that and explicitly link
-# `libcudart_static.a` instead. cudart_static's internal pthread/dl/rt
-# references are satisfied by libc on glibc 2.34+. Produced wheels require
-# glibc 2.34+ at runtime.
+# `libcudart_static.a` instead. cudart_static internally calls into
+# pthread/dl/rt, so we link those explicitly to keep the wheel importable on
+# glibc 2.28+ (manylinux_2_28).
 _ext = Extension(
     name="vision3d._C",
     sources=_SOURCES,
@@ -102,7 +102,7 @@ _ext = Extension(
 )
 if _HAS_CUDA:
     _ext.libraries = [lib for lib in _ext.libraries if lib != "cudart"]
-    _ext.extra_link_args = ["-l:libcudart_static.a"]
+    _ext.extra_link_args = ["-l:libcudart_static.a", "-lpthread", "-ldl", "-lrt"]
 
 setup(
     version=get_version(),
