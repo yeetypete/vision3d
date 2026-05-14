@@ -18,7 +18,7 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-24.04
-    # Build inside the oldest CUDA toolkit we support (CUDA 12.8). Combined with the
+    # Build with the oldest CUDA toolkit we support (CUDA 12.8). Combined with the
     # static cudart linkage configured in ``setup.py``, the resulting wheel
     # has no ``libcudart.so.<MAJOR>`` SONAME dependency and runs on any NVIDIA
     # driver that supports the CUDA 12.8 toolkit or newer (Linux driver ≥ 570;
