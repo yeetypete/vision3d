@@ -47,12 +47,6 @@ jobs:
         run: |
           apt-get update && apt-get install -y --no-install-recommends \
             git \
-            libgl1 \
-            libglib2.0-0 \
-            libsm6 \
-            libxcb1 \
-            libxext6 \
-            libxrender1 \
             ninja-build
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
