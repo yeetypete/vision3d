@@ -44,7 +44,11 @@ docs = [
 ]
 
 [build-system]
-requires = ["numpy>=2", "setuptools<82", "torch>=2.10"]
+# ``setuptools>=77`` is the floor for PEP 639 ``license = "BSD-3-Clause"``
+# support. The ``<82`` upper bound mirrors torch's own ``Requires-Dist:
+# setuptools<82`` setuptools 82 removed ``pkg_resources``, which
+# the torch build path still relies on.
+requires = ["numpy>=2", "setuptools>=77,<82", "torch>=2.10"]
 build-backend = "setuptools.build_meta"
 
 [tool.pyrefly]
