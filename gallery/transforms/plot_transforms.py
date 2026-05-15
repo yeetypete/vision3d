@@ -35,7 +35,7 @@ torch.manual_seed(42)
 
 dataset = NuScenes3D(NUSCENES_ROOT, version="v1.0-mini", split="train", download=True)
 inputs, targets = dataset[FRAME_INDEX]
-print(f"num boxes: {targets['boxes'].shape[0]} boxes")
+print(f"num boxes: {targets['boxes'].shape[0]}")
 
 # %%
 # Visualize the baseline sample
@@ -89,6 +89,41 @@ from vision3d.transforms import RandomRotate3D
 rotate = RandomRotate3D(angle_range=math.pi / 4, p=1.0)
 r_inputs, r_targets = rotate(inputs, targets)
 print(f"rotated boxes shape: {tuple(r_targets['boxes'].shape)}")
+
+# %%
+# Geometric safety
+# ----------------
+# vision3d transforms mirror the torchvision v2 dispatch model: each
+# transform declares the input types it operates on via the class-level
+# ``_transformed_types`` tuple, and any input whose type is not listed
+# passes through unchanged. Transforms whose operation would only be
+# correct on a subset of scene types additionally override
+# :meth:`~vision3d.transforms.Transform.check_inputs` to raise
+# :class:`TypeError` for input combinations they cannot handle. Together
+# these guard against silently producing geometrically inconsistent
+# scenes (e.g. flipping the lidar but not the camera image alongside
+# it).
+#
+# For example, :class:`~vision3d.transforms.RandomFlip3D` operates on
+# :class:`~vision3d.tensors.PointCloud3D` and
+# :class:`~vision3d.tensors.BoundingBoxes3D`, and its ``check_inputs``
+# refuses samples that also carry camera tensors (images, extrinsics,
+# intrinsics): flipping the 3D scene without coordinated changes to the
+# camera side would break geometric consistency. Running it on a fusion
+# dataset sample therefore raises a :class:`TypeError`.
+#
+# The error signals that the transform is not compatible with a fusion
+# pipeline. :class:`~vision3d.transforms.RandomFlip3D` is intended for
+# lidar-only training pipelines, where there are no camera tensors to
+# fall out of correspondence.
+
+from vision3d.transforms import RandomFlip3D
+
+flip = RandomFlip3D(axis="x", p=1.0)
+try:
+    flip(inputs, targets)
+except TypeError as e:
+    print(e)
 
 # %%
 # Composing transforms
@@ -193,20 +228,10 @@ log_sample(
 # View every transform side by side in the embedded Rerun viewer, each
 # on its own tab. Compare each tab against the baseline viewer at the
 # top of the page.
-#
-# .. warning::
-#
-#    Not every transform is meaningful for fusion samples that include
-#    camera images. :class:`~vision3d.transforms.RandomFlip3D`, for
-#    example, mirrors the 3D scene but cannot reflect the cameras' fields
-#    of view without assuming a sensor rig that is symmetric across the
-#    flip axis, so the lidar and image streams drift out of
-#    correspondence. Use such transforms on lidar-only samples.
 
-from vision3d.transforms import PointSample, PointShuffle, RandomFlip3D
+from vision3d.transforms import PointSample, PointShuffle
 
 transforms = [
-    ("flip_z", "RandomFlip3D(axis='z')", RandomFlip3D(axis="z", p=1.0)),
     (
         "translate",
         "RandomTranslate3D(5.0)",
