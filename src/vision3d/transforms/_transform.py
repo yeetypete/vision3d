@@ -58,16 +58,16 @@ def _check_safety(
 ) -> None:
     """Raise if any TVTensor input is outside the declared safe set.
 
+    Membership is checked by exact type. A TVTensor subclass of a
+    listed type is still treated as unsafe, so a transform must opt
+    in to every concrete type it sees.
+
     Raises:
-        GeometricConsistencyError: If any input is a TVTensor whose type
-            (or any base) is not in ``safe_for``.
+        GeometricConsistencyError: If any input is a TVTensor whose
+            exact type is not in ``safe_for``.
     """
-    safe_types = tuple(safe_for)
-    unsafe = {
-        type(inpt)
-        for inpt in flat_inputs
-        if isinstance(inpt, TVTensor) and not isinstance(inpt, safe_types)
-    }
+    input_types = {type(inpt) for inpt in flat_inputs if isinstance(inpt, TVTensor)}
+    unsafe = input_types - safe_for
     if not unsafe:
         return
     safe_names = sorted(t.__name__ for t in safe_for) or ["(none)"]

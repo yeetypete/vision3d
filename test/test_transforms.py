@@ -1165,12 +1165,14 @@ class TestSafeForContract:
         }
         _PointCloudSafe()(sample)
 
-    def test_subtype_matches(self) -> None:
+    def test_subtype_rejected(self) -> None:
+        # `_safe_for` is matched by exact type, not subclass, so a
+        # subclass of a listed type is still treated as unsafe.
         from torchvision.tv_tensors import Image
 
         class _ImageSafe(_TestTransform):
             _safe_for = frozenset({Image})
 
-        # CameraImages is a subclass of Image
         sample = {"images": make_camera_images(num_cameras=2, height=8, width=8)}
-        _ImageSafe()(sample)
+        with pytest.raises(GeometricConsistencyError, match="CameraImages"):
+            _ImageSafe()(sample)
