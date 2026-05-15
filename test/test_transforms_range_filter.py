@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 import torch
+from common_utils import box_at
 
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D, PointCloud3D
 from vision3d.transforms import RangeFilter3D
@@ -16,20 +17,6 @@ _ALL_FORMATS = [
     BoundingBox3DFormat.XYZLWHY,
     BoundingBox3DFormat.XYZLWHYPR,
 ]
-
-
-def _box_at(
-    cx: float, cy: float, cz: float = 0.0, *, fmt: BoundingBox3DFormat
-) -> list[float]:
-    if fmt == BoundingBox3DFormat.XYZXYZ:
-        return [cx - 1.0, cy - 1.0, cz - 1.0, cx + 1.0, cy + 1.0, cz + 1.0]
-    if fmt == BoundingBox3DFormat.XYZLWH:
-        return [cx, cy, cz, 2.0, 2.0, 2.0]
-    if fmt == BoundingBox3DFormat.XYZLWHY:
-        return [cx, cy, cz, 2.0, 2.0, 2.0, 0.0]
-    if fmt == BoundingBox3DFormat.XYZLWHYPR:
-        return [cx, cy, cz, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0]
-    raise ValueError(fmt)
 
 
 def _make_two_dict_sample(
@@ -48,9 +35,9 @@ def _make_two_dict_sample(
     boxes = BoundingBoxes3D(
         torch.tensor(
             [
-                _box_at(0, 0, fmt=fmt),  # in range
-                _box_at(5, 5, fmt=fmt),  # in range
-                _box_at(50, 0, fmt=fmt),  # out of range
+                box_at(0, 0, fmt=fmt),  # in range
+                box_at(5, 5, fmt=fmt),  # in range
+                box_at(50, 0, fmt=fmt),  # out of range
             ]
         ),
         format=fmt,
@@ -75,8 +62,8 @@ def _make_single_dict_sample(
     boxes = BoundingBoxes3D(
         torch.tensor(
             [
-                _box_at(0, 0, fmt=fmt),
-                _box_at(50, 0, fmt=fmt),
+                box_at(0, 0, fmt=fmt),
+                box_at(50, 0, fmt=fmt),
             ]
         ),
         format=fmt,
@@ -172,7 +159,7 @@ class TestEdgeCases:
     def test_no_points_key(self) -> None:
         targets = {
             "boxes": BoundingBoxes3D(
-                torch.tensor([_box_at(0, 0, fmt=BoundingBox3DFormat.XYZLWHYPR)]),
+                torch.tensor([box_at(0, 0, fmt=BoundingBox3DFormat.XYZLWHYPR)]),
                 format=BoundingBox3DFormat.XYZLWHYPR,
             ),
             "labels": torch.tensor([0]),

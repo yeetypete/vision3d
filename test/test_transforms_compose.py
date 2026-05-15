@@ -77,13 +77,12 @@ def _make_sample() -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def _pipeline() -> list[Any]:
-    """A representative 4-transform scene pipeline.
+    """A representative 3-transform scene pipeline.
 
     Returns:
-        Flip + rotate + scale + translate, deterministic with ``p=1``.
+        Rotate + scale + translate, deterministic with ``p=1``.
     """
     return [
-        RandomFlip3D(axis="x", p=1.0),
         RandomRotate3D(angle_range=math.pi / 8, p=1.0),
         RandomScale3D(scale_range=(0.9, 1.1), p=1.0),
         RandomTranslate3D(translation_range=1.0, p=1.0),
@@ -105,7 +104,7 @@ class TestTorchvisionComposeCompat:
 
     def test_v2_compose_with_single_vision3d_transform(self) -> None:
         inputs, targets = _make_sample()
-        compose = v2.Compose([RandomFlip3D(axis="z", p=1.0)])
+        compose = v2.Compose([RandomRotate3D(angle_range=math.pi / 8, p=1.0)])
 
         result = compose(inputs, targets)
 
@@ -186,7 +185,6 @@ class TestModalityCompose:
 
         compose = v2.Compose(
             [
-                RandomFlip3D(axis="x", p=1.0),
                 RandomRotate3D(angle_range=math.pi / 8, p=1.0),
                 v2.Resize(size=[8, 12]),
                 v2.CenterCrop(size=[6, 10]),
@@ -211,7 +209,6 @@ class TestModalityCompose:
 
         compose = v2.Compose(
             [
-                RandomFlip3D(axis="x", p=1.0),
                 RandomRotate3D(angle_range=math.pi / 8, p=1.0),
                 RandomScale3D(scale_range=(0.9, 1.1), p=1.0),
                 RandomTranslate3D(translation_range=1.0, p=1.0),

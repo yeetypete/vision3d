@@ -1,4 +1,4 @@
-from collections.abc import Callable, Generator
+from collections.abc import Callable
 from copy import deepcopy
 
 import pytest
@@ -7,12 +7,6 @@ from common_utils import make_point_cloud_3d
 from torchvision import tv_tensors
 
 from vision3d.tensors import PointCloud3D, wrap
-
-
-@pytest.fixture(autouse=True)
-def _restore_tensor_return_type() -> Generator[None]:
-    yield
-    tv_tensors.set_return_type("Tensor")
 
 
 class TestConstruction:

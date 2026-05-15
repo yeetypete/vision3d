@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+from common_utils import box_at
 
 from vision3d.metrics import (
     APInterpolation,
@@ -31,24 +32,6 @@ _NUM_COLS = {
 }
 
 
-def _box_at(
-    cx: float,
-    cy: float,
-    cz: float = 0.0,
-    *,
-    fmt: BoundingBox3DFormat,
-) -> list[float]:
-    if fmt == BoundingBox3DFormat.XYZXYZ:
-        return [cx - 1.0, cy - 1.0, cz - 1.0, cx + 1.0, cy + 1.0, cz + 1.0]
-    if fmt == BoundingBox3DFormat.XYZLWH:
-        return [cx, cy, cz, 2.0, 2.0, 2.0]
-    if fmt == BoundingBox3DFormat.XYZLWHY:
-        return [cx, cy, cz, 2.0, 2.0, 2.0, 0.0]
-    if fmt == BoundingBox3DFormat.XYZLWHYPR:
-        return [cx, cy, cz, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0]
-    raise ValueError(fmt)
-
-
 def _boxes(rows: list[list[float]], fmt: BoundingBox3DFormat) -> BoundingBoxes3D:
     return BoundingBoxes3D(torch.tensor(rows, dtype=torch.float32), format=fmt)
 
@@ -61,7 +44,7 @@ def _empty_boxes(fmt: BoundingBox3DFormat) -> BoundingBoxes3D:
 class TestPerfectPrediction:
     def test_single_frame_perfect_ap_is_one(self, fmt: BoundingBox3DFormat) -> None:
         gt = _boxes(
-            [_box_at(0, 0, fmt=fmt), _box_at(10, 0, fmt=fmt), _box_at(-10, 0, fmt=fmt)],
+            [box_at(0, 0, fmt=fmt), box_at(10, 0, fmt=fmt), box_at(-10, 0, fmt=fmt)],
             fmt,
         )
         pred = {
@@ -80,7 +63,7 @@ class TestPerfectPrediction:
     def test_perfect_prediction_every_interpolation(
         self, fmt: BoundingBox3DFormat
     ) -> None:
-        gt = _boxes([_box_at(0, 0, fmt=fmt), _box_at(10, 0, fmt=fmt)], fmt)
+        gt = _boxes([box_at(0, 0, fmt=fmt), box_at(10, 0, fmt=fmt)], fmt)
         pred = {
             "boxes": gt,
             "scores": torch.tensor([0.9, 0.8]),
@@ -97,8 +80,8 @@ class TestPerfectPrediction:
 @pytest.mark.parametrize("fmt", _ALL_FORMATS)
 class TestNoMatches:
     def test_all_predictions_far_from_gt(self, fmt: BoundingBox3DFormat) -> None:
-        gt = _boxes([_box_at(0, 0, fmt=fmt)], fmt)
-        pred = _boxes([_box_at(100, 100, fmt=fmt)], fmt)
+        gt = _boxes([box_at(0, 0, fmt=fmt)], fmt)
+        pred = _boxes([box_at(100, 100, fmt=fmt)], fmt)
         m = MeanAveragePrecision3D(class_ids=[CAR])
         m.update(
             [
@@ -113,7 +96,7 @@ class TestNoMatches:
         assert m.compute()["mAP"] == pytest.approx(0.0, abs=_AP_TOL)
 
     def test_empty_predictions_nonempty_gt(self, fmt: BoundingBox3DFormat) -> None:
-        gt = _boxes([_box_at(0, 0, fmt=fmt)], fmt)
+        gt = _boxes([box_at(0, 0, fmt=fmt)], fmt)
         empty = _empty_boxes(fmt)
         m = MeanAveragePrecision3D(class_ids=[CAR])
         m.update(
@@ -129,7 +112,7 @@ class TestNoMatches:
         assert m.compute()["mAP"] == pytest.approx(0.0, abs=_AP_TOL)
 
     def test_empty_gt_nonempty_predictions(self, fmt: BoundingBox3DFormat) -> None:
-        pred = _boxes([_box_at(0, 0, fmt=fmt)], fmt)
+        pred = _boxes([box_at(0, 0, fmt=fmt)], fmt)
         empty = _empty_boxes(fmt)
         m = MeanAveragePrecision3D(class_ids=[CAR])
         m.update(
@@ -154,8 +137,8 @@ class TestNoMatches:
 @pytest.mark.parametrize("fmt", _ALL_FORMATS)
 class TestPartialMatches:
     def test_one_tp_one_fp(self, fmt: BoundingBox3DFormat) -> None:
-        gt = _boxes([_box_at(0, 0, fmt=fmt)], fmt)
-        pred = _boxes([_box_at(0, 0, fmt=fmt), _box_at(100, 100, fmt=fmt)], fmt)
+        gt = _boxes([box_at(0, 0, fmt=fmt)], fmt)
+        pred = _boxes([box_at(0, 0, fmt=fmt), box_at(100, 100, fmt=fmt)], fmt)
         m = MeanAveragePrecision3D(
             class_ids=[CAR],
             iou_thresholds=(0.5,),
@@ -177,8 +160,8 @@ class TestPartialMatches:
         assert m.compute()["mAP"] == pytest.approx(1.0, abs=_AP_TOL)
 
     def test_one_tp_and_one_missed_gt_ap_half(self, fmt: BoundingBox3DFormat) -> None:
-        gt = _boxes([_box_at(0, 0, fmt=fmt), _box_at(10, 0, fmt=fmt)], fmt)
-        pred = _boxes([_box_at(0, 0, fmt=fmt)], fmt)  # only hits first GT
+        gt = _boxes([box_at(0, 0, fmt=fmt), box_at(10, 0, fmt=fmt)], fmt)
+        pred = _boxes([box_at(0, 0, fmt=fmt)], fmt)  # only hits first GT
         m = MeanAveragePrecision3D(
             class_ids=[CAR],
             iou_thresholds=(0.5,),
@@ -202,7 +185,7 @@ class TestPartialMatches:
 @pytest.mark.parametrize("fmt", _ALL_FORMATS)
 class TestMultiClass:
     def test_per_class_breakdown(self, fmt: BoundingBox3DFormat) -> None:
-        boxes = _boxes([_box_at(0, 0, fmt=fmt), _box_at(5, 0, fmt=fmt)], fmt)
+        boxes = _boxes([box_at(0, 0, fmt=fmt), box_at(5, 0, fmt=fmt)], fmt)
         pred = {
             "boxes": boxes,
             "scores": torch.tensor([0.9, 0.8]),
@@ -222,11 +205,11 @@ class TestIoUThresholdSensitivity:
     def test_loose_threshold_matches_strict_does_not(
         self, fmt: BoundingBox3DFormat
     ) -> None:
-        gt = _boxes([_box_at(0, 0, fmt=fmt)], fmt)
+        gt = _boxes([box_at(0, 0, fmt=fmt)], fmt)
         # Shift the prediction by half a box side. With box size 2x2x2
         # and shift 1.0, the overlap box is 1x2x2 -> vol=4 vs union=12
         # -> IoU ~ 0.33. Passes 0.3 threshold, fails 0.5.
-        pred = _boxes([_box_at(1.0, 0.0, fmt=fmt)], fmt)
+        pred = _boxes([box_at(1.0, 0.0, fmt=fmt)], fmt)
         m = MeanAveragePrecision3D(
             class_ids=[CAR],
             iou_thresholds=(0.3, 0.5),
@@ -250,7 +233,7 @@ class TestIoUThresholdSensitivity:
 @pytest.mark.parametrize("fmt", _ALL_FORMATS)
 class TestRangeBins:
     def test_range_bin_breakdown(self, fmt: BoundingBox3DFormat) -> None:
-        gt = _boxes([_box_at(5, 0, fmt=fmt), _box_at(40, 0, fmt=fmt)], fmt)
+        gt = _boxes([box_at(5, 0, fmt=fmt), box_at(40, 0, fmt=fmt)], fmt)
         pred = gt
         m = MeanAveragePrecision3D(
             class_ids=[CAR],
@@ -276,7 +259,7 @@ class TestRangeBins:
 
     def test_range_bin_isolates_misses(self, fmt: BoundingBox3DFormat) -> None:
         # Only a near-range GT exists; far bin has no GTs -> AP undefined.
-        gt = _boxes([_box_at(5, 0, fmt=fmt)], fmt)
+        gt = _boxes([box_at(5, 0, fmt=fmt)], fmt)
         m = MeanAveragePrecision3D(
             class_ids=[CAR],
             range_bins=((0.0, 30.0), (30.0, 100.0)),
@@ -303,7 +286,7 @@ class TestMultiFrameAccumulation:
     def test_state_accumulates_across_update_calls(
         self, fmt: BoundingBox3DFormat
     ) -> None:
-        gt = _boxes([_box_at(0, 0, fmt=fmt)], fmt)
+        gt = _boxes([box_at(0, 0, fmt=fmt)], fmt)
         pred = {
             "boxes": gt,
             "scores": torch.tensor([0.9]),
@@ -319,7 +302,7 @@ class TestMultiFrameAccumulation:
     def test_list_of_frames_matches_sequential_updates(
         self, fmt: BoundingBox3DFormat
     ) -> None:
-        gt = _boxes([_box_at(0, 0, fmt=fmt)], fmt)
+        gt = _boxes([box_at(0, 0, fmt=fmt)], fmt)
         pred_dict = {
             "boxes": gt,
             "scores": torch.tensor([0.9]),
@@ -344,7 +327,7 @@ class TestMultiFrameAccumulation:
 @pytest.mark.parametrize("fmt", _ALL_FORMATS)
 class TestReset:
     def test_reset_clears_state(self, fmt: BoundingBox3DFormat) -> None:
-        gt = _boxes([_box_at(0, 0, fmt=fmt)], fmt)
+        gt = _boxes([box_at(0, 0, fmt=fmt)], fmt)
         m = MeanAveragePrecision3D(class_ids=[CAR])
         m.update(
             [

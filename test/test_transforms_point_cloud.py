@@ -1,7 +1,9 @@
 """Tests for point cloud transforms."""
 
+import functools
+
 import torch
-from common_utils import make_bounding_boxes_3d, make_point_cloud_3d
+from common_utils import make_bounding_boxes_3d, make_lidar_sample, make_point_cloud_3d
 
 from vision3d.tensors import BoundingBox3DFormat, PointCloud3D
 from vision3d.transforms import PointJitter, PointSample, PointShuffle
@@ -14,15 +16,7 @@ from vision3d.transforms.functional import (
     shuffle_points_point_cloud,
 )
 
-
-def _make_sample() -> dict[str, torch.Tensor]:
-    return {
-        "points": make_point_cloud_3d(num_points=100),
-        "boxes": make_bounding_boxes_3d(
-            format=BoundingBox3DFormat.XYZLWHYPR, num_boxes=3
-        ),
-        "labels": torch.tensor([0, 1, 2]),
-    }
+_make_sample = functools.partial(make_lidar_sample, num_points=100)
 
 
 class TestShufflePointsKernel:

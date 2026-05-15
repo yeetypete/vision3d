@@ -4,11 +4,12 @@ from typing import Any, override
 
 import torch
 from torch import Tensor
+from torch.utils._pytree import tree_flatten
 
 from vision3d.ops._points_in_boxes_3d import _extract_box_params
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
-from ._transform import Transform
+from ._transform import ALL_VISION3D_TVTENSORS, Transform, _check_safety
 
 
 class RangeFilter3D(Transform):
@@ -27,6 +28,8 @@ class RangeFilter3D(Transform):
             ``(x_min, y_min, z_min, x_max, y_max, z_max)``.
     """
 
+    _safe_for = ALL_VISION3D_TVTENSORS
+
     def __init__(self, point_cloud_range: tuple[float, ...]) -> None:
         super().__init__()
         if len(point_cloud_range) != 6:
@@ -44,6 +47,8 @@ class RangeFilter3D(Transform):
         Returns:
             Filtered sample in the same structure as the input.
         """
+        flat_inputs, _ = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
+        _check_safety(self._safe_for, flat_inputs, type(self).__name__)
         if len(inputs) == 1:
             return self._filter_sample(inputs[0])
         inputs_dict, targets_dict = inputs

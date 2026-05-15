@@ -10,5 +10,6 @@
    vision3d.tensors
    vision3d.transforms
    vision3d.transforms.functional
+   vision3d.transforms.v2
    vision3d.viz
 ```

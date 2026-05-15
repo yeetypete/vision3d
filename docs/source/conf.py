@@ -3,6 +3,12 @@
 import sys
 from pathlib import Path
 
+from docutils.nodes import Element
+from sphinx.addnodes import pending_xref
+from sphinx.application import Sphinx
+from sphinx.environment import BuildEnvironment
+from sphinx.util.typing import ExtensionMetadata
+
 import vision3d
 
 sys.path.insert(0, str(Path(__file__).parent / "_ext"))
@@ -59,6 +65,58 @@ intersphinx_mapping = {
     "numpy": ("https://numpy.org/doc/stable/", None),
     "rerun": ("https://ref.rerun.io/docs/python/stable/", None),
 }
+
+# Loose type names that surface in torchvision-inherited docstrings on the
+# vision3d.transforms.v2 wrappers. Suppressed only on v2 autodoc pages.
+_TORCHVISION_V2_INHERITED_REF_TARGETS = {
+    "sequence",
+    "number",
+    "float (min",
+    "max)",
+    "bool,optional",
+    "InterpolationMode",
+    "torchvision.transforms.InterpolationMode",
+    "PIL Image",
+    "Tensor",
+}
+
+
+def _suppress_v2_inherited_refs(
+    app: Sphinx,
+    env: BuildEnvironment,
+    node: pending_xref,
+    contnode: Element,
+) -> Element | None:
+    """Mark loose type references resolved on v2 autodoc pages.
+
+    Returns:
+        ``contnode`` to short-circuit Sphinx's missing-reference warning
+        when the failing reference matches the allowlist; ``None`` to let
+        Sphinx handle the reference normally otherwise.
+    """
+    del app, env
+    if node.get("reftype") != "class":
+        return None
+    if node.get("reftarget") not in _TORCHVISION_V2_INHERITED_REF_TARGETS:
+        return None
+    if not node.get("refdoc", "").startswith("api/generated/vision3d.transforms.v2"):
+        return None
+    return contnode
+
+
+def setup(app: Sphinx) -> ExtensionMetadata:
+    """Register the v2-scoped missing-reference handler with Sphinx.
+
+    Returns:
+        Extension metadata advertising version and parallel-safety.
+    """
+    app.connect("missing-reference", _suppress_v2_inherited_refs)
+    return {
+        "version": "0.1",
+        "parallel_read_safe": True,
+        "parallel_write_safe": True,
+    }
+
 
 templates_path = ["_templates"]
 html_static_path = ["_static"]

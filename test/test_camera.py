@@ -1,4 +1,3 @@
-from collections.abc import Generator
 from copy import deepcopy
 from typing import Any
 
@@ -12,12 +11,6 @@ from common_utils import (
 from torchvision import tv_tensors
 
 from vision3d.tensors import CameraExtrinsics, CameraImages, CameraIntrinsics
-
-
-@pytest.fixture(autouse=True)
-def _restore_tensor_return_type() -> Generator[None]:
-    yield
-    tv_tensors.set_return_type("Tensor")
 
 
 class TestCameraImagesConstruction:

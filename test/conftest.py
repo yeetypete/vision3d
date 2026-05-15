@@ -4,6 +4,7 @@ from collections.abc import Generator
 
 import pytest
 import torch
+from torchvision import tv_tensors
 
 _DEVICES = ("cpu", "cuda")
 
@@ -83,3 +84,15 @@ def device(request: pytest.FixtureRequest) -> Generator[torch.device]:
     device = torch.device(request.param)
     with device:
         yield device
+
+
+@pytest.fixture(autouse=True)
+def restore_tensor_return_type() -> Generator[None]:
+    """Reset torchvision's TVTensor return-type to ``"Tensor"`` after each test.
+
+    Guards against leakage from tests that use
+    :func:`torchvision.tv_tensors.set_return_type` and would otherwise
+    contaminate later tests with a non-default global.
+    """
+    yield
+    tv_tensors.set_return_type("Tensor")
