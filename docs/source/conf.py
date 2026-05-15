@@ -69,7 +69,7 @@ intersphinx_mapping = {
 # Loose type names that surface in torchvision-inherited docstrings on the
 # vision3d.transforms.v2 wrappers. Suppressed only on v2 autodoc pages so
 # the rest of the project keeps strict nitpicky checking.
-_TORCHVSISION_V2_INHERITED_REF_TARGETS = {
+_TORCHVISION_V2_INHERITED_REF_TARGETS = {
     "sequence",
     "number",
     "float (min",
@@ -98,7 +98,7 @@ def _suppress_v2_inherited_refs(
     del app, env
     if node.get("reftype") != "class":
         return None
-    if node.get("reftarget") not in _TORCHVSISION_V2_INHERITED_REF_TARGETS:
+    if node.get("reftarget") not in _TORCHVISION_V2_INHERITED_REF_TARGETS:
         return None
     if not node.get("refdoc", "").startswith("api/generated/vision3d.transforms.v2"):
         return None
