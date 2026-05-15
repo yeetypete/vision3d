@@ -1180,6 +1180,9 @@ class _SampleData(TypedDict):
     filename: ReadOnly[str]
     prev: ReadOnly[str]
     next: ReadOnly[str]
+    # ``channel``/``sensor_modality`` are populated by ``_NuScenesDB.__init__``.
+    channel: str
+    sensor_modality: str
 
 
 class _SampleAnnotation(TypedDict):
@@ -1212,6 +1215,8 @@ class _NuScenesDB:
       sample.
     - ``sample_annotation[i]["category_name"]``: fine-grained category
       string, joined through ``instance -> category``.
+    - ``sample_data[i]["channel"]`` / ``["sensor_modality"]``: joined through
+      ``calibrated_sensor -> sensor``.
 
     Records are returned by reference.
     """
@@ -1253,10 +1258,14 @@ class _NuScenesDB:
         for sample in self.sample:
             sample["data"] = dict[str, str]()
             sample["anns"] = list[str]()
+        # Decorate every sample_data with `channel`/`sensor_modality`.
         for sd in self.sample_data:
+            cs = self.get("calibrated_sensor", sd["calibrated_sensor_token"])
+            sensor = self.get("sensor", cs["sensor_token"])
+            channel = sensor["channel"]
+            sd["channel"] = channel
+            sd["sensor_modality"] = sensor["modality"]
             if sd["is_key_frame"]:
-                cs = self.get("calibrated_sensor", sd["calibrated_sensor_token"])
-                channel = self.get("sensor", cs["sensor_token"])["channel"]
                 self.get("sample", sd["sample_token"])["data"][channel] = sd["token"]
         for ann in self.sample_annotation:
             self.get("sample", ann["sample_token"])["anns"].append(ann["token"])
