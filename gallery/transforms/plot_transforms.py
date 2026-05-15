@@ -173,7 +173,7 @@ print(f"composed boxes:  {tuple(c_targets['boxes'].shape)}")
 # current one. Unlike single-sample transforms
 # :class:`~vision3d.transforms.CopyPaste3D`
 # operates on collated batches and reads from an internal object
-# database that grows lazily as batches pass through.
+# database that grows lazily with each seen batch.
 
 from torch.utils.data import DataLoader, Subset
 
