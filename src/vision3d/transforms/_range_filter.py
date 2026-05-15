@@ -28,9 +28,6 @@ class RangeFilter3D(Transform):
             ``(x_min, y_min, z_min, x_max, y_max, z_max)``.
     """
 
-    # Filtering trims lidar/boxes in place; camera pixels, extrinsics and
-    # intrinsics are unaffected by which points/boxes survive the range
-    # gate, so coexisting with them is safe.
     _safe_for = ALL_VISION3D_TVTENSORS
 
     def __init__(self, point_cloud_range: tuple[float, ...]) -> None:
