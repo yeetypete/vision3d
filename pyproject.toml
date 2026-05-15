@@ -58,6 +58,7 @@ branch = true
 [tool.pyrefly]
 min-severity = "ignore"
 search-path = ["examples", "test", "gallery", "docs/source/_ext"]
+tensor-shapes = true
 
 [tool.pyrefly.errors]
 # Pyrefly does not yet have a strict mode, so we manually set all diagnostics
