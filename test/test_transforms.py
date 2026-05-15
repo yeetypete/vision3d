@@ -1,5 +1,5 @@
 import math
-from typing import override
+from typing import Any, override
 
 import pytest
 import torch
@@ -1133,7 +1133,7 @@ class _TestTransform(Transform):
     """Minimal Transform with no kernels, used to probe ``_safe_for``."""
 
     @override
-    def transform(self, inpt: object, params: dict[str, object]) -> object:
+    def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
         return inpt
 
 
