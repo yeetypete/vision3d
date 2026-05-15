@@ -67,8 +67,7 @@ intersphinx_mapping = {
 }
 
 # Loose type names that surface in torchvision-inherited docstrings on the
-# vision3d.transforms.v2 wrappers. Suppressed only on v2 autodoc pages so
-# the rest of the project keeps strict nitpicky checking.
+# vision3d.transforms.v2 wrappers. Suppressed only on v2 autodoc pages.
 _TORCHVISION_V2_INHERITED_REF_TARGETS = {
     "sequence",
     "number",
