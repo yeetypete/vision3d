@@ -127,17 +127,13 @@ class TestBehaviourMatchesTorchvision:
         # return the input untouched regardless of RNG draws.
         out_a = v3d_v2.ColorJitter(brightness=0.0)({"img": img_a})["img"]
         out_b = tv_v2.ColorJitter(brightness=0.0)({"img": img_b})["img"]
-        torch.testing.assert_close(
-            out_a.as_subclass(torch.Tensor), out_b.as_subclass(torch.Tensor)
-        )
+        torch.testing.assert_close(out_a, out_b)
 
     def test_resize_parity(self) -> None:
         img_a, img_b = self._image_only_sample()
         out_a = v3d_v2.Resize(size=[8, 8])({"img": img_a})["img"]
         out_b = tv_v2.Resize(size=[8, 8])({"img": img_b})["img"]
-        torch.testing.assert_close(
-            out_a.as_subclass(torch.Tensor), out_b.as_subclass(torch.Tensor)
-        )
+        torch.testing.assert_close(out_a, out_b)
 
     def test_subclass_relationship(self) -> None:
         # The wrapped class must remain a subclass of the torchvision
