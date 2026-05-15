@@ -123,12 +123,19 @@ class TestImageGeometricUnsafeAlongside3D:
         out = v3d_v2.RandomHorizontalFlip(p=1.0)(sample)
         assert isinstance(out["img"], Image)
 
-    def test_refuses_camera_images_alone(self) -> None:
+    @pytest.mark.parametrize(
+        "transform",
+        [
+            v3d_v2.RandomHorizontalFlip(p=1.0),
+            v3d_v2.RandomVerticalFlip(p=1.0),
+        ],
+    )
+    def test_refuses_camera_images_alone(self, transform: nn.Module) -> None:
         # `_safe_for` is matched by exact type, not subclass, so a
         # subclass of a listed type is still treated as unsafe.
         sample = {"images": make_camera_images(num_cameras=2, height=8, width=8)}
         with pytest.raises(GeometricConsistencyError, match="CameraImages"):
-            v3d_v2.RandomHorizontalFlip(p=1.0)(sample)
+            transform(sample)
 
 
 class TestBehaviourMatchesTorchvision:

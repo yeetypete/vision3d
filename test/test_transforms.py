@@ -10,6 +10,7 @@ from common_utils import (
     make_camera_intrinsics,
     make_point_cloud_3d,
 )
+from torchvision.tv_tensors import Image
 
 from vision3d.tensors import (
     BoundingBox3DFormat,
@@ -1140,6 +1141,10 @@ class _PointCloudSafe(_TestTransform):
     _safe_for = frozenset({PointCloud3D})
 
 
+class _ImageSafe(_TestTransform):
+    _safe_for = frozenset({Image})
+
+
 class TestSafeForContract:
     def test_default_empty_rejects_every_tvtensor(self) -> None:
         sample = _make_fusion_sample()
@@ -1168,11 +1173,6 @@ class TestSafeForContract:
     def test_subtype_rejected(self) -> None:
         # `_safe_for` is matched by exact type, not subclass, so a
         # subclass of a listed type is still treated as unsafe.
-        from torchvision.tv_tensors import Image
-
-        class _ImageSafe(_TestTransform):
-            _safe_for = frozenset({Image})
-
         sample = {"images": make_camera_images(num_cameras=2, height=8, width=8)}
         with pytest.raises(GeometricConsistencyError, match="CameraImages"):
             _ImageSafe()(sample)
