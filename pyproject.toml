@@ -8,6 +8,7 @@ license-files = ["LICENSE"]
 authors = [{ name = "Peter Siegel" }]
 dependencies = [
   "numpy",
+  "pillow>=11.3",
   "torch>=2.10",
   "torchvision>=0.25",
   "typing-extensions>=4.13; python_version < '3.13'",
@@ -20,15 +21,14 @@ Issues = "https://github.com/yeetypete/vision3d/issues"
 Repository = "https://github.com/yeetypete/vision3d"
 
 [project.optional-dependencies]
-nuscenes = [
-  "nuscenes-devkit>=1.1.9",
-]
 viz = [
   "rerun-sdk>=0.31.1",
 ]
 
 [dependency-groups]
 dev = [
+  "hypothesis>=6.152.7",
+  "nuscenes-devkit>=1.2.0",
   "pyrefly>=0.59.1",
   "pytest>=9.0.2",
   "pytest-cov>=7.1.0",
@@ -108,3 +108,9 @@ docstring-code-format = true
 # and only falls through to PyPI for build dependencies that no version on
 # the PyTorch mirror can satisfy (i.e. `setuptools>=77`).
 index-strategy = "unsafe-first-match"
+# Fix `nuscenes-devkit`'s stale pins: `Shapely~=2.0.3` has no Python 3.14
+# wheels, and `numpy<2.0.0` conflicts with our `numpy>=2`.
+override-dependencies = [
+  "shapely>=2.1",
+  "numpy>=2",
+]

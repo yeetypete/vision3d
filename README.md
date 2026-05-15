@@ -87,10 +87,9 @@ ships, e.g. `cu130`, `cu132`.
 
 ### Extras
 
-- `nuscenes`: pulls in `nuscenes-devkit` for the nuScenes dataset loader.
 - `viz`: pulls in `rerun-sdk` for the visualization utilities in `vision3d.viz`.
 
-Request them at install time, for example: `uv add 'vision3d[nuscenes,viz]'`.
+Request it at install time, for example: `uv add 'vision3d[viz]'`.
 
 ## Contributing
 
