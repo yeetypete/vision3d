@@ -1522,6 +1522,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             ``"labels"`` (int tensor).
         """
         global_to_lidar = torch.linalg.inv(lidar_to_global)
+        global_to_lidar_rot = global_to_lidar[:3, :3].numpy()
 
         label_ids: list[int] = []
         boxes: list[list[float]] = []
@@ -1543,7 +1544,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             w, l, h = ann["size"]
 
             # Rotation: quaternion -> yaw
-            yaw = _quaternion_to_yaw(ann["rotation"], global_to_lidar[:3, :3])
+            yaw = _quaternion_to_yaw(ann["rotation"], global_to_lidar_rot)
 
             boxes.append(
                 [
@@ -1633,7 +1634,7 @@ def _make_transform(translation: list[float], rotation_wxyz: list[float]) -> Ten
 
 
 def _quaternion_to_yaw(
-    rotation_wxyz: list[float], global_to_lidar_rot: Tensor
+    rotation_wxyz: list[float], global_to_lidar_rot: np.ndarray
 ) -> float:
     """Convert a global-frame quaternion to yaw angle in lidar frame.
 
@@ -1645,9 +1646,6 @@ def _quaternion_to_yaw(
         Yaw angle in radians.
     """
     rot = _quaternion_to_rotation_matrix(rotation_wxyz)
-    # Box's local +X axis expressed in the global frame.
-    forward_global = rot @ np.array([1.0, 0.0, 0.0])
-    forward_lidar = (
-        global_to_lidar_rot @ torch.tensor(forward_global, dtype=torch.float32)
-    ).numpy()
+    # Box's local +X axis expressed in the lidar frame.
+    forward_lidar = global_to_lidar_rot @ rot @ np.array([1.0, 0.0, 0.0])
     return float(np.arctan2(forward_lidar[1], forward_lidar[0]))
