@@ -1,4 +1,4 @@
-from collections.abc import Callable, Generator
+from collections.abc import Callable
 from copy import deepcopy
 
 import pytest
@@ -7,12 +7,6 @@ from common_utils import make_bounding_boxes_3d
 from torchvision import tv_tensors
 
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D, wrap
-
-
-@pytest.fixture(autouse=True)
-def _restore_tensor_return_type() -> Generator[None]:
-    yield
-    tv_tensors.set_return_type("Tensor")
 
 
 class TestBoundingBox3DFormat:

@@ -2,6 +2,7 @@
 
 import pytest
 import torch
+from common_utils import box_at
 
 from vision3d.ops import batched_nms_3d, box3d_iou, nms_3d
 from vision3d.tensors import BoundingBox3DFormat
@@ -21,20 +22,6 @@ _NUM_COLS = {
 }
 
 
-def _box_at(
-    cx: float, cy: float, cz: float = 0.0, *, fmt: BoundingBox3DFormat
-) -> list[float]:
-    if fmt == BoundingBox3DFormat.XYZXYZ:
-        return [cx - 1.0, cy - 1.0, cz - 1.0, cx + 1.0, cy + 1.0, cz + 1.0]
-    if fmt == BoundingBox3DFormat.XYZLWH:
-        return [cx, cy, cz, 2.0, 2.0, 2.0]
-    if fmt == BoundingBox3DFormat.XYZLWHY:
-        return [cx, cy, cz, 2.0, 2.0, 2.0, 0.0]
-    if fmt == BoundingBox3DFormat.XYZLWHYPR:
-        return [cx, cy, cz, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0]
-    raise ValueError(fmt)
-
-
 def _stack(rows: list[list[float]]) -> torch.Tensor:
     return torch.tensor(rows, dtype=torch.float32)
 
@@ -49,14 +36,14 @@ class TestNms3dBasics:
         assert kept.numel() == 0
 
     def test_single_box(self, fmt: BoundingBox3DFormat) -> None:
-        boxes = _stack([_box_at(0, 0, fmt=fmt)])
+        boxes = _stack([box_at(0, 0, fmt=fmt)])
         scores = torch.tensor([0.9])
         kept = nms_3d(boxes, scores, 0.5, fmt)
         assert kept.tolist() == [0]
 
     def test_disjoint_boxes_all_kept(self, fmt: BoundingBox3DFormat) -> None:
         boxes = _stack(
-            [_box_at(0, 0, fmt=fmt), _box_at(10, 0, fmt=fmt), _box_at(-10, 0, fmt=fmt)]
+            [box_at(0, 0, fmt=fmt), box_at(10, 0, fmt=fmt), box_at(-10, 0, fmt=fmt)]
         )
         scores = torch.tensor([0.5, 0.9, 0.7])
         kept = nms_3d(boxes, scores, 0.5, fmt)
@@ -66,7 +53,7 @@ class TestNms3dBasics:
 
     def test_identical_boxes_only_highest_kept(self, fmt: BoundingBox3DFormat) -> None:
         boxes = _stack(
-            [_box_at(0, 0, fmt=fmt), _box_at(0, 0, fmt=fmt), _box_at(0, 0, fmt=fmt)]
+            [box_at(0, 0, fmt=fmt), box_at(0, 0, fmt=fmt), box_at(0, 0, fmt=fmt)]
         )
         scores = torch.tensor([0.5, 0.9, 0.7])
         kept = nms_3d(boxes, scores, 0.5, fmt)
@@ -80,7 +67,7 @@ class TestNms3dThreshold:
     ) -> None:
         # Two boxes sharing the same center → IoU 1.0; strictly greater
         # than any threshold < 1 → second box is suppressed.
-        boxes = _stack([_box_at(0, 0, fmt=fmt), _box_at(0, 0, fmt=fmt)])
+        boxes = _stack([box_at(0, 0, fmt=fmt), box_at(0, 0, fmt=fmt)])
         scores = torch.tensor([0.9, 0.8])
         kept = nms_3d(boxes, scores, 0.5, fmt)
         assert kept.tolist() == [0]
@@ -90,7 +77,7 @@ class TestNms3dThreshold:
     ) -> None:
         # Shift by 1.0 on a 2x2x2 box → IoU = 1/3 ≈ 0.333.
         # Threshold 0.5 → keep both.
-        boxes = _stack([_box_at(0, 0, fmt=fmt), _box_at(1.0, 0, fmt=fmt)])
+        boxes = _stack([box_at(0, 0, fmt=fmt), box_at(1.0, 0, fmt=fmt)])
         scores = torch.tensor([0.9, 0.8])
         kept = nms_3d(boxes, scores, 0.5, fmt)
         assert sorted(kept.tolist()) == [0, 1]
@@ -101,10 +88,10 @@ class TestNms3dOrdering:
     def test_output_sorted_by_descending_score(self, fmt: BoundingBox3DFormat) -> None:
         boxes = _stack(
             [
-                _box_at(0, 0, fmt=fmt),
-                _box_at(10, 0, fmt=fmt),
-                _box_at(20, 0, fmt=fmt),
-                _box_at(30, 0, fmt=fmt),
+                box_at(0, 0, fmt=fmt),
+                box_at(10, 0, fmt=fmt),
+                box_at(20, 0, fmt=fmt),
+                box_at(30, 0, fmt=fmt),
             ]
         )
         scores = torch.tensor([0.2, 0.9, 0.5, 0.7])
@@ -128,9 +115,9 @@ class TestNms3dNoSuppressionAcrossGaps:
         # C is kept since it does not overlap A.
         boxes = _stack(
             [
-                _box_at(0.0, 0, fmt=fmt),
-                _box_at(1.0, 0, fmt=fmt),
-                _box_at(2.0, 0, fmt=fmt),
+                box_at(0.0, 0, fmt=fmt),
+                box_at(1.0, 0, fmt=fmt),
+                box_at(2.0, 0, fmt=fmt),
             ]
         )
         scores = torch.tensor([0.9, 0.8, 0.7])
@@ -143,14 +130,14 @@ class TestBatchedNms3d:
     def test_different_classes_do_not_suppress(self, fmt: BoundingBox3DFormat) -> None:
         # Two overlapping boxes at the same location with different
         # class IDs → both must survive because NMS is per-class.
-        boxes = _stack([_box_at(0, 0, fmt=fmt), _box_at(0, 0, fmt=fmt)])
+        boxes = _stack([box_at(0, 0, fmt=fmt), box_at(0, 0, fmt=fmt)])
         scores = torch.tensor([0.9, 0.8])
         idxs = torch.tensor([0, 1])
         kept = batched_nms_3d(boxes, scores, idxs, 0.5, fmt)
         assert sorted(kept.tolist()) == [0, 1]
 
     def test_same_class_suppresses(self, fmt: BoundingBox3DFormat) -> None:
-        boxes = _stack([_box_at(0, 0, fmt=fmt), _box_at(0, 0, fmt=fmt)])
+        boxes = _stack([box_at(0, 0, fmt=fmt), box_at(0, 0, fmt=fmt)])
         scores = torch.tensor([0.9, 0.8])
         idxs = torch.tensor([0, 0])
         kept = batched_nms_3d(boxes, scores, idxs, 0.5, fmt)
@@ -162,11 +149,11 @@ class TestBatchedNms3d:
         # Class 2: one box (kept).
         boxes = _stack(
             [
-                _box_at(0, 0, fmt=fmt),
-                _box_at(0, 0, fmt=fmt),
-                _box_at(10, 0, fmt=fmt),
-                _box_at(10, 0, fmt=fmt),
-                _box_at(20, 0, fmt=fmt),
+                box_at(0, 0, fmt=fmt),
+                box_at(0, 0, fmt=fmt),
+                box_at(10, 0, fmt=fmt),
+                box_at(10, 0, fmt=fmt),
+                box_at(20, 0, fmt=fmt),
             ]
         )
         scores = torch.tensor([0.9, 0.8, 0.85, 0.7, 0.6])
@@ -179,9 +166,9 @@ class TestBatchedNms3d:
     def test_output_sorted_by_descending_score(self, fmt: BoundingBox3DFormat) -> None:
         boxes = _stack(
             [
-                _box_at(0, 0, fmt=fmt),
-                _box_at(10, 0, fmt=fmt),
-                _box_at(20, 0, fmt=fmt),
+                box_at(0, 0, fmt=fmt),
+                box_at(10, 0, fmt=fmt),
+                box_at(20, 0, fmt=fmt),
             ]
         )
         scores = torch.tensor([0.5, 0.9, 0.7])

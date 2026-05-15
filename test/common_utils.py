@@ -1,4 +1,5 @@
 import math
+from typing import Any
 
 import torch
 
@@ -153,3 +154,71 @@ def make_camera_intrinsics(
     K[:, 0, 2] = 320.0  # cx
     K[:, 1, 2] = 240.0  # cy
     return CameraIntrinsics(K, image_size=(480, 640))
+
+
+def box_at(
+    cx: float, cy: float, cz: float = 0.0, *, fmt: BoundingBox3DFormat
+) -> list[float]:
+    """Build a unit-cube box centered at ``(cx, cy, cz)`` in the given format.
+
+    Side length 2 on every axis. Rotation angles default to 0 for rotated
+    formats.
+
+    Returns:
+        Box parameters as a list of floats whose length depends on ``fmt``.
+
+    Raises:
+        ValueError: If ``fmt`` is not a supported :class:`BoundingBox3DFormat`.
+    """
+    if fmt == BoundingBox3DFormat.XYZXYZ:
+        return [cx - 1.0, cy - 1.0, cz - 1.0, cx + 1.0, cy + 1.0, cz + 1.0]
+    if fmt == BoundingBox3DFormat.XYZLWH:
+        return [cx, cy, cz, 2.0, 2.0, 2.0]
+    if fmt == BoundingBox3DFormat.XYZLWHY:
+        return [cx, cy, cz, 2.0, 2.0, 2.0, 0.0]
+    if fmt == BoundingBox3DFormat.XYZLWHYPR:
+        return [cx, cy, cz, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0]
+    raise ValueError(fmt)
+
+
+def make_lidar_sample(
+    *,
+    num_points: int = 20,
+    format: BoundingBox3DFormat = BoundingBox3DFormat.XYZLWHYPR,
+) -> dict[str, Any]:
+    """Build a lidar-only test sample with three boxes and matching labels.
+
+    Returns:
+        ``{"points": PointCloud3D, "boxes": BoundingBoxes3D, "labels": Tensor}``.
+    """
+    return {
+        "points": make_point_cloud_3d(num_points=num_points),
+        "boxes": make_bounding_boxes_3d(format=format, num_boxes=3),
+        "labels": torch.tensor([0, 1, 2]),
+    }
+
+
+def make_fusion_sample(
+    *,
+    num_cameras: int = 4,
+    image_size: tuple[int, int] = (32, 32),
+    num_points: int = 20,
+    format: BoundingBox3DFormat = BoundingBox3DFormat.XYZLWHYPR,
+) -> dict[str, Any]:
+    """Build a fusion test sample covering every vision3d TVTensor type.
+
+    Returns:
+        Dict with ``points``, ``boxes``, ``labels``, ``images``,
+        ``extrinsics``, ``intrinsics``.
+    """
+    h, w = image_size
+    intr = make_camera_intrinsics(num_cameras=num_cameras)
+    intr = CameraIntrinsics(intr.as_subclass(torch.Tensor), image_size=image_size)
+    return {
+        "points": make_point_cloud_3d(num_points=num_points),
+        "boxes": make_bounding_boxes_3d(format=format, num_boxes=3),
+        "labels": torch.tensor([0, 1, 2]),
+        "images": make_camera_images(num_cameras=num_cameras, height=h, width=w),
+        "extrinsics": make_camera_extrinsics(num_cameras=num_cameras),
+        "intrinsics": intr,
+    }
