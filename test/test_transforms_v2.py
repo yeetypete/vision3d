@@ -16,7 +16,7 @@ from vision3d.transforms import GeometricConsistencyError
 from vision3d.transforms import v2 as v3d_v2
 
 
-class TestPhotometricSafeAlongside3D:
+class TestImagePhotometricSafeAlongside3D:
     """Photometric transforms touch pixels only and must accept every
     vision3d TVTensor type in the sample."""
 
@@ -36,8 +36,8 @@ class TestPhotometricSafeAlongside3D:
 
 class TestImageGeometricSafeAlongside3D:
     """Image-geometric transforms with an existing CameraIntrinsics
-    kernel keep image+intrinsics consistent; the 3D world is untouched
-    so coexisting with lidar/boxes/extrinsics is fine."""
+    kernel keep image+intrinsics consistent and must accept all
+    3D-aware TVTensors."""
 
     def test_resize_on_fusion_updates_intrinsics(self) -> None:
         sample = make_fusion_sample()
