@@ -13,6 +13,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+from hypothesis import assume, given, settings
+from hypothesis import strategies as st
 from nuscenes.eval.detection.constants import DETECTION_NAMES as DEVKIT_DETECTION_NAMES
 from nuscenes.eval.detection.utils import (
     category_to_detection_name as devkit_category_to_detection_name,
@@ -73,15 +75,24 @@ def test_splits_match_devkit(ours: tuple[str, ...], theirs: list[str]) -> None:
     assert list(ours) == theirs
 
 
-def test_quaternion_to_rotation_matrix_matches_pyquaternion() -> None:
-    rng = np.random.default_rng(0)
-    for _ in range(50):
-        # Random unit quaternion in wxyz order.
-        q = rng.normal(size=4)
-        q /= np.linalg.norm(q)
-        ours = _quaternion_to_rotation_matrix(q.tolist())
-        ref = Quaternion(q.tolist()).rotation_matrix
-        np.testing.assert_allclose(ours, ref, atol=1e-12)
+@given(
+    components=st.lists(
+        st.floats(min_value=-1.0, max_value=1.0, allow_nan=False, allow_infinity=False),
+        min_size=4,
+        max_size=4,
+    )
+)
+def test_quaternion_to_rotation_matrix_matches_pyquaternion(
+    components: list[float],
+) -> None:
+    q = np.array(components)
+    norm = float(np.linalg.norm(q))
+    # A near-zero vector has no well-defined rotation; skip it.
+    assume(norm > 1e-6)
+    q = q / norm  # unit quaternion in wxyz order
+    ours = _quaternion_to_rotation_matrix(q.tolist())
+    ref = Quaternion(q.tolist()).rotation_matrix
+    np.testing.assert_allclose(ours, ref, atol=1e-12)
 
 
 def _default_mini_root() -> Path:
@@ -111,6 +122,14 @@ def devkit_db(mini_root: Path) -> devkit_NuScenes:
 @pytest.fixture(scope="module")
 def our_db(mini_root: Path) -> _NuScenesDB:
     return _NuScenesDB(dataroot=mini_root, version="v1.0-mini")
+
+
+@pytest.fixture(scope="module")
+def datasets(mini_root: Path) -> dict[str, NuScenes3D]:
+    return {
+        split: NuScenes3D(mini_root, version="v1.0-mini", split=split)
+        for split in ("train", "val")
+    }
 
 
 @pytest.mark.parametrize(
@@ -246,25 +265,30 @@ def _devkit_sample_outputs(
 
 
 @pytest.mark.parametrize("split", ["train", "val"])
+@settings(
+    max_examples=50,
+    deadline=None,
+)
+@given(data=st.data())
 def test_nuscenes3d_outputs_match_devkit(
-    split: str, mini_root: Path, devkit_db: devkit_NuScenes
+    split: str,
+    mini_root: Path,
+    devkit_db: devkit_NuScenes,
+    datasets: dict[str, NuScenes3D],
+    data: st.DataObject,
 ) -> None:
     """``NuScenes3D.__getitem__`` must match a devkit-driven reference."""
-    ds = NuScenes3D(mini_root, version="v1.0-mini", split=split)
-    # Spot-check several frames across the split; full coverage would be
-    # ~400 frames and is overkill for a regression test.
-    n = len(ds)
-    idxs = [0, n // 4, n // 2, 3 * n // 4, n - 1]
-    for i in idxs:
-        inputs, targets = ds[i]
-        ref = _devkit_sample_outputs(devkit_db, ds._sample_tokens[i], mini_root)
-        assert torch.equal(inputs["points"], ref["points"])
-        assert torch.equal(inputs["images"], ref["images"])
-        torch.testing.assert_close(
-            inputs["extrinsics"], ref["extrinsics"], atol=1e-6, rtol=0
-        )
-        torch.testing.assert_close(
-            inputs["intrinsics"], ref["intrinsics"], atol=1e-6, rtol=0
-        )
-        assert torch.equal(targets["labels"], ref["labels"])
-        torch.testing.assert_close(targets["boxes"], ref["boxes"], atol=1e-5, rtol=0)
+    ds = datasets[split]
+    index = data.draw(st.integers(min_value=0, max_value=len(ds) - 1))
+    inputs, targets = ds[index]
+    ref = _devkit_sample_outputs(devkit_db, ds._sample_tokens[index], mini_root)
+    assert torch.equal(inputs["points"], ref["points"])
+    assert torch.equal(inputs["images"], ref["images"])
+    torch.testing.assert_close(
+        inputs["extrinsics"], ref["extrinsics"], atol=1e-6, rtol=0
+    )
+    torch.testing.assert_close(
+        inputs["intrinsics"], ref["intrinsics"], atol=1e-6, rtol=0
+    )
+    assert torch.equal(targets["labels"], ref["labels"])
+    torch.testing.assert_close(targets["boxes"], ref["boxes"], atol=1e-5, rtol=0)
