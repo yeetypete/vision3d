@@ -53,13 +53,7 @@ _3D_AWARE_TVTENSORS = (
 
 
 class _Refuse3DAwareMixin(_T.Transform):
-    """Mixin that rejects vision3d-aware TVTensor inputs in ``check_inputs``.
-
-    Inherits :class:`torchvision.transforms.v2.Transform` so type checkers
-    know ``super().check_inputs`` resolves; concrete subclasses combine
-    this mixin with the torchvision transform they wrap, and the MRO
-    routes ``super().check_inputs`` to that wrapped class.
-    """
+    """Mixin that rejects vision3d-aware TVTensor inputs in ``check_inputs``."""
 
     @override
     def check_inputs(self, flat_inputs: list[Any]) -> None:
