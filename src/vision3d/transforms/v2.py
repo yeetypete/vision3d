@@ -36,6 +36,7 @@ necessary kernels), delete the entry from :data:`_REFUSED`.
 from typing import TYPE_CHECKING, Any, override
 
 import torchvision.transforms.v2 as _T
+from torch.utils._pytree import tree_flatten
 
 from vision3d.tensors import (
     BoundingBoxes3D,
@@ -96,10 +97,14 @@ class _Refuse3DAwareMixin(_T.Transform):
     def check_inputs(self, flat_inputs: list[Any]) -> None:
         """Raise if any vision3d-aware TVTensor is present.
 
+        Refusal runs before delegating to the wrapped class's
+        ``check_inputs`` so vision3d's diagnostic always wins over a
+        torchvision check that might fire for an unrelated reason
+        (e.g. :class:`RandomIoUCrop` requiring 2D bounding boxes).
+
         Raises:
             TypeError: If any input is a vision3d TVTensor.
         """
-        super().check_inputs(flat_inputs)
         incompatible_types = sorted(
             {
                 type(inpt).__name__
@@ -115,6 +120,25 @@ class _Refuse3DAwareMixin(_T.Transform):
                 f"break geometric consistency."
             )
             raise TypeError(msg)
+        super().check_inputs(flat_inputs)
+
+    @override
+    def forward(self, *inputs: Any) -> Any:
+        """Run ``check_inputs`` before delegating to the wrapped transform.
+
+        Several torchvision transforms (``AutoAugment``, ``RandAugment``,
+        ``AugMix``, ``TrivialAugmentWide``, ``CutMix``, ``MixUp``)
+        override :meth:`forward` and never call :meth:`check_inputs`
+        themselves. Running the refusal check here guarantees it fires
+        regardless of how the parent class dispatches.
+
+        Returns:
+            The output of ``super().forward(*inputs)`` if the refusal
+            check passes.
+        """
+        flat_inputs, _ = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
+        self.check_inputs(flat_inputs)
+        return super().forward(*inputs)
 
 
 _WRAPPED_CLASSES: dict[str, type] = {}
