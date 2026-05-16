@@ -87,6 +87,9 @@ _TORCHVISION_V2_INHERITED_REF_TARGETS = {
     "torchvision.transforms.InterpolationMode",
     "PIL Image",
     "Tensor",
+    "AutoAugmentPolicy",
+    "callable",
+    "floats",
 }
 
 

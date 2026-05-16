@@ -16,10 +16,10 @@ to make every transform that would silently break the geometric
 consistency of a 3D scene refuse vision3d-aware TVTensor inputs with a
 :class:`TypeError` instead.
 
-The module forwards every public name from :mod:`torchvision.transforms.v2`
-unchanged, except for the transforms listed in :data:`_REFUSED` below.
-Those are subclassed with :class:`_Refuse3DAwareMixin`: calling one on
-a sample containing any vision3d TVTensor
+The module forwards every public name from ``torchvision.transforms.v2``
+unchanged, except for the transforms listed in the module-private
+``_REFUSED`` set. Those are subclassed with a refusal mixin: calling one
+on a sample containing any vision3d TVTensor
 (:class:`~vision3d.tensors.PointCloud3D`,
 :class:`~vision3d.tensors.BoundingBoxes3D`,
 :class:`~vision3d.tensors.CameraImages`,
@@ -30,7 +30,7 @@ a sample containing any vision3d TVTensor
 samples.
 
 To remove a transform from the refused set (after registering the
-necessary kernels), delete the entry from :data:`_REFUSED`.
+necessary kernels), delete the entry from ``_REFUSED``.
 """
 
 from typing import TYPE_CHECKING, Any, override
