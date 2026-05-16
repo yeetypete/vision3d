@@ -4,7 +4,6 @@ from typing import Any, override
 
 import torch
 from torch import Tensor
-from torch.utils._pytree import tree_flatten
 
 from vision3d.ops._points_in_boxes_3d import _extract_box_params
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
@@ -45,8 +44,6 @@ class RangeFilter3D(Transform):
         Returns:
             Filtered sample in the same structure as the input.
         """
-        flat_inputs, _ = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
-        self.check_inputs(flat_inputs)
         if len(inputs) == 1:
             return self._filter_sample(inputs[0])
         inputs_dict, targets_dict = inputs
