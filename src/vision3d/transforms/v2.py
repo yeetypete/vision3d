@@ -17,9 +17,12 @@ break the geometric consistency of a 3D scene.
 
 Photometric transforms (e.g. :class:`ColorJitter`,
 :class:`GaussianBlur`) and image-geometric transforms (e.g.
-:class:`Resize`, :class:`CenterCrop`) are re-exported unchanged:
-their default pass-through behaviour leaves vision3d's TVTensors
-untouched, which is safe.
+:class:`Resize`, :class:`CenterCrop`) are re-exported unchanged.
+For inputs they don't recognise, torchvision's pass-through default
+leaves them untouched, which is safe;
+:class:`~vision3d.tensors.CameraIntrinsics` ships kernels for the
+image-geometric functionals (resize, crop, pad, ...) so intrinsics
+stay in sync with the transformed image.
 
 Image-geometric transforms without a matching 3D update (e.g.
 :class:`RandomHorizontalFlip`, :class:`RandomVerticalFlip`) override
@@ -28,7 +31,7 @@ image would leave the lidar, boxes, extrinsics, and intrinsics
 inconsistent.
 """
 
-from typing import Any
+from typing import Any, override
 
 import torchvision.transforms.v2 as _T
 
@@ -49,15 +52,23 @@ _3D_AWARE_TVTENSORS = (
 )
 
 
-class _Refuse3DAwareMixin:
-    """Mixin that rejects vision3d-aware TVTensor inputs in ``check_inputs``."""
+class _Refuse3DAwareMixin(_T.Transform):
+    """Mixin that rejects vision3d-aware TVTensor inputs in ``check_inputs``.
 
+    Inherits :class:`torchvision.transforms.v2.Transform` so type checkers
+    know ``super().check_inputs`` resolves; concrete subclasses combine
+    this mixin with the torchvision transform they wrap, and the MRO
+    routes ``super().check_inputs`` to that wrapped class.
+    """
+
+    @override
     def check_inputs(self, flat_inputs: list[Any]) -> None:
         """Raise if any vision3d-aware TVTensor is present.
 
         Raises:
             TypeError: If any input is a vision3d TVTensor.
         """
+        super().check_inputs(flat_inputs)
         offenders = sorted(
             {
                 type(inpt).__name__

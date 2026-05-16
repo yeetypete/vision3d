@@ -135,11 +135,12 @@ class TestBehaviourMatchesTorchvision:
         torch.testing.assert_close(out_a, out_b)
 
     def test_subclass_relationship(self) -> None:
-        # The wrapped class must remain a subclass of the torchvision
-        # original, so framework features (e.g. isinstance checks in
-        # downstream code, torch.compile, serialisation) keep working.
-        assert issubclass(v3d_v2.ColorJitter, tv_v2.ColorJitter)
+        # The wrapped flip classes must remain a subclass of the
+        # torchvision original, so framework features (e.g. isinstance
+        # checks in downstream code, torch.compile, serialisation) keep
+        # working.
         assert issubclass(v3d_v2.RandomHorizontalFlip, tv_v2.RandomHorizontalFlip)
+        assert issubclass(v3d_v2.RandomVerticalFlip, tv_v2.RandomVerticalFlip)
 
 
 class TestComposeInterop:

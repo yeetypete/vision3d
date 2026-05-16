@@ -73,28 +73,37 @@ def _get_kernel(
     Args:
         functional: The functional to look up.
         input_type: The type of the input.
-        allow_passthrough: If True, return an identity kernel when no
-            kernel is registered for ``input_type``. If False (default),
-            raise :class:`TypeError`.
+        allow_passthrough: If True, return an identity kernel when the
+            functional has no registered kernel for ``input_type``. If
+            False (default), raise :class:`TypeError`.
 
     Returns:
         The kernel function, or an identity lambda when
-        ``allow_passthrough`` is True and no kernel is registered.
+        ``allow_passthrough`` is True and no kernel is registered for
+        ``input_type``.
 
     Raises:
-        TypeError: If no kernel is registered for ``input_type`` and
-            ``allow_passthrough`` is False.
+        ValueError: If the functional has no kernels registered at all.
+        TypeError: If the functional has kernels but none for
+            ``input_type`` and ``allow_passthrough`` is False.
     """
-    registry = _KERNEL_REGISTRY.get(functional, {})
+    registry = _KERNEL_REGISTRY.get(functional)
+    if not registry:
+        msg = f"No kernel registered for functional `{functional.__name__}`."
+        raise ValueError(msg)
+
     for cls in input_type.__mro__:
         if cls in registry:
             return registry[cls]
         if cls is TVTensor:
             break
+
     if allow_passthrough:
         return lambda inpt, *args, **kwargs: inpt
+
     msg = (
-        f"No kernel registered for functional `{functional.__name__}` "
-        f"and input type `{input_type.__name__}`."
+        f"Functional `{functional.__name__}` supports inputs of type "
+        f"{sorted(c.__name__ for c in registry)}, but got "
+        f"`{input_type.__name__}` instead."
     )
     raise TypeError(msg)
