@@ -4,7 +4,7 @@ from torch import Tensor
 
 from vision3d.tensors import PointCloud3D
 
-from ._registry import register_kernel
+from ._utils import register_kernel
 
 
 def shuffle_points(inpt: Tensor, *, perm: Tensor) -> Tensor:

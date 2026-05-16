@@ -3,7 +3,7 @@ import torch
 from torchvision.tv_tensors import TVTensor
 
 from vision3d.transforms.functional import register_kernel
-from vision3d.transforms.functional._registry import _get_kernel
+from vision3d.transforms.functional._utils import _get_kernel
 
 
 class TestRegisterKernel:
@@ -93,7 +93,7 @@ class TestGetKernel:
             return inpt
 
         t = torch.rand(3, 3)
-        kernel = _get_kernel(my_functional, type(t))
+        kernel = _get_kernel(my_functional, type(t), allow_passthrough=True)
         out = kernel(t, some_kwarg=True)
         assert out is t
 
@@ -105,9 +105,19 @@ class TestGetKernel:
             return inpt
 
         t = UnknownTensor(torch.rand(3, 3))
-        kernel = _get_kernel(my_functional, type(t))
+        kernel = _get_kernel(my_functional, type(t), allow_passthrough=True)
         out = kernel(t)
         assert out is t
+
+    def test_unregistered_raises_without_passthrough(self) -> None:
+        class UnknownTensor(TVTensor):
+            pass
+
+        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+            return inpt
+
+        with pytest.raises(TypeError, match="No kernel registered"):
+            _get_kernel(my_functional, UnknownTensor)
 
     def test_subclass_inherits_parent_kernel(self) -> None:
         class ParentTensor(TVTensor):

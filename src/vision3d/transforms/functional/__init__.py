@@ -25,7 +25,7 @@ from ._point_cloud import (
     shuffle_points,
     shuffle_points_point_cloud,
 )
-from ._registry import register_kernel
+from ._utils import register_kernel
 
 __all__ = [
     "flip_3d",

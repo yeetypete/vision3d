@@ -1,4 +1,12 @@
-"""Base class for vision3d transforms."""
+"""Base class for vision3d transforms.
+
+Mirrors :class:`torchvision.transforms.v2.Transform`: subclasses declare
+which input types they operate on via the class-level
+:attr:`_transformed_types` attribute, and may override
+:meth:`check_inputs` to reject unsupported input combinations. Inputs
+whose type is not in :attr:`_transformed_types` flow through the
+transform unchanged.
+"""
 
 import enum
 from collections.abc import Callable
@@ -9,102 +17,69 @@ from torch import nn
 from torch.utils._pytree import tree_flatten, tree_unflatten
 from torchvision.tv_tensors import TVTensor
 
-from vision3d.tensors import (
-    BoundingBoxes3D,
-    CameraExtrinsics,
-    CameraImages,
-    CameraIntrinsics,
-    PointCloud3D,
-)
-
-from .functional._registry import _get_kernel
-
-#: The full set of TVTensor types defined in vision3d. Transforms that
-#: operate safely across every modality declare this as their
-#: ``_safe_for``. Extend this set when a new vision3d TVTensor
-#: is added.
-ALL_VISION3D_TVTENSORS: frozenset[type[TVTensor]] = frozenset(
-    {
-        PointCloud3D,
-        BoundingBoxes3D,
-        CameraImages,
-        CameraExtrinsics,
-        CameraIntrinsics,
-    }
-)
+from .functional._utils import _get_kernel
 
 
-class GeometricConsistencyError(TypeError):
-    """Raised when a transform would break scene geometric consistency.
+def check_type(inpt: Any, types: tuple[type | Callable[[Any], bool], ...]) -> bool:
+    """Return True if ``inpt`` matches any entry in ``types``.
 
-    Signals that a transform received a TVTensor it does not know how to
-    update jointly with the rest of the scene.
-    """
-
-
-def _needs_transform(inpt: Any) -> bool:
-    """Only TVTensor subclasses are transformed. Plain tensors pass through.
+    Each entry is either a concrete type (``isinstance`` check) or a
+    callable predicate that accepts ``inpt`` and returns a bool.
 
     Returns:
-        True if ``inpt`` is a TVTensor subclass.
+        True if ``inpt`` matches any entry; False otherwise.
     """
-    return isinstance(inpt, TVTensor)
+    for cls_or_predicate in types:
+        if isinstance(cls_or_predicate, type):
+            if isinstance(inpt, cls_or_predicate):
+                return True
+        elif cls_or_predicate(inpt):
+            return True
+    return False
 
 
-def _check_safety(
-    safe_for: frozenset[type[TVTensor]],
-    flat_inputs: list[Any],
-    transform_name: str,
-) -> None:
-    """Raise if any TVTensor input is outside the declared safe set.
+def has_any(flat_inputs: list[Any], *types: type | Callable[[Any], bool]) -> bool:
+    """Return True if any element of ``flat_inputs`` matches ``types``.
 
-    Membership is checked by exact type. A TVTensor subclass of a
-    listed type is still treated as unsafe, so a transform must opt
-    in to every concrete type it sees.
-
-    Raises:
-        GeometricConsistencyError: If any input is a TVTensor whose
-            exact type is not in ``safe_for``.
+    Returns:
+        True if any input matches; False otherwise.
     """
-    input_types = {type(inpt) for inpt in flat_inputs if isinstance(inpt, TVTensor)}
-    unsafe = input_types - safe_for
-    if not unsafe:
-        return
-    safe_names = sorted(t.__name__ for t in safe_for) or ["(none)"]
-    unsafe_names = sorted(t.__name__ for t in unsafe)
-    msg = (
-        f"{transform_name} received input(s) of type {unsafe_names}, "
-        f"but only declares handling for {safe_names}. Running it would "
-        f"break scene geometric consistency for the given inputs. Drop "
-        f"the input, use a different transform, or extend `_safe_for` "
-        f"if you have verified the behaviour is correct."
-    )
-    raise GeometricConsistencyError(msg)
+    return any(check_type(inpt, types) for inpt in flat_inputs)
 
 
 class Transform(nn.Module):
     """Base class for vision3d transforms.
 
-    Only :class:`~torchvision.tv_tensors.TVTensor` subclasses (e.g.
-    :class:`~vision3d.tensors.BoundingBoxes3D`,
-    :class:`~vision3d.tensors.PointCloud3D`) are transformed.
-    Plain tensors (labels, scores, etc.) pass through unchanged.
+    Mirrors :class:`torchvision.transforms.v2.Transform`. Subclasses
+    override :meth:`transform` and use ``_call_kernel`` to dispatch to
+    the correct kernel for each input type.
 
-    Subclasses should override :meth:`transform` and use ``_call_kernel``
-    to dispatch to the correct kernel for each input type.
-
-    Transforms are unsafe by default: a TVTensor input is accepted only
-    if its type is listed in the class-level ``_safe_for`` attribute.
-    Subclasses must include every type the transform handles, whether by
-    updating it or by intentionally leaving it untouched. This prevents
-    silently producing geometrically inconsistent scenes (e.g. flipping
-    lidar but not the camera image alongside it).
+    The class-level ``_transformed_types`` tuple lists the input types
+    the transform operates on; inputs whose type is not listed flow
+    through unchanged. Subclasses can additionally override
+    :meth:`check_inputs` to reject unsupported input combinations with
+    a :class:`TypeError`.
     """
 
-    _safe_for: frozenset[type[TVTensor]] = frozenset()
+    #: Input types this transform operates on. Each entry is either a
+    #: concrete type or a callable predicate. Inputs whose type does not
+    #: match are passed through unchanged. Defaults to
+    #: :class:`~torchvision.tv_tensors.TVTensor`, so any TVTensor
+    #: subclass is dispatched to :meth:`transform` and plain tensors
+    #: pass through.
+    _transformed_types: tuple[type | Callable[[Any], bool], ...] = (TVTensor,)
 
     def __init__(self) -> None:
         super().__init__()
+
+    def check_inputs(self, flat_inputs: list[Any]) -> None:
+        """Validate inputs before transforming. Override to reject inputs.
+
+        The base implementation is a no-op. Subclasses raise
+        :class:`TypeError` for input combinations the transform cannot
+        handle (e.g. a 3D-only transform that has no matching update
+        for camera tensors).
+        """
 
     def make_params(self, flat_inputs: list[Any]) -> dict[str, Any]:
         """Sample random parameters. Override for randomised transforms.
@@ -117,24 +92,35 @@ class Transform(nn.Module):
     def _call_kernel(
         self, functional: Callable[..., Any], inpt: Any, *args: Any, **kwargs: Any
     ) -> Any:
-        kernel = _get_kernel(functional, type(inpt))
+        kernel = _get_kernel(functional, type(inpt), allow_passthrough=True)
         return kernel(inpt, *args, **kwargs)
 
     def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
         """Apply the transform to a single input. Must be overridden."""
         raise NotImplementedError
 
+    def _needs_transform_list(self, flat_inputs: list[Any]) -> list[bool]:
+        """Return a per-input mask of which inputs to call ``transform`` on.
+
+        Returns:
+            List of bools, one per element of ``flat_inputs``.
+        """
+        return [check_type(inpt, self._transformed_types) for inpt in flat_inputs]
+
     @override
     def forward(self, *inputs: Any) -> Any:
         """Apply the transform to one or more inputs (dicts, tuples, etc.).
+
+        Do not override this; override :meth:`transform` instead.
 
         Returns:
             Transformed inputs in the same structure as the input.
         """
         flat_inputs, spec = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
-        _check_safety(self._safe_for, flat_inputs, type(self).__name__)
 
-        needs = [_needs_transform(inpt) for inpt in flat_inputs]
+        self.check_inputs(flat_inputs)
+
+        needs = self._needs_transform_list(flat_inputs)
         params = self.make_params([inpt for inpt, nt in zip(flat_inputs, needs) if nt])
 
         flat_outputs = [
@@ -161,8 +147,13 @@ class Transform(nn.Module):
         return ", ".join(extra)
 
 
-class RandomTransform(Transform):
-    """Base class for transforms applied with probability ``p``."""
+class _RandomApplyTransform(Transform):
+    """Base class for transforms applied with probability ``p``.
+
+    Mirrors :class:`torchvision.transforms.v2._RandomApplyTransform`:
+    :meth:`check_inputs` always runs, but the rest of the forward pass
+    is skipped with probability ``1 - p``.
+    """
 
     def __init__(self, p: float = 0.5) -> None:
         if not (0.0 <= p <= 1.0):
@@ -180,11 +171,13 @@ class RandomTransform(Transform):
         """
         inputs = inputs if len(inputs) > 1 else inputs[0]
         flat_inputs, spec = tree_flatten(inputs)
-        _check_safety(self._safe_for, flat_inputs, type(self).__name__)
+
+        self.check_inputs(flat_inputs)
+
         if torch.rand(1) >= self.p:
             return inputs
 
-        needs = [_needs_transform(inpt) for inpt in flat_inputs]
+        needs = self._needs_transform_list(flat_inputs)
         params = self.make_params([inpt for inpt, nt in zip(flat_inputs, needs) if nt])
 
         flat_outputs = [

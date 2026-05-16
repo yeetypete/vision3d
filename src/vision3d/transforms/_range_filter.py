@@ -9,7 +9,7 @@ from torch.utils._pytree import tree_flatten
 from vision3d.ops._points_in_boxes_3d import _extract_box_params
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
-from ._transform import ALL_VISION3D_TVTENSORS, Transform, _check_safety
+from ._transform import Transform
 
 
 class RangeFilter3D(Transform):
@@ -27,8 +27,6 @@ class RangeFilter3D(Transform):
         point_cloud_range: Axis-aligned bounds
             ``(x_min, y_min, z_min, x_max, y_max, z_max)``.
     """
-
-    _safe_for = ALL_VISION3D_TVTENSORS
 
     def __init__(self, point_cloud_range: tuple[float, ...]) -> None:
         super().__init__()
@@ -48,7 +46,7 @@ class RangeFilter3D(Transform):
             Filtered sample in the same structure as the input.
         """
         flat_inputs, _ = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
-        _check_safety(self._safe_for, flat_inputs, type(self).__name__)
+        self.check_inputs(flat_inputs)
         if len(inputs) == 1:
             return self._filter_sample(inputs[0])
         inputs_dict, targets_dict = inputs

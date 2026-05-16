@@ -12,7 +12,6 @@ from common_utils import (
     make_lidar_sample,
     make_point_cloud_3d,
 )
-from torchvision.tv_tensors import Image
 
 from vision3d.tensors import (
     BoundingBox3DFormat,
@@ -23,7 +22,6 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 from vision3d.transforms import (
-    GeometricConsistencyError,
     RandomFlip3D,
     RandomRotate3D,
     RandomScale3D,
@@ -330,13 +328,13 @@ class TestRandomFlip3DFusion:
             key: make_fusion_sample()[key],
         }
         transform = RandomFlip3D(axis="x", p=1.0)
-        with pytest.raises(GeometricConsistencyError, match="RandomFlip3D"):
+        with pytest.raises(TypeError, match="RandomFlip3D"):
             transform(sample)
 
     def test_raises_even_when_skipped_by_probability(self) -> None:
         sample = make_fusion_sample()
         transform = RandomFlip3D(axis="x", p=0.0)
-        with pytest.raises(GeometricConsistencyError, match="RandomFlip3D"):
+        with pytest.raises(TypeError, match="RandomFlip3D"):
             transform(sample)
 
 
@@ -1107,50 +1105,45 @@ class TestPointsAndBoxesStayConsistent:
         assert torch.allclose(point_delta, box_delta, atol=1e-5)
 
 
-class _TestTransform(Transform):
-    """Minimal Transform with no kernels, used to probe ``_safe_for``."""
+class _IdentityTransform(Transform):
+    """Trivial transform that returns inputs unchanged; used to probe dispatch."""
 
     @override
     def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
         return inpt
 
 
-class _PointCloudSafe(_TestTransform):
-    _safe_for = frozenset({PointCloud3D})
+class _PointCloudOnly(_IdentityTransform):
+    _transformed_types = (PointCloud3D,)
 
 
-class _ImageSafe(_TestTransform):
-    _safe_for = frozenset({Image})
-
-
-class TestSafeForContract:
-    def test_default_empty_rejects_every_tvtensor(self) -> None:
+class TestTransformedTypesContract:
+    def test_default_dispatches_all_tvtensors(self) -> None:
+        # Default _transformed_types = (TVTensor,) accepts any TVTensor.
         sample = make_fusion_sample()
-        with pytest.raises(GeometricConsistencyError):
-            _TestTransform()(sample)
+        out = _IdentityTransform()(sample)
+        assert set(out) == set(sample)
 
-    def test_default_empty_accepts_plain_tensors(self) -> None:
-        _TestTransform()({"labels": torch.tensor([0, 1, 2])})
+    def test_plain_tensors_pass_through(self) -> None:
+        labels = torch.tensor([0, 1, 2])
+        out = _IdentityTransform()({"labels": labels})
+        assert out["labels"] is labels
 
-    def test_accepts_listed_types(self) -> None:
-        sample = {"points": make_point_cloud_3d(num_points=10)}
-        _PointCloudSafe()(sample)
+    def test_only_listed_tvtensors_dispatched(self) -> None:
+        dispatched: list[type] = []
 
-    def test_rejects_unlisted_tvtensors(self) -> None:
+        class _Probe(_PointCloudOnly):
+            @override
+            def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
+                dispatched.append(type(inpt))
+                return inpt
+
         sample = make_fusion_sample()
-        with pytest.raises(GeometricConsistencyError, match="CameraImages"):
-            _PointCloudSafe()(sample)
+        _Probe()(sample)
+        assert dispatched == [PointCloud3D]
 
-    def test_plain_tensors_always_pass(self) -> None:
-        sample = {
-            "points": make_point_cloud_3d(num_points=10),
-            "labels": torch.tensor([0, 1, 2]),
-        }
-        _PointCloudSafe()(sample)
-
-    def test_subtype_rejected(self) -> None:
-        # `_safe_for` is matched by exact type, not subclass, so a
-        # subclass of a listed type is still treated as unsafe.
-        sample = {"images": make_camera_images(num_cameras=2, height=8, width=8)}
-        with pytest.raises(GeometricConsistencyError, match="CameraImages"):
-            _ImageSafe()(sample)
+    def test_unlisted_tvtensors_pass_through_unchanged(self) -> None:
+        sample = make_fusion_sample()
+        out = _PointCloudOnly()(sample)
+        for key in ("images", "extrinsics", "intrinsics"):
+            assert out[key] is sample[key]

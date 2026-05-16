@@ -12,81 +12,88 @@ for
 
     from vision3d.transforms import v2 as T
 
-to make every transform refuse inputs whose presence would silently break
-the geometric consistency of a 3D scene.
-
-Each mirrored class subclasses its torchvision counterpart and adds a
-``_safe_for`` declaration that places it into one of two categories.
+to make every transform refuse inputs whose presence would silently
+break the geometric consistency of a 3D scene.
 
 Photometric transforms (e.g. :class:`ColorJitter`,
-:class:`GaussianBlur`) and image-geometric transforms whose companion
-:class:`~vision3d.tensors.CameraIntrinsics` kernel is already registered
-(e.g. :class:`Resize`, :class:`CenterCrop`) accept the full set of
-vision3d-aware TVTensors.
+:class:`GaussianBlur`) and image-geometric transforms (e.g.
+:class:`Resize`, :class:`CenterCrop`) are re-exported unchanged:
+their default pass-through behaviour leaves vision3d's TVTensors
+untouched, which is safe.
 
-Image-geometric transforms without a matching 3D update
-(e.g. :class:`RandomHorizontalFlip`, :class:`RandomVerticalFlip`)
-accept plain :class:`torchvision.tv_tensors.Image` and
-:class:`~torchvision.tv_tensors.Mask` only and refuse any 3D-aware
-input, since flipping the image would leave lidar, boxes, extrinsics,
-and intrinsics inconsistent.
+Image-geometric transforms without a matching 3D update (e.g.
+:class:`RandomHorizontalFlip`, :class:`RandomVerticalFlip`) override
+``check_inputs`` to reject any vision3d-aware TVTensor: flipping the
+image would leave the lidar, boxes, extrinsics, and intrinsics
+inconsistent.
 """
 
 from typing import Any
 
 import torchvision.transforms.v2 as _T
-from torch.utils._pytree import tree_flatten
-from torchvision.tv_tensors import Image, Mask, TVTensor
 
-from ._transform import ALL_VISION3D_TVTENSORS, _check_safety
+from vision3d.tensors import (
+    BoundingBoxes3D,
+    CameraExtrinsics,
+    CameraImages,
+    CameraIntrinsics,
+    PointCloud3D,
+)
 
-_ALL: frozenset[type[TVTensor]] = ALL_VISION3D_TVTENSORS | frozenset({Image, Mask})
-# Transforms that change the image plane but have no matching update for
-# the 3D side (no intrinsics/extrinsics kernel for flip or rotation).
-_IMAGE_ONLY: frozenset[type[TVTensor]] = frozenset({Image, Mask})
-
-
-def _wrap[T: _T.Transform](
-    parent_cls: type[T], safe_for: frozenset[type[TVTensor]]
-) -> type[T]:
-    """Build a safety-checking subclass of a torchvision v2 transform.
-
-    Returns:
-        Subclass of ``parent_cls`` whose ``forward`` validates inputs
-        against ``safe_for`` before delegating to the parent.
-    """
-
-    def forward(self: T, *inputs: Any) -> Any:
-        flat, _ = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
-        _check_safety(safe_for, flat, parent_cls.__name__)
-        return parent_cls.forward(self, *inputs)
-
-    sub = type(
-        parent_cls.__name__,
-        (parent_cls,),
-        {"forward": forward, "_safe_for": safe_for},
-    )
-    sub.__module__ = __name__
-    sub.__qualname__ = parent_cls.__name__
-    sub.__doc__ = parent_cls.__doc__
-    return sub
+_3D_AWARE_TVTENSORS = (
+    PointCloud3D,
+    BoundingBoxes3D,
+    CameraImages,
+    CameraExtrinsics,
+    CameraIntrinsics,
+)
 
 
-# Photometric transforms (fully safe for any TVTensor, since they don't affect geometry)
-ColorJitter = _wrap(_T.ColorJitter, _ALL)
-GaussianBlur = _wrap(_T.GaussianBlur, _ALL)
-Normalize = _wrap(_T.Normalize, _ALL)
-RandomGrayscale = _wrap(_T.RandomGrayscale, _ALL)
+class _Refuse3DAwareMixin:
+    """Mixin that rejects vision3d-aware TVTensor inputs in ``check_inputs``."""
 
-# Geometric transforms with registered intrinsics kernels (accept any TVTensor)
-Resize = _wrap(_T.Resize, _ALL)
-CenterCrop = _wrap(_T.CenterCrop, _ALL)
-Pad = _wrap(_T.Pad, _ALL)
-RandomResizedCrop = _wrap(_T.RandomResizedCrop, _ALL)
+    def check_inputs(self, flat_inputs: list[Any]) -> None:
+        """Raise if any vision3d-aware TVTensor is present.
 
-# Geometric transforms without registered intrinsics kernels (refuse 3D-aware inputs)
-RandomHorizontalFlip = _wrap(_T.RandomHorizontalFlip, _IMAGE_ONLY)
-RandomVerticalFlip = _wrap(_T.RandomVerticalFlip, _IMAGE_ONLY)
+        Raises:
+            TypeError: If any input is a vision3d TVTensor.
+        """
+        offenders = sorted(
+            {
+                type(inpt).__name__
+                for inpt in flat_inputs
+                if isinstance(inpt, _3D_AWARE_TVTENSORS)
+            }
+        )
+        if offenders:
+            msg = (
+                f"{type(self).__name__} cannot operate on samples that "
+                f"contain vision3d TVTensors {offenders}: applying it "
+                f"without coordinated changes to the 3D scene would break "
+                f"geometric consistency."
+            )
+            raise TypeError(msg)
+
+
+class RandomHorizontalFlip(_Refuse3DAwareMixin, _T.RandomHorizontalFlip):  # noqa: D101
+    __doc__ = _T.RandomHorizontalFlip.__doc__
+
+
+class RandomVerticalFlip(_Refuse3DAwareMixin, _T.RandomVerticalFlip):  # noqa: D101
+    __doc__ = _T.RandomVerticalFlip.__doc__
+
+
+# Photometric and image-geometric transforms re-exported unchanged: their
+# default behaviour passes any vision3d TVTensor through untouched, which
+# is what we want.
+CenterCrop = _T.CenterCrop
+ColorJitter = _T.ColorJitter
+GaussianBlur = _T.GaussianBlur
+Normalize = _T.Normalize
+Pad = _T.Pad
+RandomGrayscale = _T.RandomGrayscale
+RandomResizedCrop = _T.RandomResizedCrop
+Resize = _T.Resize
 
 
 __all__ = [
