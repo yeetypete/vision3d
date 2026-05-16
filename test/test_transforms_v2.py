@@ -16,9 +16,7 @@ from vision3d.transforms import v2 as v3d_v2
 from vision3d.transforms.v2 import _REFUSED
 
 #: Default-arg factory for every refused transform. Drives the
-#: parametrized refusal tests below; covers transforms that need
-#: positional args (``size``, ``degrees``, ``num_classes``) since their
-#: defaults are not zero-arg.
+#: parametrized refusal tests below.
 _REFUSED_FACTORIES: dict[str, Callable[[], nn.Module]] = {
     "AugMix": v3d_v2.AugMix,
     "AutoAugment": v3d_v2.AutoAugment,
@@ -39,6 +37,10 @@ _REFUSED_FACTORIES: dict[str, Callable[[], nn.Module]] = {
 
 
 class TestRefusedSetCoverage:
+    """Guards against drift between :data:`_REFUSED`, the local factory
+    table, and torchvision's public surface.
+    """
+
     def test_factories_cover_refused_set(self) -> None:
         missing = _REFUSED - _REFUSED_FACTORIES.keys()
         extra = _REFUSED_FACTORIES.keys() - _REFUSED
