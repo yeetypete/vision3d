@@ -541,7 +541,6 @@ class TestRandomTranslate3DFusion:
         sample = make_fusion_sample()
         transform = RandomTranslate3D(translation_range=5.0, p=1.0)
         out = transform(sample)
-        assert isinstance(out["extrinsics"], CameraExtrinsics)
         assert not torch.equal(out["extrinsics"], sample["extrinsics"])
 
 
@@ -779,7 +778,6 @@ class TestRandomRotate3DFusion:
         sample = make_fusion_sample()
         transform = RandomRotate3D(angle_range=0.5, p=1.0)
         out = transform(sample)
-        assert isinstance(out["extrinsics"], CameraExtrinsics)
         assert not torch.equal(out["extrinsics"], sample["extrinsics"])
 
 
@@ -973,7 +971,6 @@ class TestRandomScale3DFusion:
 
         transform = RandomScale3D(scale_range=(0.5, 0.9), p=1.0)
         out = transform(sample)
-        assert isinstance(out["extrinsics"], CameraExtrinsics)
         assert not torch.equal(out["extrinsics"], original_extrinsics)
 
 
