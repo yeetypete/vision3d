@@ -1,7 +1,9 @@
 import math
+import pickle
 from typing import Any
 
 import torch
+from torch.utils._pytree import tree_flatten
 
 from vision3d.tensors import (
     BoundingBox3DFormat,
@@ -11,6 +13,7 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
+from vision3d.transforms import Transform
 
 
 def make_bounding_boxes_3d(
@@ -222,3 +225,41 @@ def make_fusion_sample(
         "extrinsics": make_camera_extrinsics(num_cameras=num_cameras),
         "intrinsics": intr,
     }
+
+
+def check_transform(transform: Transform, sample: Any) -> Any:
+    """Audit a transform's input/output convention.
+
+    Mirrors :func:`torchvision`'s ``check_transform`` test helper. Asserts:
+
+    - The transform is pickleable.
+    - Output container structure matches input.
+    - Items the transform claims to handle (per
+      :meth:`Transform._needs_transform_list`) keep their exact type
+      after transformation; only their content may change.
+    - Items the transform does not claim pass through by identity (same
+      object, not just equal).
+
+    Returns:
+        The transformed sample.
+    """
+    pickle.loads(pickle.dumps(transform))
+
+    flat_inputs, in_spec = tree_flatten(sample)
+    output = transform(sample)
+    flat_outputs, out_spec = tree_flatten(output)
+    assert out_spec == in_spec
+
+    needs = transform._needs_transform_list(flat_inputs)
+    for inpt, outpt, transformed in zip(flat_inputs, flat_outputs, needs, strict=True):
+        if transformed:
+            assert type(outpt) is type(inpt), (
+                f"{type(transform).__name__} mutated input type "
+                f"{type(inpt).__name__} → {type(outpt).__name__}."
+            )
+        else:
+            assert outpt is inpt, (
+                f"{type(transform).__name__} did not preserve identity "
+                f"for unhandled input of type {type(inpt).__name__}."
+            )
+    return output

@@ -3,7 +3,13 @@
 import functools
 
 import torch
-from common_utils import make_bounding_boxes_3d, make_lidar_sample, make_point_cloud_3d
+from common_utils import (
+    check_transform,
+    make_bounding_boxes_3d,
+    make_fusion_sample,
+    make_lidar_sample,
+    make_point_cloud_3d,
+)
 
 from vision3d.tensors import BoundingBox3DFormat, PointCloud3D
 from vision3d.transforms import PointJitter, PointSample, PointShuffle
@@ -150,6 +156,9 @@ class TestJitterPointsDispatch:
 
 
 class TestPointShuffle:
+    def test_transform(self) -> None:
+        check_transform(PointShuffle(p=1.0), make_fusion_sample())
+
     def test_output_same_shape(self) -> None:
         sample = _make_sample()
         out = PointShuffle(p=1.0)(sample)
@@ -184,6 +193,9 @@ class TestPointShuffle:
 
 
 class TestPointSample:
+    def test_transform(self) -> None:
+        check_transform(PointSample(n=10), make_fusion_sample())
+
     def test_downsample(self) -> None:
         sample = _make_sample()
         out = PointSample(n=10)(sample)
@@ -215,6 +227,9 @@ class TestPointSample:
 
 
 class TestPointJitter:
+    def test_transform(self) -> None:
+        check_transform(PointJitter(sigma=0.1, p=1.0), make_fusion_sample())
+
     def test_output_same_shape(self) -> None:
         sample = _make_sample()
         out = PointJitter(sigma=0.1, p=1.0)(sample)

@@ -4,6 +4,7 @@ from typing import Any, override
 import pytest
 import torch
 from common_utils import (
+    check_transform,
     make_bounding_boxes_3d,
     make_camera_extrinsics,
     make_camera_images,
@@ -12,7 +13,9 @@ from common_utils import (
     make_lidar_sample,
     make_point_cloud_3d,
 )
+from torchvision.tv_tensors import TVTensor
 
+import vision3d.tensors as _vision3d_tensors
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -254,6 +257,11 @@ class TestFlip3DDispatch:
 
 
 class TestRandomFlip3D:
+    def test_transform(self) -> None:
+        # RandomFlip3D refuses camera tensors, so audit on the lidar-only
+        # sample (covers points, boxes, plain-tensor labels).
+        check_transform(RandomFlip3D(axis="x", p=1.0), make_lidar_sample())
+
     def test_p_one_always_flips(self) -> None:
         sample = make_lidar_sample()
         transform = RandomFlip3D(axis="x", p=1.0)
@@ -514,6 +522,11 @@ class TestTranslate3DDispatch:
 
 # Transform tests
 class TestRandomTranslate3D:
+    def test_transform(self) -> None:
+        check_transform(
+            RandomTranslate3D(translation_range=5.0, p=1.0), make_fusion_sample()
+        )
+
     def test_p_one_always_translates(self) -> None:
         sample = make_lidar_sample()
         transform = RandomTranslate3D(translation_range=5.0, p=1.0)
@@ -782,6 +795,9 @@ class TestRotate3DDispatch:
 
 # Transform tests
 class TestRandomRotate3D:
+    def test_transform(self) -> None:
+        check_transform(RandomRotate3D(angle_range=0.5, p=1.0), make_fusion_sample())
+
     def test_p_one_always_rotates(self) -> None:
         sample = make_lidar_sample()
         transform = RandomRotate3D(angle_range=0.5, p=1.0)
@@ -1003,6 +1019,11 @@ class TestScale3DDispatch:
 
 # Transform tests
 class TestRandomScale3D:
+    def test_transform(self) -> None:
+        check_transform(
+            RandomScale3D(scale_range=(0.8, 1.2), p=1.0), make_fusion_sample()
+        )
+
     def test_p_one_always_scales(self) -> None:
         sample = make_lidar_sample()
         transform = RandomScale3D(scale_range=(0.5, 0.9), p=1.0)
@@ -1147,3 +1168,29 @@ class TestTransformedTypesContract:
         out = _PointCloudOnly()(sample)
         for key in ("images", "extrinsics", "intrinsics"):
             assert out[key] is sample[key]
+
+
+class TestAuditFixture:
+    """The ``check_transform`` smoke audit relies on ``make_fusion_sample``
+    containing one of every vision3d TVTensor. Adding a new TVTensor type
+    without updating the fixture would let transforms silently pass it
+    through instead of being audited.
+    """
+
+    def test_fusion_sample_covers_all_tvtensors(self) -> None:
+        declared = {
+            cls
+            for cls in vars(_vision3d_tensors).values()
+            if isinstance(cls, type)
+            and issubclass(cls, TVTensor)
+            and cls is not TVTensor
+        }
+        present = {
+            type(v) for v in make_fusion_sample().values() if isinstance(v, TVTensor)
+        }
+        missing = declared - present
+        assert not missing, (
+            f"New TVTensor(s) {sorted(c.__name__ for c in missing)} not in "
+            f"make_fusion_sample(). Add to common_utils.make_fusion_sample, "
+            f"then audit each transform's _transformed_types / check_inputs."
+        )
