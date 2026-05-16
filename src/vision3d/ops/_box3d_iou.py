@@ -8,7 +8,10 @@ import torch
 from torch import Tensor
 
 from vision3d import _extension  # noqa: F401  # loads ``_C`` into torch.ops
-from vision3d.ops import _meta_registrations  # noqa: F401  # registers fake kernels
+from vision3d.ops import (
+    _box3d_iou_autograd,  # noqa: F401  # registers autograd
+    _meta_registrations,  # noqa: F401  # registers fake kernels
+)
 from vision3d.tensors import BoundingBox3DFormat
 
 from ._box3d_corners import box3d_corners
@@ -30,7 +33,13 @@ def box3d_iou(
     full 9-DOF orientation (``XYZLWHYPR``) — because the clipping step
     operates on the 8 box corners regardless of how they were produced.
 
-    Note: This function is not differentiable.
+    Note:
+        This wrapper is currently ``@torch.no_grad()`` so that downstream
+        users see well-defined behavior while the analytic backward is
+        being landed. The underlying ``torch.ops.vision3d.iou_box3d`` op
+        already has autograd wired up (via :mod:`._box3d_iou_autograd`);
+        the backward kernel currently returns zeros until the analytic
+        math lands.
 
     Args:
         boxes1: First set of boxes ``[N, K]``.

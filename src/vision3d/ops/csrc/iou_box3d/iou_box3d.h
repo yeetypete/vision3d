@@ -66,3 +66,37 @@ std::tuple<
     torch::stable::Tensor,
     torch::stable::Tensor>
 IoUBox3DCuda(torch::stable::Tensor boxes1, torch::stable::Tensor boxes2);
+
+// Analytic backward for IoUBox3D. Consumes the forward-saved state and the
+// upstream grads on (vol, iou); produces grads on the 8-corner inputs.
+//
+// Args:
+//     boxes1, boxes2: original (N, 8, 3) / (M, 8, 3) inputs.
+//     vol: (N, M) intersection volumes from the forward.
+//     face_area: (N, M, 12) per-input-plane face areas from the forward.
+//     face_area_centroid: (N, M, 12, 3) area-weighted face centroids.
+//     grad_vol: (N, M) upstream grad on vol.
+//     grad_iou: (N, M) upstream grad on iou.
+// Returns:
+//     grad_boxes1: (N, 8, 3) grad on boxes1 corners.
+//     grad_boxes2: (M, 8, 3) grad on boxes2 corners.
+
+// CPU implementation
+std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DBackwardCpu(
+    torch::stable::Tensor boxes1,
+    torch::stable::Tensor boxes2,
+    torch::stable::Tensor vol,
+    torch::stable::Tensor face_area,
+    torch::stable::Tensor face_area_centroid,
+    torch::stable::Tensor grad_vol,
+    torch::stable::Tensor grad_iou);
+
+// CUDA implementation
+std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DBackwardCuda(
+    torch::stable::Tensor boxes1,
+    torch::stable::Tensor boxes2,
+    torch::stable::Tensor vol,
+    torch::stable::Tensor face_area,
+    torch::stable::Tensor face_area_centroid,
+    torch::stable::Tensor grad_vol,
+    torch::stable::Tensor grad_iou);

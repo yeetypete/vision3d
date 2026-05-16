@@ -532,3 +532,44 @@ class TestDisjoint:
         vol, iou = overlap(box1[None], box2[None])
         torch.testing.assert_close(vol, torch.tensor([[0.0]], device=device))
         torch.testing.assert_close(iou, torch.tensor([[0.0]], device=device))
+
+
+class TestAutogradWiring:
+    """End-to-end smoke test for the ``register_autograd`` wiring.
+
+    The C++ backward op currently returns zeros (analytic math lands in a
+    follow-up commit); these tests assert that the autograd machinery
+    *runs* — gradients are tracked, the backward op is dispatched, and
+    output shapes match the inputs. Numerical correctness of the
+    gradient values is verified by later gradcheck-based tests.
+    """
+
+    def test_iou_backward_runs(self, device: torch.device) -> None:
+        box1 = torch.tensor(
+            UNIT_BOX, dtype=torch.float32, device=device, requires_grad=True
+        )
+        box2 = (
+            torch.tensor(UNIT_BOX, dtype=torch.float32, device=device)
+            + torch.tensor([[0.3, 0.0, 0.0]], device=device)
+        ).requires_grad_(True)
+        _, iou, _, _ = torch.ops.vision3d.iou_box3d(box1[None], box2[None])
+        loss = iou.sum()
+        loss.backward()
+        # Stub backward returns zeros — shape sanity is what matters here.
+        assert box1.grad is not None
+        assert box1.grad.shape == box1.shape
+        assert box2.grad is not None
+        assert box2.grad.shape == box2.shape
+
+    def test_vol_backward_runs(self, device: torch.device) -> None:
+        box1 = torch.tensor(
+            UNIT_BOX, dtype=torch.float32, device=device, requires_grad=True
+        )
+        box2 = (
+            torch.tensor(UNIT_BOX, dtype=torch.float32, device=device)
+            + torch.tensor([[0.3, 0.0, 0.0]], device=device)
+        ).requires_grad_(True)
+        vol, _, _, _ = torch.ops.vision3d.iou_box3d(box1[None], box2[None])
+        vol.sum().backward()
+        assert box1.grad is not None
+        assert box2.grad is not None
