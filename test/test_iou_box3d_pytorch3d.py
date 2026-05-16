@@ -568,7 +568,7 @@ class TestAutogradWiring:
 
 
 class TestAnalyticBackward:
-    """Analytic CPU backward vs. finite differences.
+    """Analytic backward vs. finite differences.
 
     Tests use box parameters (chained through ``box3d_corners``) and
     rotated boxes that avoid the coplanar-faces edge case where the
@@ -577,7 +577,6 @@ class TestAnalyticBackward:
     centered FD average).
     """
 
-    @pytest.mark.skip_device("cuda")
     def test_grad_matches_fd_rotated_pair(self, device: torch.device) -> None:
         from vision3d.ops._box3d_corners import box3d_corners
         from vision3d.tensors import BoundingBox3DFormat
@@ -634,7 +633,6 @@ class TestAnalyticBackward:
         torch.testing.assert_close(analytic_b1, fd_b1, atol=2e-3, rtol=0)
         torch.testing.assert_close(analytic_b2, fd_b2, atol=2e-3, rtol=0)
 
-    @pytest.mark.skip_device("cuda")
     def test_grad_zero_for_disjoint(self, device: torch.device) -> None:
         # Boxes far apart: face_area is zero everywhere, gradients should be 0.
         box1 = torch.tensor(
@@ -650,3 +648,49 @@ class TestAnalyticBackward:
         assert box2.grad is not None
         torch.testing.assert_close(box1.grad, torch.zeros_like(box1.grad))
         torch.testing.assert_close(box2.grad, torch.zeros_like(box2.grad))
+
+    def test_cpu_cuda_grad_parity(self) -> None:
+        # CUDA backward should produce the same gradients as CPU, modulo
+        # small floating-point reduction-order differences (atomicAdd).
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        from vision3d.ops._box3d_corners import box3d_corners
+        from vision3d.tensors import BoundingBox3DFormat
+
+        fmt = BoundingBox3DFormat.XYZLWHY
+
+        def iou_at(b1: Tensor, b2: Tensor) -> Tensor:
+            c1 = box3d_corners(b1, fmt).to(torch.float32)
+            c2 = box3d_corners(b2, fmt).to(torch.float32)
+            _, iou, _, _ = torch.ops.vision3d.iou_box3d(c1, c2)
+            return iou
+
+        params1 = [[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.3]]
+        params2 = [[0.4, 0.2, 0.1, 1.0, 1.0, 1.0, -0.2]]
+
+        b1_cpu = torch.tensor(
+            params1, dtype=torch.float32, device="cpu", requires_grad=True
+        )
+        b2_cpu = torch.tensor(
+            params2, dtype=torch.float32, device="cpu", requires_grad=True
+        )
+        iou_at(b1_cpu, b2_cpu).sum().backward()
+
+        b1_cuda = torch.tensor(
+            params1, dtype=torch.float32, device="cuda", requires_grad=True
+        )
+        b2_cuda = torch.tensor(
+            params2, dtype=torch.float32, device="cuda", requires_grad=True
+        )
+        iou_at(b1_cuda, b2_cuda).sum().backward()
+
+        assert b1_cpu.grad is not None
+        assert b1_cuda.grad is not None
+        assert b2_cpu.grad is not None
+        assert b2_cuda.grad is not None
+        torch.testing.assert_close(
+            b1_cpu.grad, b1_cuda.grad.cpu(), atol=1e-4, rtol=1e-3
+        )
+        torch.testing.assert_close(
+            b2_cpu.grad, b2_cuda.grad.cpu(), atol=1e-4, rtol=1e-3
+        )

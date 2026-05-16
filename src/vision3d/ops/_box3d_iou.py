@@ -33,10 +33,9 @@ def box3d_iou(
     operates on the 8 box corners regardless of how they were produced.
 
     Differentiability:
-        The IoU is differentiable w.r.t. both inputs. Gradients are
-        analytic and propagate through ``box3d_corners`` back to the box
-        parameters. CUDA backward is not yet implemented; CUDA inputs
-        currently produce zero gradients (a follow-up).
+        The IoU is differentiable w.r.t. both inputs on CPU and CUDA.
+        Gradients are analytic and propagate through ``box3d_corners``
+        back to the box parameters.
 
         Coplanar-face note: when a face of ``boxes1`` exactly coincides
         with a face of ``boxes2`` (e.g., axis-aligned boxes sharing an
