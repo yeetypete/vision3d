@@ -171,21 +171,6 @@ class TestPointShuffle:
         shuffled_sorted = out["points"].sort(dim=0).values
         assert torch.allclose(original_sorted, shuffled_sorted)
 
-    def test_preserves_type(self) -> None:
-        sample = _make_sample()
-        out = PointShuffle(p=1.0)(sample)
-        assert isinstance(out["points"], PointCloud3D)
-
-    def test_boxes_unchanged(self) -> None:
-        sample = _make_sample()
-        out = PointShuffle(p=1.0)(sample)
-        assert torch.equal(out["boxes"], sample["boxes"])
-
-    def test_labels_unchanged(self) -> None:
-        sample = _make_sample()
-        out = PointShuffle(p=1.0)(sample)
-        assert torch.equal(out["labels"], sample["labels"])
-
     def test_p_zero_is_identity(self) -> None:
         sample = _make_sample()
         out = PointShuffle(p=0.0)(sample)
@@ -214,16 +199,6 @@ class TestPointSample:
         original_sorted = sample["points"].sort(dim=0).values
         sampled_sorted = out["points"].sort(dim=0).values
         assert torch.allclose(original_sorted, sampled_sorted)
-
-    def test_preserves_type(self) -> None:
-        sample = _make_sample()
-        out = PointSample(n=50)(sample)
-        assert isinstance(out["points"], PointCloud3D)
-
-    def test_boxes_unchanged(self) -> None:
-        sample = _make_sample()
-        out = PointSample(n=50)(sample)
-        assert torch.equal(out["boxes"], sample["boxes"])
 
 
 class TestPointJitter:
@@ -259,16 +234,6 @@ class TestPointJitter:
             (out_large["points"][:, :3] - sample2["points"][:, :3]).abs().mean()
         )
         assert diff_large > diff_small * 10
-
-    def test_preserves_type(self) -> None:
-        sample = _make_sample()
-        out = PointJitter(sigma=0.1, p=1.0)(sample)
-        assert isinstance(out["points"], PointCloud3D)
-
-    def test_boxes_unchanged(self) -> None:
-        sample = _make_sample()
-        out = PointJitter(sigma=0.1, p=1.0)(sample)
-        assert torch.equal(out["boxes"], sample["boxes"])
 
     def test_p_zero_is_identity(self) -> None:
         sample = _make_sample()

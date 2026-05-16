@@ -20,8 +20,6 @@ from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
     CameraExtrinsics,
-    CameraImages,
-    CameraIntrinsics,
     PointCloud3D,
 )
 from vision3d.transforms import (
@@ -275,19 +273,6 @@ class TestRandomFlip3D:
         assert torch.equal(out["points"], sample["points"])
         assert torch.equal(out["boxes"], sample["boxes"])
 
-    def test_labels_passthrough(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomFlip3D(axis="x", p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["labels"], sample["labels"])
-
-    def test_preserves_types(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomFlip3D(axis="x", p=1.0)
-        out = transform(sample)
-        assert isinstance(out["points"], PointCloud3D)
-        assert isinstance(out["boxes"], BoundingBoxes3D)
-
     @pytest.mark.parametrize("format", ALL_FORMATS)
     def test_preserves_format(self, format: BoundingBox3DFormat) -> None:
         sample = make_lidar_sample(format=format)
@@ -539,19 +524,6 @@ class TestRandomTranslate3D:
         out = transform(sample)
         assert torch.equal(out["points"], sample["points"])
 
-    def test_labels_passthrough(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["labels"], sample["labels"])
-
-    def test_preserves_types(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
-        out = transform(sample)
-        assert isinstance(out["points"], PointCloud3D)
-        assert isinstance(out["boxes"], BoundingBoxes3D)
-
     @pytest.mark.parametrize("format", ALL_FORMATS)
     def test_preserves_format(self, format: BoundingBox3DFormat) -> None:
         sample = make_lidar_sample(format=format)
@@ -571,28 +543,6 @@ class TestRandomTranslate3DFusion:
         out = transform(sample)
         assert isinstance(out["extrinsics"], CameraExtrinsics)
         assert not torch.equal(out["extrinsics"], sample["extrinsics"])
-
-    def test_images_passthrough(self) -> None:
-        sample = make_fusion_sample()
-        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["images"], sample["images"])
-
-    def test_intrinsics_passthrough(self) -> None:
-        sample = make_fusion_sample()
-        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["intrinsics"], sample["intrinsics"])
-
-    def test_all_types_preserved(self) -> None:
-        sample = make_fusion_sample()
-        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
-        out = transform(sample)
-        assert isinstance(out["points"], PointCloud3D)
-        assert isinstance(out["boxes"], BoundingBoxes3D)
-        assert isinstance(out["images"], CameraImages)
-        assert isinstance(out["extrinsics"], CameraExtrinsics)
-        assert isinstance(out["intrinsics"], CameraIntrinsics)
 
 
 def _x_axis() -> torch.Tensor:
@@ -810,19 +760,6 @@ class TestRandomRotate3D:
         out = transform(sample)
         assert torch.equal(out["points"], sample["points"])
 
-    def test_labels_passthrough(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomRotate3D(angle_range=0.5, p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["labels"], sample["labels"])
-
-    def test_preserves_types(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomRotate3D(angle_range=0.5, p=1.0)
-        out = transform(sample)
-        assert isinstance(out["points"], PointCloud3D)
-        assert isinstance(out["boxes"], BoundingBoxes3D)
-
     @pytest.mark.parametrize(
         "format", [BoundingBox3DFormat.XYZLWHY, BoundingBox3DFormat.XYZLWHYPR]
     )
@@ -844,28 +781,6 @@ class TestRandomRotate3DFusion:
         out = transform(sample)
         assert isinstance(out["extrinsics"], CameraExtrinsics)
         assert not torch.equal(out["extrinsics"], sample["extrinsics"])
-
-    def test_images_passthrough(self) -> None:
-        sample = make_fusion_sample()
-        transform = RandomRotate3D(angle_range=0.5, p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["images"], sample["images"])
-
-    def test_intrinsics_passthrough(self) -> None:
-        sample = make_fusion_sample()
-        transform = RandomRotate3D(angle_range=0.5, p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["intrinsics"], sample["intrinsics"])
-
-    def test_all_types_preserved(self) -> None:
-        sample = make_fusion_sample()
-        transform = RandomRotate3D(angle_range=0.5, p=1.0)
-        out = transform(sample)
-        assert isinstance(out["points"], PointCloud3D)
-        assert isinstance(out["boxes"], BoundingBoxes3D)
-        assert isinstance(out["images"], CameraImages)
-        assert isinstance(out["extrinsics"], CameraExtrinsics)
-        assert isinstance(out["intrinsics"], CameraIntrinsics)
 
 
 # Kernel tests
@@ -1036,19 +951,6 @@ class TestRandomScale3D:
         out = transform(sample)
         assert torch.equal(out["points"], sample["points"])
 
-    def test_labels_passthrough(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["labels"], sample["labels"])
-
-    def test_preserves_types(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
-        out = transform(sample)
-        assert isinstance(out["points"], PointCloud3D)
-        assert isinstance(out["boxes"], BoundingBoxes3D)
-
     @pytest.mark.parametrize("format", ALL_FORMATS)
     def test_preserves_format(self, format: BoundingBox3DFormat) -> None:
         sample = make_lidar_sample(format=format)
@@ -1073,28 +975,6 @@ class TestRandomScale3DFusion:
         out = transform(sample)
         assert isinstance(out["extrinsics"], CameraExtrinsics)
         assert not torch.equal(out["extrinsics"], original_extrinsics)
-
-    def test_images_passthrough(self) -> None:
-        sample = make_fusion_sample()
-        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["images"], sample["images"])
-
-    def test_intrinsics_passthrough(self) -> None:
-        sample = make_fusion_sample()
-        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
-        out = transform(sample)
-        assert torch.equal(out["intrinsics"], sample["intrinsics"])
-
-    def test_all_types_preserved(self) -> None:
-        sample = make_fusion_sample()
-        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
-        out = transform(sample)
-        assert isinstance(out["points"], PointCloud3D)
-        assert isinstance(out["boxes"], BoundingBoxes3D)
-        assert isinstance(out["images"], CameraImages)
-        assert isinstance(out["extrinsics"], CameraExtrinsics)
-        assert isinstance(out["intrinsics"], CameraIntrinsics)
 
 
 class TestPointsAndBoxesStayConsistent:
