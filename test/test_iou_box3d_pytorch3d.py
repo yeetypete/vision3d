@@ -535,14 +535,7 @@ class TestDisjoint:
 
 
 class TestAutogradWiring:
-    """End-to-end smoke test for the ``register_autograd`` wiring.
-
-    The C++ backward op currently returns zeros (analytic math lands in a
-    follow-up commit); these tests assert that the autograd machinery
-    *runs* — gradients are tracked, the backward op is dispatched, and
-    output shapes match the inputs. Numerical correctness of the
-    gradient values is verified by later gradcheck-based tests.
-    """
+    """End-to-end smoke test for the ``register_autograd`` wiring."""
 
     def test_iou_backward_runs(self, device: torch.device) -> None:
         box1 = torch.tensor(
@@ -555,7 +548,6 @@ class TestAutogradWiring:
         _, iou, _, _ = torch.ops.vision3d.iou_box3d(box1[None], box2[None])
         loss = iou.sum()
         loss.backward()
-        # Stub backward returns zeros — shape sanity is what matters here.
         assert box1.grad is not None
         assert box1.grad.shape == box1.shape
         assert box2.grad is not None
@@ -573,3 +565,88 @@ class TestAutogradWiring:
         vol.sum().backward()
         assert box1.grad is not None
         assert box2.grad is not None
+
+
+class TestAnalyticBackward:
+    """Analytic CPU backward vs. finite differences.
+
+    Tests use box parameters (chained through ``box3d_corners``) and
+    rotated boxes that avoid the coplanar-faces edge case where the
+    forward's dedup attributes the full face area to one box (which makes
+    the analytic gradient a valid one-sided subgradient but not the
+    centered FD average).
+    """
+
+    @pytest.mark.skip_device("cuda")
+    def test_grad_matches_fd_rotated_pair(self, device: torch.device) -> None:
+        from vision3d.ops._box3d_corners import box3d_corners
+        from vision3d.tensors import BoundingBox3DFormat
+
+        fmt = BoundingBox3DFormat.XYZLWHY
+
+        def iou_at(b1: Tensor, b2: Tensor) -> Tensor:
+            c1 = box3d_corners(b1, fmt).to(torch.float32)
+            c2 = box3d_corners(b2, fmt).to(torch.float32)
+            _, iou, _, _ = torch.ops.vision3d.iou_box3d(c1, c2)
+            return iou
+
+        b1 = torch.tensor(
+            [[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.3]],
+            dtype=torch.float32,
+            device=device,
+            requires_grad=True,
+        )
+        b2 = torch.tensor(
+            [[0.4, 0.2, 0.1, 1.0, 1.0, 1.0, -0.2]],
+            dtype=torch.float32,
+            device=device,
+            requires_grad=True,
+        )
+
+        iou = iou_at(b1, b2)
+        iou.sum().backward()
+        assert b1.grad is not None
+        assert b2.grad is not None
+        analytic_b1 = b1.grad.clone()
+        analytic_b2 = b2.grad.clone()
+
+        eps = 1e-2
+
+        def fd_grad(boxes: Tensor, other: Tensor, perturb_first: bool) -> Tensor:
+            g = torch.zeros_like(boxes)
+            base = boxes.detach()
+            other = other.detach()
+            for j in range(boxes.shape[1]):
+                bp = base.clone()
+                bm = base.clone()
+                bp[0, j] += eps
+                bm[0, j] -= eps
+                a, b = (bp, other) if perturb_first else (other, bp)
+                am, bm_ = (bm, other) if perturb_first else (other, bm)
+                ip = iou_at(a, b).item()
+                im = iou_at(am, bm_).item()
+                g[0, j] = (ip - im) / (2 * eps)
+            return g
+
+        fd_b1 = fd_grad(b1, b2, perturb_first=True)
+        fd_b2 = fd_grad(b2, b1, perturb_first=False)
+
+        torch.testing.assert_close(analytic_b1, fd_b1, atol=2e-3, rtol=0)
+        torch.testing.assert_close(analytic_b2, fd_b2, atol=2e-3, rtol=0)
+
+    @pytest.mark.skip_device("cuda")
+    def test_grad_zero_for_disjoint(self, device: torch.device) -> None:
+        # Boxes far apart: face_area is zero everywhere, gradients should be 0.
+        box1 = torch.tensor(
+            UNIT_BOX, dtype=torch.float32, device=device, requires_grad=True
+        )
+        box2 = (
+            torch.tensor(UNIT_BOX, dtype=torch.float32, device=device)
+            + torch.tensor([[100.0, 0.0, 0.0]], device=device)
+        ).requires_grad_(True)
+        _, iou, _, _ = torch.ops.vision3d.iou_box3d(box1[None], box2[None])
+        iou.sum().backward()
+        assert box1.grad is not None
+        assert box2.grad is not None
+        torch.testing.assert_close(box1.grad, torch.zeros_like(box1.grad))
+        torch.testing.assert_close(box2.grad, torch.zeros_like(box2.grad))

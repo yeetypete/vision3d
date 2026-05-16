@@ -17,7 +17,6 @@ from vision3d.tensors import BoundingBox3DFormat
 from ._box3d_corners import box3d_corners
 
 
-@torch.no_grad()
 def box3d_iou(
     boxes1: Tensor,
     boxes2: Tensor,
@@ -33,13 +32,17 @@ def box3d_iou(
     full 9-DOF orientation (``XYZLWHYPR``) — because the clipping step
     operates on the 8 box corners regardless of how they were produced.
 
-    Note:
-        This wrapper is currently ``@torch.no_grad()`` so that downstream
-        users see well-defined behavior while the analytic backward is
-        being landed. The underlying ``torch.ops.vision3d.iou_box3d`` op
-        already has autograd wired up (via :mod:`._box3d_iou_autograd`);
-        the backward kernel currently returns zeros until the analytic
-        math lands.
+    Differentiability:
+        The IoU is differentiable w.r.t. both inputs. Gradients are
+        analytic and propagate through ``box3d_corners`` back to the box
+        parameters. CUDA backward is not yet implemented; CUDA inputs
+        currently produce zero gradients (a follow-up).
+
+        Coplanar-face note: when a face of ``boxes1`` exactly coincides
+        with a face of ``boxes2`` (e.g., axis-aligned boxes sharing an
+        edge or face), the gradient is a valid one-sided subgradient
+        rather than the centered subdifferential average. This is a
+        measure-zero configuration in typical training scenarios.
 
     Args:
         boxes1: First set of boxes ``[N, K]``.
