@@ -3,7 +3,7 @@ import torch
 from torchvision.tv_tensors import TVTensor
 
 from vision3d.transforms.functional import register_kernel
-from vision3d.transforms.functional._utils import _get_kernel
+from vision3d.transforms.functional._registry import _get_kernel
 
 
 class TestRegisterKernel:

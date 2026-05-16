@@ -18,7 +18,7 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 from torchvision.transforms.v2 import check_type
 from torchvision.tv_tensors import TVTensor
 
-from .functional._utils import _get_kernel
+from .functional._registry import _get_kernel
 
 
 class Transform(nn.Module):

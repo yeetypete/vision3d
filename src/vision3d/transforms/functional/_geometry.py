@@ -13,7 +13,7 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 
-from ._utils import register_kernel
+from ._registry import register_kernel
 
 # Axis indices for flip
 AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
