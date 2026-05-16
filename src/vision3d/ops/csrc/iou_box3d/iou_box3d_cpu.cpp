@@ -14,9 +14,38 @@
 #include "iou_box3d/iou_utils.h"
 #include "utils/pytorch3d_cutils.h"
 
-std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
-    torch::stable::Tensor boxes1,
-    torch::stable::Tensor boxes2) {
+namespace {
+
+// Accumulate per-source-plane area and area-weighted centroid for one clipped
+// triangle. `plane_offset` is added to the source-plane label so that triangles
+// from box1 (label in [0, 6)) and box2 (label in [0, 6) + 6 = [6, 12)) write
+// into disjoint slots of the per-pair output buffer.
+inline void AccumulateTri(
+    const std::vector<vec3<float>>& tri,
+    int label,
+    int plane_offset,
+    float* face_area_row,
+    float* face_area_centroid_row) {
+  const float area = FaceArea(tri);
+  if (area <= 0.0f) {
+    return;
+  }
+  const vec3<float> centroid = (tri[0] + tri[1] + tri[2]) / 3.0f;
+  const int p = label + plane_offset;
+  face_area_row[p] += area;
+  face_area_centroid_row[p * 3 + 0] += area * centroid.x;
+  face_area_centroid_row[p * 3 + 1] += area * centroid.y;
+  face_area_centroid_row[p * 3 + 2] += area * centroid.z;
+}
+
+} // namespace
+
+std::tuple<
+    torch::stable::Tensor,
+    torch::stable::Tensor,
+    torch::stable::Tensor,
+    torch::stable::Tensor>
+IoUBox3DCpu(torch::stable::Tensor boxes1, torch::stable::Tensor boxes2) {
   CHECK_CPU(boxes1);
   CHECK_CPU(boxes2);
   boxes1 = torch::stable::contiguous(boxes1);
@@ -27,11 +56,17 @@ std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
 
   auto vols = torch::stable::new_zeros(boxes1, {N, M});
   auto ious = torch::stable::new_zeros(boxes1, {N, M});
+  // Per-input-plane state for the analytic backward. Planes 0..5 come from
+  // boxes1, planes 6..11 come from boxes2.
+  auto face_area = torch::stable::new_zeros(boxes1, {N, M, 12});
+  auto face_area_centroid = torch::stable::new_zeros(boxes1, {N, M, 12, 3});
 
   const float* boxes1_data = boxes1.const_data_ptr<float>();
   const float* boxes2_data = boxes2.const_data_ptr<float>();
   float* vols_data = vols.mutable_data_ptr<float>();
   float* ious_data = ious.mutable_data_ptr<float>();
+  float* face_area_data = face_area.mutable_data_ptr<float>();
+  float* face_area_centroid_data = face_area_centroid.mutable_data_ptr<float>();
 
   // Iterate through the N boxes in boxes1
   for (int64_t n = 0; n < N; ++n) {
@@ -69,12 +104,20 @@ std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
       //    will be broken into subtriangles such that each subtriangle is full
       //    inside the plane and part of the intersecting tetrahedron.
 
+      // Initialize per-triangle source-plane labels from _TRI_TO_PLANE.
+      std::vector<int> tri1_labels(NUM_TRIS);
+      std::vector<int> tri2_labels(NUM_TRIS);
+      for (int t = 0; t < NUM_TRIS; ++t) {
+        tri1_labels[t] = _TRI_TO_PLANE[t];
+        tri2_labels[t] = _TRI_TO_PLANE[t];
+      }
+
       // Tris in Box1 -> Planes in Box2
-      face_verts box1_intersect =
-          BoxIntersections(box1_tris, box2_planes, box2_center);
+      face_verts box1_intersect = BoxIntersectionsLabeled(
+          box1_tris, box2_planes, box2_center, tri1_labels);
       // Tris in Box2 -> Planes in Box1
-      face_verts box2_intersect =
-          BoxIntersections(box2_tris, box1_planes, box1_center);
+      face_verts box2_intersect = BoxIntersectionsLabeled(
+          box2_tris, box1_planes, box1_center, tri2_labels);
 
       // If there are overlapping regions in Box2, remove any coplanar faces
       if (box2_intersect.size() > 0) {
@@ -93,10 +136,11 @@ std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
         }
 
         // Keep only the non coplanar triangles in Box2 - add them to the
-        // Box1 triangles.
+        // Box1 triangles, preserving their labels (with the box2 offset).
         for (size_t b2 = 0; b2 < box2_intersect.size(); ++b2) {
           if (tri2_keep[b2] == 1) {
-            box1_intersect.push_back((box2_intersect[b2]));
+            box1_intersect.push_back(box2_intersect[b2]);
+            tri1_labels.push_back(tri2_labels[b2] + NUM_PLANES);
           }
         }
       }
@@ -116,13 +160,32 @@ std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
         vol = BoxVolume(box1_intersect, polyhedron_center);
         // Compute IoU
         iou = vol / (box1_vol + box2_vol - vol);
+
+        // Accumulate per-input-plane face area and area-weighted centroid.
+        // Triangles from box1's surface already carry labels in [0, 6); those
+        // from box2's surface had +NUM_PLANES added at the dedup step.
+        float* face_area_row = face_area_data + (n * M + m) * 12;
+        float* face_area_centroid_row =
+            face_area_centroid_data + (n * M + m) * 12 * 3;
+        for (size_t k = 0; k < box1_intersect.size(); ++k) {
+          AccumulateTri(
+              box1_intersect[k],
+              tri1_labels[k],
+              /*plane_offset=*/0,
+              face_area_row,
+              face_area_centroid_row);
+        }
       }
       // Save out volume and IoU
       vols_data[n * M + m] = vol;
       ious_data[n * M + m] = iou;
     }
   }
-  return std::make_tuple(std::move(vols), std::move(ious));
+  return std::make_tuple(
+      std::move(vols),
+      std::move(ious),
+      std::move(face_area),
+      std::move(face_area_centroid));
 }
 
 STABLE_TORCH_LIBRARY_IMPL(vision3d, CPU, m) {

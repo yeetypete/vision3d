@@ -56,6 +56,12 @@ const int _TRIS[12][3] = {
     {0, 4, 5},
 };
 
+// _TRI_TO_PLANE[t] = index in [0, NUM_PLANES) of the plane in _PLANES that
+// contains the t-th triangle in _TRIS. Used to label clipped output triangles
+// with their source face index — needed for the differentiable backward, which
+// accumulates per-plane face areas and centroids.
+const int _TRI_TO_PLANE[NUM_TRIS] = {0, 0, 5, 5, 4, 4, 3, 3, 1, 1, 2, 2};
+
 // Create a new data type for representing the
 // verts for each face which can be triangle or plane.
 // This helps make the code more readable.
@@ -734,6 +740,35 @@ inline face_verts BoxIntersections(
     }
     // Update the tris
     out_tris = tri_verts_updated;
+  }
+  return out_tris;
+}
+
+// Labeled variant of `BoxIntersections`: tracks each clipped triangle's
+// source-plane label as it propagates through the 6-plane clipping. The caller
+// initializes `tri_labels` to one label per input triangle (typically derived
+// from `_TRI_TO_PLANE`); on return, `tri_labels[k]` is the source-plane label
+// of `out_tris[k]`. Used by the differentiable forward to accumulate per-plane
+// face areas and centroids needed by the analytic backward.
+inline face_verts BoxIntersectionsLabeled(
+    const face_verts& tris,
+    const face_verts& planes,
+    const vec3<float>& center,
+    std::vector<int>& tri_labels) {
+  face_verts out_tris = tris;
+  for (int p = 0; p < NUM_PLANES; ++p) {
+    const vec3<float> n2 = PlaneNormalDirection(planes[p], center);
+    face_verts tri_verts_updated;
+    std::vector<int> tri_labels_updated;
+    for (size_t t = 0; t < out_tris.size(); ++t) {
+      const face_verts tri_updated = ClipTriByPlane(planes[p], out_tris[t], n2);
+      for (size_t v = 0; v < tri_updated.size(); ++v) {
+        tri_verts_updated.push_back(tri_updated[v]);
+        tri_labels_updated.push_back(tri_labels[t]);
+      }
+    }
+    out_tris = std::move(tri_verts_updated);
+    tri_labels = std::move(tri_labels_updated);
   }
   return out_tris;
 }

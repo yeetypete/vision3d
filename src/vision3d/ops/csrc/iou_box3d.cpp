@@ -5,5 +5,6 @@
 #include <torch/csrc/stable/library.h>
 
 STABLE_TORCH_LIBRARY_FRAGMENT(vision3d, m) {
-  m.def("iou_box3d(Tensor boxes1, Tensor boxes2) -> (Tensor, Tensor)");
+  m.def(
+      "iou_box3d(Tensor boxes1, Tensor boxes2) -> (Tensor, Tensor, Tensor, Tensor)");
 }

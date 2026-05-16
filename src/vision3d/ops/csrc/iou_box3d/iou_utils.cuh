@@ -81,6 +81,13 @@ __device__ FaceVertsIdx _TRIS[] = {
     {0, 4, 5},
 };
 
+// _TRI_TO_PLANE[t] = index in [0, NUM_PLANES) of the plane in _PLANES that
+// contains the t-th triangle in _TRIS. Used to label clipped output triangles
+// with their source face index — needed for the differentiable backward, which
+// accumulates per-plane face areas and centroids.
+__device__ const int _TRI_TO_PLANE[NUM_TRIS] =
+    {0, 0, 5, 5, 4, 4, 3, 3, 1, 1, 2, 2};
+
 // Args
 //    box: (8, 3) tensor accessor for the box vertices
 //    box_tris: Array of structs of type FaceVerts,
@@ -730,6 +737,47 @@ __device__ inline int BoxIntersections(
     num_tris = min(MAX_TRIS, offset);
     for (int j = 0; j < num_tris; ++j) {
       face_verts_out[j] = tri_verts_updated[j];
+    }
+  }
+  return num_tris;
+}
+
+// Labeled variant of `BoxIntersections`: tracks each clipped triangle's
+// source-plane label as it propagates through the 6-plane clipping. The caller
+// initializes `tri_labels` to one label per input triangle (typically derived
+// from `_TRI_TO_PLANE`); on return, `tri_labels[k]` is the source-plane label
+// of `face_verts_out[k]`. Used by the differentiable forward to accumulate
+// per-plane face areas and centroids needed by the analytic backward.
+template <typename FaceVertsPlane, typename FaceVertsBox>
+__device__ inline int BoxIntersectionsLabeled(
+    const FaceVertsPlane& planes,
+    const float3& center,
+    FaceVertsBox& face_verts_out,
+    int* tri_labels,
+    const int num_tris_in) {
+  int num_tris = num_tris_in;
+  for (int p = 0; p < NUM_PLANES; ++p) {
+    const float3 n2 = PlaneNormalDirection(planes[p], center);
+    FaceVerts tri_verts_updated[MAX_TRIS];
+    int tri_labels_updated[MAX_TRIS];
+    int offset = 0;
+
+    for (int t = 0; t < num_tris; ++t) {
+      FaceVerts tri_updated[2];
+      const int count =
+          ClipTriByPlane(planes[p], face_verts_out[t], n2, tri_updated);
+      for (int v = 0; v < count; ++v) {
+        if (offset < MAX_TRIS) {
+          tri_verts_updated[offset] = tri_updated[v];
+          tri_labels_updated[offset] = tri_labels[t];
+          offset++;
+        }
+      }
+    }
+    num_tris = min(MAX_TRIS, offset);
+    for (int j = 0; j < num_tris; ++j) {
+      face_verts_out[j] = tri_verts_updated[j];
+      tri_labels[j] = tri_labels_updated[j];
     }
   }
   return num_tris;

@@ -236,11 +236,17 @@ class TestBox3dIouMetaRegistration:
         with FakeTensorMode():
             fake_b1 = torch.empty(5, 8, 3)
             fake_b2 = torch.empty(7, 8, 3)
-            vol, iou = torch.ops.vision3d.iou_box3d(fake_b1, fake_b2)
+            vol, iou, face_area, face_area_centroid = torch.ops.vision3d.iou_box3d(
+                fake_b1, fake_b2
+            )
             assert vol.shape == (5, 7)
             assert iou.shape == (5, 7)
+            assert face_area.shape == (5, 7, 12)
+            assert face_area_centroid.shape == (5, 7, 12, 3)
             assert vol.dtype == torch.float32
             assert iou.dtype == torch.float32
+            assert face_area.dtype == torch.float32
+            assert face_area_centroid.dtype == torch.float32
 
     def test_fake_tensor_output_dtype_is_float32(self) -> None:
         from torch._subclasses.fake_tensor import FakeTensorMode
@@ -249,9 +255,13 @@ class TestBox3dIouMetaRegistration:
         with FakeTensorMode():
             fake_b1 = torch.empty(2, 8, 3, dtype=torch.float64)
             fake_b2 = torch.empty(3, 8, 3, dtype=torch.float64)
-            vol, iou = torch.ops.vision3d.iou_box3d(fake_b1, fake_b2)
+            vol, iou, face_area, face_area_centroid = torch.ops.vision3d.iou_box3d(
+                fake_b1, fake_b2
+            )
             assert vol.dtype == torch.float32
             assert iou.dtype == torch.float32
+            assert face_area.dtype == torch.float32
+            assert face_area_centroid.dtype == torch.float32
 
     def test_fake_tensor_rejects_wrong_shape(self) -> None:
         from torch._subclasses.fake_tensor import FakeTensorMode

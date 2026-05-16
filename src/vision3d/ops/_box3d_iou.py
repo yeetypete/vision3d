@@ -42,5 +42,5 @@ def box3d_iou(
     """
     corners1 = box3d_corners(boxes1, format).to(torch.float32)  # [N, 8, 3]
     corners2 = box3d_corners(boxes2, format).to(torch.float32)  # [M, 8, 3]
-    _, iou = torch.ops.vision3d.iou_box3d(corners1, corners2)
+    _, iou, _, _ = torch.ops.vision3d.iou_box3d(corners1, corners2)
     return iou

@@ -27,6 +27,8 @@ __global__ void IoUBox3DKernel(
     const float* __restrict__ boxes2,
     float* __restrict__ vols,
     float* __restrict__ ious,
+    float* __restrict__ face_area,
+    float* __restrict__ face_area_centroid,
     int64_t N,
     int64_t M) {
   const size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -69,20 +71,25 @@ __global__ void IoUBox3DKernel(
     // if we should store the max tris for each NxM computation
     // and throw an error if any exceeds the max.
     FaceVerts box1_intersect[MAX_TRIS];
+    int box1_labels[MAX_TRIS];
     for (int j = 0; j < NUM_TRIS; ++j) {
       // Initialize the faces from the box
       box1_intersect[j] = box1_tris[j];
+      box1_labels[j] = _TRI_TO_PLANE[j];
     }
     // Get the count of the actual number of faces in the intersecting shape
-    int box1_count = BoxIntersections(box2_planes, box2_center, box1_intersect);
+    int box1_count = BoxIntersectionsLabeled(
+        box2_planes, box2_center, box1_intersect, box1_labels, NUM_TRIS);
 
     // Tris in Box2 intersection with Planes in Box1
     FaceVerts box2_intersect[MAX_TRIS];
+    int box2_labels[MAX_TRIS];
     for (int j = 0; j < NUM_TRIS; ++j) {
       box2_intersect[j] = box2_tris[j];
+      box2_labels[j] = _TRI_TO_PLANE[j];
     }
-    const int box2_count =
-        BoxIntersections(box1_planes, box1_center, box2_intersect);
+    const int box2_count = BoxIntersectionsLabeled(
+        box1_planes, box1_center, box2_intersect, box2_labels, NUM_TRIS);
 
     // If there are overlapping regions in Box2, remove any coplanar faces
     if (box2_count > 0) {
@@ -104,10 +111,11 @@ __global__ void IoUBox3DKernel(
       }
 
       // Keep only the non coplanar triangles in Box2 - add them to the
-      // Box1 triangles.
+      // Box1 triangles, preserving their labels (with the box2 offset).
       for (int b2 = 0; b2 < box2_count; ++b2) {
-        if (tri2_keep[b2].keep) {
+        if (tri2_keep[b2].keep && box1_count < MAX_TRIS) {
           box1_intersect[box1_count] = box2_intersect[b2];
+          box1_labels[box1_count] = box2_labels[b2] + NUM_PLANES;
           // box1_count will determine the total faces in the
           // intersecting shape
           box1_count++;
@@ -130,6 +138,29 @@ __global__ void IoUBox3DKernel(
       vol = BoxVolume(box1_intersect, poly_center, box1_count);
       // Compute IoU
       iou = vol / (box1_vol + box2_vol - vol);
+
+      // Accumulate per-input-plane face area + area-weighted centroid into
+      // global memory. Labels in [0, 6) come from box1's planes; in [6, 12)
+      // from box2's planes (offset added at the dedup step above).
+      float* face_area_row = face_area + (n * M + m) * 12;
+      float* face_area_centroid_row = face_area_centroid + (n * M + m) * 12 * 3;
+      for (int k = 0; k < box1_count; ++k) {
+        const float area = FaceArea(box1_intersect[k]);
+        if (area <= 0.0f) {
+          continue;
+        }
+        const float3 v0 = box1_intersect[k].v0;
+        const float3 v1 = box1_intersect[k].v1;
+        const float3 v2 = box1_intersect[k].v2;
+        const float cx = (v0.x + v1.x + v2.x) / 3.0f;
+        const float cy = (v0.y + v1.y + v2.y) / 3.0f;
+        const float cz = (v0.z + v1.z + v2.z) / 3.0f;
+        const int p = box1_labels[k];
+        face_area_row[p] += area;
+        face_area_centroid_row[p * 3 + 0] += area * cx;
+        face_area_centroid_row[p * 3 + 1] += area * cy;
+        face_area_centroid_row[p * 3 + 2] += area * cz;
+      }
     }
 
     // Write the volume and IoU to global memory
@@ -138,7 +169,12 @@ __global__ void IoUBox3DKernel(
   }
 }
 
-std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCuda(
+std::tuple<
+    torch::stable::Tensor,
+    torch::stable::Tensor,
+    torch::stable::Tensor,
+    torch::stable::Tensor>
+IoUBox3DCuda(
     torch::stable::Tensor boxes1, // (N, 8, 3)
     torch::stable::Tensor boxes2) { // (M, 8, 3)
   // Check inputs are on the same device
@@ -165,9 +201,15 @@ std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCuda(
 
   auto vols = torch::stable::new_zeros(boxes1, {N, M});
   auto ious = torch::stable::new_zeros(boxes1, {N, M});
+  auto face_area = torch::stable::new_zeros(boxes1, {N, M, 12});
+  auto face_area_centroid = torch::stable::new_zeros(boxes1, {N, M, 12, 3});
 
   if (N == 0 || M == 0) {
-    return std::make_tuple(std::move(vols), std::move(ious));
+    return std::make_tuple(
+        std::move(vols),
+        std::move(ious),
+        std::move(face_area),
+        std::move(face_area_centroid));
   }
 
   // Set the device for the kernel launch based on the device of boxes1
@@ -187,13 +229,19 @@ std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCuda(
       boxes2.const_data_ptr<float>(),
       vols.mutable_data_ptr<float>(),
       ious.mutable_data_ptr<float>(),
+      face_area.mutable_data_ptr<float>(),
+      face_area_centroid.mutable_data_ptr<float>(),
       N,
       M);
 
   STD_TORCH_CHECK(
       cudaGetLastError() == cudaSuccess, "IoUBox3DKernel launch failed");
 
-  return std::make_tuple(std::move(vols), std::move(ious));
+  return std::make_tuple(
+      std::move(vols),
+      std::move(ious),
+      std::move(face_area),
+      std::move(face_area_centroid));
 }
 
 STABLE_TORCH_LIBRARY_IMPL(vision3d, CUDA, m) {
