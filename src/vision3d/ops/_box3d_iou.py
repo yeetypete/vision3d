@@ -35,10 +35,17 @@ def box3d_iou(
     Differentiability:
         The IoU is differentiable w.r.t. both inputs on CPU and CUDA.
         Gradients are analytic and propagate through ``box3d_corners``
-        back to the box parameters. At configurations where a face of
-        ``boxes1`` coincides with a face of ``boxes2``, the forward
-        splits the per-plane face-area attribution evenly so the
-        backward returns the centered subgradient at the kink.
+        back to the box parameters.
+
+        Polytope volume is provably only piecewise-analytic in the
+        half-space coefficients (Schneider 1994), with C0 kinks at
+        configurations where the combinatorial type of the
+        intersection changes — most commonly when a face of
+        ``boxes1`` coincides with a face of ``boxes2``. At those
+        kinks the backward returns the **centered Clarke subgradient**
+        (face-area attribution split A/2 between the coplanar pair),
+        the same guarantee :func:`torch.min`, :func:`torch.relu`, and
+        related operators provide and sufficient for SGD convergence.
 
     Args:
         boxes1: First set of boxes ``[N, K]``.
