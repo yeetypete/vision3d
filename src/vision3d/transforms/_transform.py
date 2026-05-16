@@ -15,36 +15,10 @@ from typing import Any, override
 import torch
 from torch import nn
 from torch.utils._pytree import tree_flatten, tree_unflatten
+from torchvision.transforms.v2 import check_type
 from torchvision.tv_tensors import TVTensor
 
 from .functional._utils import _get_kernel
-
-
-def check_type(inpt: Any, types: tuple[type | Callable[[Any], bool], ...]) -> bool:
-    """Return True if ``inpt`` matches any entry in ``types``.
-
-    Each entry is either a concrete type (``isinstance`` check) or a
-    callable predicate that accepts ``inpt`` and returns a bool.
-
-    Returns:
-        True if ``inpt`` matches any entry; False otherwise.
-    """
-    for cls_or_predicate in types:
-        if isinstance(cls_or_predicate, type):
-            if isinstance(inpt, cls_or_predicate):
-                return True
-        elif cls_or_predicate(inpt):
-            return True
-    return False
-
-
-def has_any(flat_inputs: list[Any], *types: type | Callable[[Any], bool]) -> bool:
-    """Return True if any element of ``flat_inputs`` matches ``types``.
-
-    Returns:
-        True if any input matches; False otherwise.
-    """
-    return any(check_type(inpt, types) for inpt in flat_inputs)
 
 
 class Transform(nn.Module):

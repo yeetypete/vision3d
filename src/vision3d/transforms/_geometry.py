@@ -4,6 +4,7 @@ import math
 from typing import Any, override
 
 import torch
+from torchvision.transforms.v2 import has_any
 
 from vision3d.tensors import (
     BoundingBoxes3D,
@@ -13,7 +14,7 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 
-from ._transform import _RandomApplyTransform, has_any
+from ._transform import _RandomApplyTransform
 from .functional._geometry import (
     _rotation_matrix,
     flip_3d,
