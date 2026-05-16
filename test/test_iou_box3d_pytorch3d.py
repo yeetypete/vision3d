@@ -649,6 +649,73 @@ class TestAnalyticBackward:
         torch.testing.assert_close(box1.grad, torch.zeros_like(box1.grad))
         torch.testing.assert_close(box2.grad, torch.zeros_like(box2.grad))
 
+    def test_grad_matches_fd_coplanar_config(self, device: torch.device) -> None:
+        """gradcheck-tight even at exactly-coplanar configurations.
+
+        Boxes share four side faces (parallel offset in z). The analytic
+        backward gives the centered subgradient (A/2 attribution per
+        side); naive dedup would give an asymmetric (A vs 0) attribution.
+
+        Yaw uses a wider FD eps (0.05) than the other parameters because
+        the forward kernel's coplanar check has a built-in angular
+        tolerance (``dEpsilon = 1e-3`` => ~2.5°): perturbations smaller
+        than this gate the same coplanar branch and the asymmetric
+        ordering of ``IsCoplanarTriTri`` makes ``iou(+e) != iou(-e)``
+        even though the smooth-limit value is symmetric. Past the gate
+        threshold, the forward becomes well-behaved.
+        """
+        from vision3d.ops._box3d_corners import box3d_corners
+        from vision3d.tensors import BoundingBox3DFormat
+
+        fmt = BoundingBox3DFormat.XYZLWHY
+
+        def iou_at(b1: Tensor, b2: Tensor) -> Tensor:
+            c1 = box3d_corners(b1, fmt).to(torch.float32)
+            c2 = box3d_corners(b2, fmt).to(torch.float32)
+            _, iou, _, _ = torch.ops.vision3d.iou_box3d(c1, c2)
+            return iou
+
+        b1 = torch.tensor(
+            [[0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0]],
+            dtype=torch.float32,
+            device=device,
+            requires_grad=True,
+        )
+        b2 = torch.tensor(
+            [[0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 0.0]],
+            dtype=torch.float32,
+            device=device,
+            requires_grad=True,
+        )
+
+        iou = iou_at(b1, b2)
+        iou.sum().backward()
+        assert b1.grad is not None
+        assert b2.grad is not None
+        analytic_b1 = b1.grad.clone()
+
+        # Per-parameter FD eps. Yaw uses a wider step to escape the
+        # forward kernel's coplanar tolerance band (see docstring).
+        eps_per_param = [1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 5e-2]
+
+        def fd_grad(boxes: Tensor, other: Tensor) -> Tensor:
+            g = torch.zeros_like(boxes)
+            base = boxes.detach()
+            other = other.detach()
+            for j in range(boxes.shape[1]):
+                eps = eps_per_param[j]
+                bp = base.clone()
+                bm = base.clone()
+                bp[0, j] += eps
+                bm[0, j] -= eps
+                ip = iou_at(bp, other).item()
+                im = iou_at(bm, other).item()
+                g[0, j] = (ip - im) / (2 * eps)
+            return g
+
+        fd_b1 = fd_grad(b1, b2)
+        torch.testing.assert_close(analytic_b1, fd_b1, atol=3e-3, rtol=0)
+
     def test_cpu_cuda_grad_parity(self) -> None:
         # CUDA backward should produce the same gradients as CPU, modulo
         # small floating-point reduction-order differences (atomicAdd).

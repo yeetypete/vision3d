@@ -78,7 +78,7 @@ __global__ void IoUBox3DKernel(
       box1_labels[j] = _TRI_TO_PLANE[j];
     }
     // Get the count of the actual number of faces in the intersecting shape
-    int box1_count = BoxIntersectionsLabeled(
+    const int box1_count = BoxIntersectionsLabeled(
         box2_planes, box2_center, box1_intersect, box1_labels, NUM_TRIS);
 
     // Tris in Box2 intersection with Planes in Box1
@@ -91,35 +91,44 @@ __global__ void IoUBox3DKernel(
     const int box2_count = BoxIntersectionsLabeled(
         box1_planes, box1_center, box2_intersect, box2_labels, NUM_TRIS);
 
-    // If there are overlapping regions in Box2, remove any coplanar faces
+    // Detect coplanar pairs and mark partner weights. A triangle without a
+    // partner stays at weight 1; a triangle paired with one (or more) in the
+    // other box gets weight 0.5. Volume math still drops coplanar box2 tris
+    // (since the same physical face would otherwise double-count); for
+    // face_area attribution, the half-and-half split gives the symmetric
+    // subgradient at exact-coplanar configurations.
+    float weight1[MAX_TRIS];
+    float weight2[MAX_TRIS];
+    for (int j = 0; j < MAX_TRIS; ++j) {
+      weight1[j] = 1.0f;
+      weight2[j] = 1.0f;
+    }
     if (box2_count > 0) {
-      // Identify if any triangles in Box2 are coplanar with Box1
-      Keep tri2_keep[MAX_TRIS];
-      for (int j = 0; j < MAX_TRIS; ++j) {
-        // Initialize the valid faces to be true
-        tri2_keep[j].keep = j < box2_count ? true : false;
-      }
       for (int b1 = 0; b1 < box1_count; ++b1) {
+        const float area = FaceArea(box1_intersect[b1]);
+        if (area <= aEpsilon) {
+          continue;
+        }
         for (int b2 = 0; b2 < box2_count; ++b2) {
-          const bool is_coplanar =
-              IsCoplanarTriTri(box1_intersect[b1], box2_intersect[b2]);
-          const float area = FaceArea(box1_intersect[b1]);
-          if ((is_coplanar) && (area > aEpsilon)) {
-            tri2_keep[b2].keep = false;
+          if (IsCoplanarTriTri(box1_intersect[b1], box2_intersect[b2])) {
+            weight1[b1] = 0.5f;
+            weight2[b2] = 0.5f;
           }
         }
       }
+    }
 
-      // Keep only the non coplanar triangles in Box2 - add them to the
-      // Box1 triangles, preserving their labels (with the box2 offset).
-      for (int b2 = 0; b2 < box2_count; ++b2) {
-        if (tri2_keep[b2].keep && box1_count < MAX_TRIS) {
-          box1_intersect[box1_count] = box2_intersect[b2];
-          box1_labels[box1_count] = box2_labels[b2] + NUM_PLANES;
-          // box1_count will determine the total faces in the
-          // intersecting shape
-          box1_count++;
-        }
+    // Build the merged-for-volume list: all box1 tris + box2 tris without a
+    // coplanar partner. Matches the previous dedup semantics for vol.
+    FaceVerts merged[MAX_TRIS];
+    int merged_count = box1_count;
+    for (int j = 0; j < box1_count; ++j) {
+      merged[j] = box1_intersect[j];
+    }
+    for (int b2 = 0; b2 < box2_count; ++b2) {
+      if (weight2[b2] == 1.0f && merged_count < MAX_TRIS) {
+        merged[merged_count] = box2_intersect[b2];
+        merged_count++;
       }
     }
 
@@ -129,19 +138,19 @@ __global__ void IoUBox3DKernel(
     float iou = 0.0;
 
     // If there are triangles in the intersecting shape
-    if (box1_count > 0) {
+    if (merged_count > 0) {
       // The intersecting shape is a polyhedron made up of the
-      // triangular faces that are all now in box1_intersect.
-      // Calculate the polyhedron center
-      const float3 poly_center = PolyhedronCenter(box1_intersect, box1_count);
+      // triangular faces in `merged`.
+      const float3 poly_center = PolyhedronCenter(merged, merged_count);
       // Compute intersecting polyhedron volume
-      vol = BoxVolume(box1_intersect, poly_center, box1_count);
+      vol = BoxVolume(merged, poly_center, merged_count);
       // Compute IoU
       iou = vol / (box1_vol + box2_vol - vol);
 
       // Accumulate per-input-plane face area + area-weighted centroid into
-      // global memory. Labels in [0, 6) come from box1's planes; in [6, 12)
-      // from box2's planes (offset added at the dedup step above).
+      // global memory. Iterate both clipped lists separately (not the merged
+      // one); box1's labels are in [0, NUM_PLANES); box2's get +NUM_PLANES
+      // applied here. Coplanar-pair triangles contribute weight 0.5.
       float* face_area_row = face_area + (n * M + m) * 12;
       float* face_area_centroid_row = face_area_centroid + (n * M + m) * 12 * 3;
       for (int k = 0; k < box1_count; ++k) {
@@ -155,11 +164,30 @@ __global__ void IoUBox3DKernel(
         const float cx = (v0.x + v1.x + v2.x) / 3.0f;
         const float cy = (v0.y + v1.y + v2.y) / 3.0f;
         const float cz = (v0.z + v1.z + v2.z) / 3.0f;
+        const float wA = weight1[k] * area;
         const int p = box1_labels[k];
-        face_area_row[p] += area;
-        face_area_centroid_row[p * 3 + 0] += area * cx;
-        face_area_centroid_row[p * 3 + 1] += area * cy;
-        face_area_centroid_row[p * 3 + 2] += area * cz;
+        face_area_row[p] += wA;
+        face_area_centroid_row[p * 3 + 0] += wA * cx;
+        face_area_centroid_row[p * 3 + 1] += wA * cy;
+        face_area_centroid_row[p * 3 + 2] += wA * cz;
+      }
+      for (int k = 0; k < box2_count; ++k) {
+        const float area = FaceArea(box2_intersect[k]);
+        if (area <= 0.0f) {
+          continue;
+        }
+        const float3 v0 = box2_intersect[k].v0;
+        const float3 v1 = box2_intersect[k].v1;
+        const float3 v2 = box2_intersect[k].v2;
+        const float cx = (v0.x + v1.x + v2.x) / 3.0f;
+        const float cy = (v0.y + v1.y + v2.y) / 3.0f;
+        const float cz = (v0.z + v1.z + v2.z) / 3.0f;
+        const float wA = weight2[k] * area;
+        const int p = box2_labels[k] + NUM_PLANES;
+        face_area_row[p] += wA;
+        face_area_centroid_row[p * 3 + 0] += wA * cx;
+        face_area_centroid_row[p * 3 + 1] += wA * cy;
+        face_area_centroid_row[p * 3 + 2] += wA * cz;
       }
     }
 

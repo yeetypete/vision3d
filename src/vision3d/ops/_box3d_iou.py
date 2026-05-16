@@ -35,13 +35,10 @@ def box3d_iou(
     Differentiability:
         The IoU is differentiable w.r.t. both inputs on CPU and CUDA.
         Gradients are analytic and propagate through ``box3d_corners``
-        back to the box parameters.
-
-        Coplanar-face note: when a face of ``boxes1`` exactly coincides
-        with a face of ``boxes2`` (e.g., axis-aligned boxes sharing an
-        edge or face), the gradient is a valid one-sided subgradient
-        rather than the centered subdifferential average. This is a
-        measure-zero configuration in typical training scenarios.
+        back to the box parameters. At configurations where a face of
+        ``boxes1`` coincides with a face of ``boxes2``, the forward
+        splits the per-plane face-area attribution evenly so the
+        backward returns the centered subgradient at the kink.
 
     Args:
         boxes1: First set of boxes ``[N, K]``.

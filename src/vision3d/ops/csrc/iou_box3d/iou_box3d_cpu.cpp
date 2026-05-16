@@ -19,11 +19,15 @@ namespace {
 // Accumulate per-source-plane area and area-weighted centroid for one clipped
 // triangle. `plane_offset` is added to the source-plane label so that triangles
 // from box1 (label in [0, 6)) and box2 (label in [0, 6) + 6 = [6, 12)) write
-// into disjoint slots of the per-pair output buffer.
+// into disjoint slots of the per-pair output buffer. `weight` is 1.0 for a
+// triangle without a coplanar partner in the other box, or 0.5 when the
+// triangle is one half of a coplanar pair — splitting the attribution
+// gives the symmetric subgradient at exact-coplanar configurations.
 inline void AccumulateTri(
     const std::vector<vec3<float>>& tri,
     int label,
     int plane_offset,
+    float weight,
     float* face_area_row,
     float* face_area_centroid_row) {
   const float area = FaceArea(tri);
@@ -32,10 +36,11 @@ inline void AccumulateTri(
   }
   const vec3<float> centroid = (tri[0] + tri[1] + tri[2]) / 3.0f;
   const int p = label + plane_offset;
-  face_area_row[p] += area;
-  face_area_centroid_row[p * 3 + 0] += area * centroid.x;
-  face_area_centroid_row[p * 3 + 1] += area * centroid.y;
-  face_area_centroid_row[p * 3 + 2] += area * centroid.z;
+  const float wA = weight * area;
+  face_area_row[p] += wA;
+  face_area_centroid_row[p * 3 + 0] += wA * centroid.x;
+  face_area_centroid_row[p * 3 + 1] += wA * centroid.y;
+  face_area_centroid_row[p * 3 + 2] += wA * centroid.z;
 }
 
 } // namespace
@@ -119,29 +124,35 @@ IoUBox3DCpu(torch::stable::Tensor boxes1, torch::stable::Tensor boxes2) {
       face_verts box2_intersect = BoxIntersectionsLabeled(
           box2_tris, box1_planes, box1_center, tri2_labels);
 
-      // If there are overlapping regions in Box2, remove any coplanar faces
+      // Detect coplanar pairs and mark partner weights. A triangle without a
+      // partner stays at weight 1; a triangle paired with one (or more) in the
+      // other box gets weight 0.5. Volume math still drops coplanar box2 tris
+      // (since the same physical face would otherwise double-count); but for
+      // face_area attribution, the half-and-half split gives the symmetric
+      // subgradient at exact-coplanar configurations.
+      std::vector<float> weight1(box1_intersect.size(), 1.0f);
+      std::vector<float> weight2(box2_intersect.size(), 1.0f);
       if (box2_intersect.size() > 0) {
-        // Identify if any triangles in Box2 are coplanar with Box1
-        std::vector<int> tri2_keep(box2_intersect.size());
-        std::fill(tri2_keep.begin(), tri2_keep.end(), 1);
         for (size_t b1 = 0; b1 < box1_intersect.size(); ++b1) {
+          const float area = FaceArea(box1_intersect[b1]);
+          if (area <= aEpsilon) {
+            continue;
+          }
           for (size_t b2 = 0; b2 < box2_intersect.size(); ++b2) {
-            const bool is_coplanar =
-                IsCoplanarTriTri(box1_intersect[b1], box2_intersect[b2]);
-            const float area = FaceArea(box1_intersect[b1]);
-            if ((is_coplanar) && (area > aEpsilon)) {
-              tri2_keep[b2] = 0;
+            if (IsCoplanarTriTri(box1_intersect[b1], box2_intersect[b2])) {
+              weight1[b1] = 0.5f;
+              weight2[b2] = 0.5f;
             }
           }
         }
+      }
 
-        // Keep only the non coplanar triangles in Box2 - add them to the
-        // Box1 triangles, preserving their labels (with the box2 offset).
-        for (size_t b2 = 0; b2 < box2_intersect.size(); ++b2) {
-          if (tri2_keep[b2] == 1) {
-            box1_intersect.push_back(box2_intersect[b2]);
-            tri1_labels.push_back(tri2_labels[b2] + NUM_PLANES);
-          }
+      // Build the merged-for-volume list: all box1 tris + box2 tris without a
+      // coplanar partner. Matches the previous dedup semantics for vol.
+      face_verts merged = box1_intersect;
+      for (size_t b2 = 0; b2 < box2_intersect.size(); ++b2) {
+        if (weight2[b2] == 1.0f) {
+          merged.push_back(box2_intersect[b2]);
         }
       }
 
@@ -151,19 +162,21 @@ IoUBox3DCpu(torch::stable::Tensor boxes1, torch::stable::Tensor boxes2) {
       float iou = 0.0;
 
       // If there are triangles in the intersecting shape
-      if (box1_intersect.size() > 0) {
+      if (merged.size() > 0) {
         // The intersecting shape is a polyhedron made up of the
-        // triangular faces that are all now in box1_intersect.
-        // Calculate the polyhedron center
-        const vec3<float> polyhedron_center = PolyhedronCenter(box1_intersect);
+        // triangular faces in `merged`.
+        const vec3<float> polyhedron_center = PolyhedronCenter(merged);
         // Compute intersecting polyhedron volume
-        vol = BoxVolume(box1_intersect, polyhedron_center);
+        vol = BoxVolume(merged, polyhedron_center);
         // Compute IoU
         iou = vol / (box1_vol + box2_vol - vol);
 
         // Accumulate per-input-plane face area and area-weighted centroid.
-        // Triangles from box1's surface already carry labels in [0, 6); those
-        // from box2's surface had +NUM_PLANES added at the dedup step.
+        // Iterate both clipped lists (not the merged one): box1's labels are
+        // in [0, NUM_PLANES); box2's labels get +NUM_PLANES applied here.
+        // Coplanar-pair triangles contribute weight 0.5 from each side, so
+        // the total face area on a shared plane is still A but split A/2
+        // between the two source planes.
         float* face_area_row = face_area_data + (n * M + m) * 12;
         float* face_area_centroid_row =
             face_area_centroid_data + (n * M + m) * 12 * 3;
@@ -172,6 +185,16 @@ IoUBox3DCpu(torch::stable::Tensor boxes1, torch::stable::Tensor boxes2) {
               box1_intersect[k],
               tri1_labels[k],
               /*plane_offset=*/0,
+              weight1[k],
+              face_area_row,
+              face_area_centroid_row);
+        }
+        for (size_t k = 0; k < box2_intersect.size(); ++k) {
+          AccumulateTri(
+              box2_intersect[k],
+              tri2_labels[k],
+              /*plane_offset=*/NUM_PLANES,
+              weight2[k],
               face_area_row,
               face_area_centroid_row);
         }
