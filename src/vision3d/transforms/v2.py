@@ -33,7 +33,7 @@ To remove a transform from the refused set (after registering the
 necessary kernels), delete the entry from :data:`_REFUSED`.
 """
 
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 import torchvision.transforms.v2 as _T
 
@@ -44,6 +44,10 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
+
+if TYPE_CHECKING:
+    # Re-export torchvision's transform classes for static type-checking.
+    from torchvision.transforms.v2 import *
 
 _3D_AWARE_TVTENSORS = (
     PointCloud3D,
