@@ -115,52 +115,67 @@ def _flip_3d_bounding_boxes_dispatch(inpt: BoundingBoxes3D, *, axis: str) -> TVT
     return wrap(output, like=inpt)
 
 
-def flip_3d_camera_images(images: Tensor) -> Tensor:
-    """Horizontally flip every camera image.
+# Which camera-frame axis to reflect for each world flip axis. The choice
+# is free under the algebra (any reflection in the camera frame produces
+# a valid factorization), but for upright cameras (image_y ≈ -world_Z) a
+# world Z-flip is most naturally a vertical pixel flip while world X/Y
+# flips are naturally horizontal — this matches what a human expects to
+# see in a Rerun side-view.
+_CAMERA_REFLECTION_AXIS: dict[str, int] = {"x": 0, "y": 0, "z": 1}
 
-    Paired with :func:`flip_3d_camera_extrinsics` and
-    :func:`flip_3d_camera_intrinsics`, this keeps the image-pixel /
-    intrinsics / extrinsics triple consistent for any world flip axis.
-    The horizontal-flip convention works regardless of camera orientation
+
+def flip_3d_camera_images(images: Tensor, *, axis: str) -> Tensor:
+    """Flip every camera image to match a world-axis flip.
+
+    ``axis="z"`` flips vertically (``dim=-2``); ``"x"`` and ``"y"`` flip
+    horizontally (``dim=-1``). Paired with :func:`flip_3d_camera_extrinsics`
+    and :func:`flip_3d_camera_intrinsics` to keep the image / intrinsics /
+    extrinsics triple consistent. The math works for any camera orientation
     because the new extrinsics absorb the world-flip-to-camera-frame
-    discrepancy.
+    discrepancy; the per-axis pixel-flip direction is purely a convention
+    chosen to match the visual intuition for upright cameras.
 
     Args:
         images: Image tensor ``[..., H, W]``.
+        axis: One of ``"x"``, ``"y"``, ``"z"``.
 
     Returns:
-        Horizontally flipped images with the same shape.
+        Flipped images with the same shape.
     """
-    return torch.flip(images, dims=[-1])
+    dim = -1 if _CAMERA_REFLECTION_AXIS[axis] == 0 else -2
+    return torch.flip(images, dims=[dim])
 
 
 @register_kernel(flip_3d, CameraImages)
 def _flip_3d_camera_images_kernel(images: Tensor, *, axis: str) -> Tensor:
-    del axis
-    return flip_3d_camera_images(images)
+    return flip_3d_camera_images(images, axis=axis)
 
 
 def flip_3d_camera_intrinsics(
-    intrinsics: Tensor, *, image_size: tuple[int, int]
+    intrinsics: Tensor, *, image_size: tuple[int, int], axis: str
 ) -> Tensor:
-    """Update camera intrinsics for a horizontal image flip.
+    """Update camera intrinsics for a horizontal or vertical image flip.
 
-    ``cx → W - cx`` and the off-diagonal skew sign flips. ``fx``, ``fy``,
-    ``cy`` are unchanged. Pairs with :func:`flip_3d_camera_images` /
-    :func:`flip_3d_camera_extrinsics` to keep projection consistent
-    regardless of which world axis was flipped.
+    For ``axis="x"`` or ``"y"`` (horizontal pixel flip): ``cx → W - cx``
+    and the off-diagonal skew sign flips. For ``axis="z"`` (vertical pixel
+    flip): ``cy → H - cy`` and the skew sign flips. Focal lengths are
+    unchanged.
 
     Args:
         intrinsics: Intrinsic matrices ``[..., 3, 3]``.
         image_size: ``(H, W)`` of the corresponding images.
+        axis: One of ``"x"``, ``"y"``, ``"z"``.
 
     Returns:
         Updated intrinsics with the same shape.
     """
-    _, width = image_size
+    height, width = image_size
     K = intrinsics.clone()
     K[..., 0, 1] = -K[..., 0, 1]
-    K[..., 0, 2] = width - K[..., 0, 2]
+    if _CAMERA_REFLECTION_AXIS[axis] == 0:
+        K[..., 0, 2] = width - K[..., 0, 2]
+    else:
+        K[..., 1, 2] = height - K[..., 1, 2]
     return K
 
 
@@ -168,9 +183,8 @@ def flip_3d_camera_intrinsics(
 def _flip_3d_camera_intrinsics_dispatch(
     inpt: CameraIntrinsics, *, axis: str
 ) -> TVTensor:
-    del axis
     output = flip_3d_camera_intrinsics(
-        inpt.as_subclass(Tensor), image_size=inpt.image_size
+        inpt.as_subclass(Tensor), image_size=inpt.image_size, axis=axis
     )
     return CameraIntrinsics._wrap(output, image_size=inpt.image_size)
 
@@ -180,12 +194,12 @@ def flip_3d_camera_extrinsics(extrinsics: Tensor, *, axis: str) -> Tensor:
 
     A world reflection ``M_world`` makes ``p_cam = E · M_world · p_lidar'``.
     The product ``E · M_world`` has determinant ``-1`` and isn't a valid
-    rotation, so we left-multiply by ``M_img = diag(-1, 1, 1, 1)`` — a
-    reflection of the camera's image_x axis — to recover a valid rotation
-    in the new extrinsics. Pairs with a horizontal pixel flip on
-    :class:`CameraImages` and ``cx → W - cx`` on :class:`CameraIntrinsics`
-    so any 3D point that originally projected to ``(u, v)`` now projects to
-    ``(W - u, v)`` after the flip.
+    rotation, so we left-multiply by a camera-frame reflection ``M_img``
+    to recover a valid rotation in the new extrinsics. The reflected
+    camera-frame axis is chosen per world axis (see
+    :data:`_CAMERA_REFLECTION_AXIS`) so the corresponding pixel flip is
+    visually intuitive for upright cameras: horizontal for world X/Y
+    flips, vertical for world Z flip.
 
     Args:
         extrinsics: Extrinsic matrices ``[..., 4, 4]``.
@@ -197,7 +211,7 @@ def flip_3d_camera_extrinsics(extrinsics: Tensor, *, axis: str) -> Tensor:
     M_world = torch.eye(4, dtype=extrinsics.dtype, device=extrinsics.device)
     M_world[AXIS_INDEX[axis], AXIS_INDEX[axis]] = -1.0
     M_img = torch.eye(4, dtype=extrinsics.dtype, device=extrinsics.device)
-    M_img[0, 0] = -1.0
+    M_img[_CAMERA_REFLECTION_AXIS[axis], _CAMERA_REFLECTION_AXIS[axis]] = -1.0
     return M_img @ extrinsics @ M_world
 
 

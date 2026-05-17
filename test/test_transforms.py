@@ -355,7 +355,9 @@ class TestRandomFlip3DFusion:
     @pytest.mark.parametrize("axis", ["x", "y", "z"])
     @pytest.mark.parametrize("seed", [0, 1, 2, 3])
     def test_projection_consistency(self, axis: str, seed: int) -> None:
-        """After flipping, every 3D point still projects to (W-u, v)."""
+        """After flipping, every 3D point still projects to the matching
+        pixel: ``(W-u, v)`` for ``x``/``y`` flips and ``(u, H-v)`` for ``z``.
+        """
         torch.manual_seed(seed)
         H, W = 64, 80
         K = torch.tensor([[120.0, 0.0, 30.0], [0.0, 110.0, 25.0], [0.0, 0.0, 1.0]])
@@ -386,24 +388,42 @@ class TestRandomFlip3DFusion:
 
         u_v_orig = _project(p_lidar, extrinsics[0], K)
         u_v_new = _project(p_lidar_flipped, out["extrinsics"][0], out["intrinsics"][0])
-        torch.testing.assert_close(u_v_new[0], W - u_v_orig[0], rtol=1e-5, atol=1e-4)
-        torch.testing.assert_close(u_v_new[1], u_v_orig[1], rtol=1e-5, atol=1e-4)
+        if axis == "z":
+            expected_u, expected_v = u_v_orig[0], H - u_v_orig[1]
+        else:
+            expected_u, expected_v = W - u_v_orig[0], u_v_orig[1]
+        torch.testing.assert_close(u_v_new[0], expected_u, rtol=1e-5, atol=1e-4)
+        torch.testing.assert_close(u_v_new[1], expected_v, rtol=1e-5, atol=1e-4)
 
-    def test_images_are_horizontally_flipped(self) -> None:
+    @pytest.mark.parametrize(("axis", "flip_dim"), [("x", -1), ("y", -1), ("z", -2)])
+    def test_images_are_flipped_on_expected_axis(
+        self, axis: str, flip_dim: int
+    ) -> None:
         sample = make_fusion_sample()
         original = sample["images"].clone()
-        out = RandomFlip3D(axis="x", p=1.0)(sample)
+        out = RandomFlip3D(axis=axis, p=1.0)(sample)
         torch.testing.assert_close(
             out["images"].as_subclass(torch.Tensor),
-            torch.flip(original.as_subclass(torch.Tensor), dims=[-1]),
+            torch.flip(original.as_subclass(torch.Tensor), dims=[flip_dim]),
         )
 
-    def test_intrinsics_cx_reflected_image_size_preserved(self) -> None:
+    def test_intrinsics_cx_reflected_for_xy_flip(self) -> None:
         sample = make_fusion_sample(image_size=(48, 60))
         original_cx = sample["intrinsics"][..., 0, 2].clone()
+        original_cy = sample["intrinsics"][..., 1, 2].clone()
         out = RandomFlip3D(axis="x", p=1.0)(sample)
         assert out["intrinsics"].image_size == (48, 60)
         torch.testing.assert_close(out["intrinsics"][..., 0, 2], 60 - original_cx)
+        torch.testing.assert_close(out["intrinsics"][..., 1, 2], original_cy)
+
+    def test_intrinsics_cy_reflected_for_z_flip(self) -> None:
+        sample = make_fusion_sample(image_size=(48, 60))
+        original_cx = sample["intrinsics"][..., 0, 2].clone()
+        original_cy = sample["intrinsics"][..., 1, 2].clone()
+        out = RandomFlip3D(axis="z", p=1.0)(sample)
+        assert out["intrinsics"].image_size == (48, 60)
+        torch.testing.assert_close(out["intrinsics"][..., 0, 2], original_cx)
+        torch.testing.assert_close(out["intrinsics"][..., 1, 2], 48 - original_cy)
 
     def test_extrinsics_remain_valid_rigid_transform(self) -> None:
         sample = make_fusion_sample()
@@ -434,13 +454,11 @@ class TestRandomFlip3DFusion:
         )
 
     @pytest.mark.parametrize("axis", ["x", "y", "z"])
-    def test_full_point_cloud_projection_mirrors_horizontally(
-        self, axis: str
-    ) -> None:
+    def test_full_point_cloud_projection_pixel_mirror(self, axis: str) -> None:
         """Project every lidar point through every camera, before and after
-        flipping. The new pixel-cloud must equal the original pixel-cloud
-        reflected across the image center (``u → W - u``, ``v`` unchanged),
-        and per-point depths must be preserved.
+        flipping. The new pixel-cloud must equal the original mirrored along
+        the per-axis convention (horizontal for ``x``/``y``, vertical for
+        ``z``), and per-point depths must be preserved.
         """
         from vision3d.ops import project_to_image
 
@@ -483,17 +501,17 @@ class TestRandomFlip3DFusion:
             torch.testing.assert_close(
                 depth_new[in_front], depth_orig[in_front], rtol=1e-5, atol=1e-4
             )
+            if axis == "z":
+                expected_u = uv_orig[in_front, 0]
+                expected_v = H - uv_orig[in_front, 1]
+            else:
+                expected_u = W - uv_orig[in_front, 0]
+                expected_v = uv_orig[in_front, 1]
             torch.testing.assert_close(
-                uv_new[in_front, 0],
-                W - uv_orig[in_front, 0],
-                rtol=1e-4,
-                atol=1e-3,
+                uv_new[in_front, 0], expected_u, rtol=1e-4, atol=1e-3
             )
             torch.testing.assert_close(
-                uv_new[in_front, 1],
-                uv_orig[in_front, 1],
-                rtol=1e-4,
-                atol=1e-3,
+                uv_new[in_front, 1], expected_v, rtol=1e-4, atol=1e-3
             )
 
 

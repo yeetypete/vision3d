@@ -23,10 +23,11 @@ class RandomFlip3D(RandomTransform):
     :class:`~vision3d.tensors.BoundingBoxes3D`,
     :class:`~vision3d.tensors.CameraImages`,
     :class:`~vision3d.tensors.CameraIntrinsics`, and
-    :class:`~vision3d.tensors.CameraExtrinsics`. Every camera image is
-    horizontally flipped and its ``cx`` reflected to ``W - cx``; the
-    extrinsics absorb the world-flip-to-camera-frame discrepancy so the
-    triple stays consistent for any world axis and any camera orientation.
+    :class:`~vision3d.tensors.CameraExtrinsics`. World X/Y flips pair with
+    a horizontal pixel flip and ``cx → W - cx``; world Z flip pairs with a
+    vertical pixel flip and ``cy → H - cy``. The extrinsics absorb the
+    world-flip-to-camera-frame discrepancy so the triple stays consistent
+    for any camera orientation.
 
     Args:
         axis: Axis to flip along. One of ``"x"``, ``"y"``, ``"z"``.
