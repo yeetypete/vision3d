@@ -120,7 +120,7 @@ class TestGetKernel:
         assert out is t
 
     def test_no_registry_raises_value_error(self) -> None:
-        # The functional has no kernels at all — torchvision-aligned
+        # The functional has no kernels at all. Torchvision-aligned
         # behaviour is to surface this as a configuration error.
         def my_functional(inpt: torch.Tensor) -> torch.Tensor:
             return inpt
