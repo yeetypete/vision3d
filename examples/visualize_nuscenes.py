@@ -57,10 +57,6 @@ def main() -> None:
         inputs, targets = ds[i]
         frames.append((inputs, targets))
 
-    # Log annotation context once
-    annotation_context = [(i, label) for label, i in label_to_id.items()]
-    rr.log("world/boxes", rr.AnnotationContext(annotation_context), static=True)
-
     # Log frames
     for i, (inputs, targets) in enumerate(frames, start=args.frame):
         rr.set_time("frame", sequence=i)

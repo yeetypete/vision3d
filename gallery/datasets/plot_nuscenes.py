@@ -34,8 +34,8 @@ print(f"classes ({len(dataset.classes)}): {dataset.classes}")
 # A single index returns a ``(inputs, targets)`` tuple where ``inputs``
 # is a :class:`~vision3d.datasets.FusionInputs` dict and ``targets``
 # is a :class:`~vision3d.datasets.SampleTargets` dict. Most values are
-# :mod:`vision3d.tensors` subclasses. They tag each tensor with its
-# own semantic type (:class:`~vision3d.tensors.PointCloud3D`,
+# semantic tensor types from :mod:`vision3d.tensors`
+# (:class:`~vision3d.tensors.PointCloud3D`,
 # :class:`~vision3d.tensors.CameraImages`,
 # :class:`~vision3d.tensors.BoundingBoxes3D`, ...) so
 # :mod:`vision3d.transforms` can dispatch to the right operation per
@@ -117,11 +117,6 @@ rr.send_blueprint(
     )
 )
 rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
-rr.log(
-    "world/boxes",
-    rr.AnnotationContext([(i, name) for name, i in dataset.class_to_idx.items()]),
-    static=True,
-)
 
 for frame_idx in range(10):
     f_inputs, f_targets = dataset[frame_idx]

@@ -30,6 +30,12 @@ from sphinx_gallery.py_source_parser import Block
 # once: at the end of the cell that first calls rr.init for that app_id.
 _embedded: set[tuple[str, str]] = set()
 
+# Whether the current gallery script has called ``rr.init``. Rerun's
+# global recording state otherwise persists across scripts in the same
+# build, which would falsely signal "this script logged to rerun" for
+# every cell after the first script's ``rr.init`` call.
+_init_called: bool = False
+
 # Capture the true ``rr.init`` once at module load and define a single
 # wrapper that always forces ``spawn=False`` to avoid spawning the rerun
 # viewer during sphinx-gallery builds. ``_reset_rerun_init`` rebinds
@@ -38,6 +44,8 @@ _original_rr_init = rr.init
 
 
 def _patched_rr_init(*args: Any, spawn: bool = False, **kwargs: Any) -> Any:
+    global _init_called
+    _init_called = True
     return _original_rr_init(*args, spawn=False, **kwargs)
 
 
@@ -62,6 +70,9 @@ def rerun_scraper(
         A ``.. rerun-embed::`` directive the first time a given
         ``(script, app_id)`` is seen, empty string otherwise.
     """
+    if not _init_called:
+        return ""
+
     app_id = rr.get_application_id()
     if not app_id:
         return ""
@@ -81,8 +92,10 @@ def rerun_scraper(
 
 
 def _reset_rerun_init(gallery_conf: GalleryConfig, fname: str | None) -> None:
-    """Rebind ``rr.init`` to the ``spawn=False`` wrapper for the next script."""
+    """Rebind ``rr.init`` and clear the per-script init flag."""
+    global _init_called
     rr.init = _patched_rr_init
+    _init_called = False
 
 
 def _get_sg_image_scraper() -> Callable[[Block, dict[str, Any], GalleryConfig], str]:
