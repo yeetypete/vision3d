@@ -3,9 +3,10 @@
 from typing import Any, override
 
 import torch
-from torch import Tensor
 
-from ._transform import ALL_VISION3D_TVTENSORS, RandomTransform, Transform
+from vision3d.tensors import PointCloud3D
+
+from ._transform import Transform, _RandomApplyTransform
 from .functional._point_cloud import (
     jitter_points,
     sample_points,
@@ -13,14 +14,14 @@ from .functional._point_cloud import (
 )
 
 
-class PointShuffle(RandomTransform):
+class PointShuffle(_RandomApplyTransform):
     """Randomly permute point order with probability ``p``.
 
     Args:
         p: Probability of applying. Default: ``0.5``.
     """
 
-    _safe_for = ALL_VISION3D_TVTENSORS
+    _transformed_types = (PointCloud3D,)
 
     @override
     def make_params(self, flat_inputs: list[Any]) -> dict[str, Any]:
@@ -29,7 +30,7 @@ class PointShuffle(RandomTransform):
         Returns:
             Dict with ``"perm"`` key.
         """
-        n = max(inpt.shape[0] for inpt in flat_inputs if isinstance(inpt, Tensor))
+        n = flat_inputs[0].shape[0]
         return {"perm": torch.randperm(n)}
 
     @override
@@ -53,7 +54,7 @@ class PointSample(Transform):
         n: Target number of points.
     """
 
-    _safe_for = ALL_VISION3D_TVTENSORS
+    _transformed_types = (PointCloud3D,)
 
     def __init__(self, n: int) -> None:
         super().__init__()
@@ -66,9 +67,7 @@ class PointSample(Transform):
         Returns:
             Dict with ``"indices"`` key.
         """
-        num_points = max(
-            inpt.shape[0] for inpt in flat_inputs if isinstance(inpt, Tensor)
-        )
+        num_points = flat_inputs[0].shape[0]
         if num_points >= self.n:
             indices = torch.randperm(num_points)[: self.n]
         else:
@@ -85,7 +84,7 @@ class PointSample(Transform):
         return self._call_kernel(sample_points, inpt, indices=params["indices"])
 
 
-class PointJitter(RandomTransform):
+class PointJitter(_RandomApplyTransform):
     """Add Gaussian noise to point xyz coordinates with probability ``p``.
 
     Args:
@@ -93,7 +92,7 @@ class PointJitter(RandomTransform):
         p: Probability of applying. Default: ``0.5``.
     """
 
-    _safe_for = ALL_VISION3D_TVTENSORS
+    _transformed_types = (PointCloud3D,)
 
     def __init__(self, sigma: float = 0.01, p: float = 0.5) -> None:
         super().__init__(p=p)
@@ -106,7 +105,7 @@ class PointJitter(RandomTransform):
         Returns:
             Dict with ``"noise"`` key containing ``[N, 3]`` tensor.
         """
-        n = max(inpt.shape[0] for inpt in flat_inputs if isinstance(inpt, Tensor))
+        n = flat_inputs[0].shape[0]
         return {"noise": torch.randn(n, 3) * self.sigma}
 
     @override

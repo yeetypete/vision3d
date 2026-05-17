@@ -13,7 +13,7 @@ from torch import Tensor
 from torchvision.tv_tensors import TVTensor
 
 # {functional: {input_type: kernel}}
-KERNEL_REGISTRY: dict[Callable[..., Any], dict[type, Callable[..., Any]]] = {}
+_KERNEL_REGISTRY: dict[Callable[..., Any], dict[type, Callable[..., Any]]] = {}
 
 
 def register_kernel(
@@ -34,7 +34,7 @@ def register_kernel(
     Returns:
         Decorator that registers the kernel.
     """
-    registry = KERNEL_REGISTRY.setdefault(functional, {})
+    registry = _KERNEL_REGISTRY.setdefault(functional, {})
 
     def decorator(kernel: Callable[..., Any]) -> Callable[..., Any]:
         if tv_tensor_cls in registry:
@@ -62,23 +62,48 @@ def register_kernel(
     return decorator
 
 
-def _get_kernel(functional: Callable[..., Any], input_type: type) -> Callable[..., Any]:
+def _get_kernel(
+    functional: Callable[..., Any],
+    input_type: type,
+    *,
+    allow_passthrough: bool = False,
+) -> Callable[..., Any]:
     """Look up the registered kernel for a functional and input type.
-
-    Falls back to passthrough for unregistered types (labels, etc.).
 
     Args:
         functional: The functional to look up.
         input_type: The type of the input.
+        allow_passthrough: If True, return an identity kernel when the
+            functional has no registered kernel for ``input_type``. If
+            False (default), raise :class:`TypeError`.
 
     Returns:
-        The kernel function, or a passthrough lambda.
+        The kernel function, or an identity lambda when
+        ``allow_passthrough`` is True and no kernel is registered for
+        ``input_type``.
+
+    Raises:
+        ValueError: If the functional has no kernels registered at all.
+        TypeError: If the functional has kernels but none for
+            ``input_type`` and ``allow_passthrough`` is False.
     """
-    registry = KERNEL_REGISTRY.get(functional, {})
+    registry = _KERNEL_REGISTRY.get(functional)
+    if not registry:
+        msg = f"No kernel registered for functional `{functional.__name__}`."
+        raise ValueError(msg)
+
     for cls in input_type.__mro__:
         if cls in registry:
             return registry[cls]
         if cls is TVTensor:
             break
-    # Passthrough for plain tensors, labels, etc.
-    return lambda inpt, *args, **kwargs: inpt
+
+    if allow_passthrough:
+        return lambda inpt, *args, **kwargs: inpt
+
+    msg = (
+        f"Functional `{functional.__name__}` supports inputs of type "
+        f"{sorted(c.__name__ for c in registry)}, but got "
+        f"`{input_type.__name__}` instead."
+    )
+    raise TypeError(msg)

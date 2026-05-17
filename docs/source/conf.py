@@ -58,6 +58,15 @@ napoleon_use_admonition_for_examples = True
 napoleon_use_admonition_for_notes = True
 napoleon_use_ivar = True
 
+# Private base classes that appear in autodoc's "Bases:" line for our
+# public transform subclasses; they aren't documented separately on
+# purpose, so suppress the unresolved cross-reference.
+nitpick_ignore = [
+    ("py:class", "vision3d.transforms._transform._RandomApplyTransform"),
+    ("py:class", "vision3d.transforms.v2._Refuse3DAwareMixin"),
+    ("py:class", "torchvision.transforms.v2._transform._RandomApplyTransform"),
+]
+
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "torch": ("https://docs.pytorch.org/docs/stable/", None),
@@ -78,6 +87,9 @@ _TORCHVISION_V2_INHERITED_REF_TARGETS = {
     "torchvision.transforms.InterpolationMode",
     "PIL Image",
     "Tensor",
+    "AutoAugmentPolicy",
+    "callable",
+    "floats",
 }
 
 

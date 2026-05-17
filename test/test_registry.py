@@ -89,25 +89,59 @@ class TestRegisterKernel:
 
 class TestGetKernel:
     def test_passthrough_for_plain_tensor(self) -> None:
+        class KnownTensor(TVTensor):
+            pass
+
         def my_functional(inpt: torch.Tensor) -> torch.Tensor:
             return inpt
 
+        register_kernel(my_functional, KnownTensor)(lambda x: x)
+
         t = torch.rand(3, 3)
-        kernel = _get_kernel(my_functional, type(t))
+        kernel = _get_kernel(my_functional, type(t), allow_passthrough=True)
         out = kernel(t, some_kwarg=True)
         assert out is t
 
     def test_passthrough_for_unregistered_tv_tensor(self) -> None:
+        class KnownTensor(TVTensor):
+            pass
+
         class UnknownTensor(TVTensor):
             pass
 
         def my_functional(inpt: torch.Tensor) -> torch.Tensor:
             return inpt
 
+        register_kernel(my_functional, KnownTensor)(lambda x: x)
+
         t = UnknownTensor(torch.rand(3, 3))
-        kernel = _get_kernel(my_functional, type(t))
+        kernel = _get_kernel(my_functional, type(t), allow_passthrough=True)
         out = kernel(t)
         assert out is t
+
+    def test_no_registry_raises_value_error(self) -> None:
+        # The functional has no kernels at all. Torchvision-aligned
+        # behaviour is to surface this as a configuration error.
+        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+            return inpt
+
+        with pytest.raises(ValueError, match="No kernel registered"):
+            _get_kernel(my_functional, TVTensor, allow_passthrough=True)
+
+    def test_unregistered_type_raises_type_error(self) -> None:
+        class KnownTensor(TVTensor):
+            pass
+
+        class UnknownTensor(TVTensor):
+            pass
+
+        def my_functional(inpt: torch.Tensor) -> torch.Tensor:
+            return inpt
+
+        register_kernel(my_functional, KnownTensor)(lambda x: x)
+
+        with pytest.raises(TypeError, match="UnknownTensor"):
+            _get_kernel(my_functional, UnknownTensor)
 
     def test_subclass_inherits_parent_kernel(self) -> None:
         class ParentTensor(TVTensor):

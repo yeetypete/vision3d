@@ -1,24 +1,99 @@
 """Tests for the safety-aware torchvision v2 mirror."""
 
+from collections.abc import Callable
+
 import pytest
 import torch
 from common_utils import make_camera_images, make_camera_intrinsics, make_fusion_sample
 from torch import nn
 from torchvision.transforms import v2 as tv_v2
+from torchvision.tv_tensors import Image
 
 from vision3d.tensors import (
-    BoundingBoxes3D,
-    CameraExtrinsics,
     CameraImages,
-    PointCloud3D,
 )
-from vision3d.transforms import GeometricConsistencyError
 from vision3d.transforms import v2 as v3d_v2
+from vision3d.transforms.v2 import _REFUSED
+
+#: Default-arg factory for every refused transform. Drives the
+#: parametrized refusal tests below.
+_REFUSED_FACTORIES: dict[str, Callable[[], nn.Module]] = {
+    "AugMix": v3d_v2.AugMix,
+    "AutoAugment": v3d_v2.AutoAugment,
+    "CutMix": lambda: v3d_v2.CutMix(num_classes=10),
+    "ElasticTransform": v3d_v2.ElasticTransform,
+    "FiveCrop": lambda: v3d_v2.FiveCrop(size=4),
+    "MixUp": lambda: v3d_v2.MixUp(num_classes=10),
+    "RandAugment": v3d_v2.RandAugment,
+    "RandomAffine": lambda: v3d_v2.RandomAffine(degrees=(-15.0, 15.0)),
+    "RandomHorizontalFlip": lambda: v3d_v2.RandomHorizontalFlip(p=1.0),
+    "RandomIoUCrop": v3d_v2.RandomIoUCrop,
+    "RandomPerspective": lambda: v3d_v2.RandomPerspective(p=1.0),
+    "RandomRotation": lambda: v3d_v2.RandomRotation(degrees=(-15.0, 15.0)),
+    "RandomVerticalFlip": lambda: v3d_v2.RandomVerticalFlip(p=1.0),
+    "TenCrop": lambda: v3d_v2.TenCrop(size=4),
+    "TrivialAugmentWide": v3d_v2.TrivialAugmentWide,
+}
 
 
-class TestImagePhotometricSafeAlongside3D:
-    """Photometric transforms touch pixels only and must accept every
-    vision3d TVTensor type in the sample."""
+class TestRefusedSetCoverage:
+    """Guards against drift between :data:`_REFUSED`, the local factory
+    table, and torchvision's public surface.
+    """
+
+    def test_factories_cover_refused_set(self) -> None:
+        missing = _REFUSED - _REFUSED_FACTORIES.keys()
+        extra = _REFUSED_FACTORIES.keys() - _REFUSED
+        assert not missing, f"Missing factory for refused transforms: {sorted(missing)}"
+        assert not extra, f"Factory for non-refused names: {sorted(extra)}"
+
+    def test_refused_names_exist_on_torchvision(self) -> None:
+        # If torchvision ever renames or removes one of these the
+        # __getattr__ forwarder would raise AttributeError lazily;
+        # surface the mismatch here instead.
+        for name in _REFUSED:
+            assert hasattr(tv_v2, name), f"torchvision.transforms.v2 lacks {name}"
+
+
+class TestRefusedAlongside3D:
+    """Every transform in ``v3d_v2._REFUSED`` must refuse a sample that
+    contains any vision3d-aware TVTensor."""
+
+    @pytest.mark.parametrize("name", sorted(_REFUSED_FACTORIES))
+    def test_raises_on_fusion(self, name: str) -> None:
+        transform = _REFUSED_FACTORIES[name]()
+        sample = make_fusion_sample()
+        with pytest.raises(TypeError, match=name):
+            transform(sample)
+
+    @pytest.mark.parametrize("name", sorted(_REFUSED_FACTORIES))
+    def test_raises_on_camera_images_alone(self, name: str) -> None:
+        # CameraImages is a vision3d-aware TVTensor; refusal must fire
+        # even when no other 3D tensors are present.
+        transform = _REFUSED_FACTORIES[name]()
+        sample = {"images": make_camera_images(num_cameras=2, height=8, width=8)}
+        with pytest.raises(TypeError, match="CameraImages"):
+            transform(sample)
+
+    def test_raises_when_only_intrinsics_present(self) -> None:
+        # Intrinsics alone is enough to make flipping unsafe.
+        sample = {
+            "images": make_camera_images(num_cameras=2, height=8, width=8),
+            "intrinsics": make_camera_intrinsics(num_cameras=2),
+        }
+        with pytest.raises(TypeError, match="CameraIntrinsics"):
+            v3d_v2.RandomHorizontalFlip(p=1.0)(sample)
+
+    def test_flip_passes_on_plain_image_only(self) -> None:
+        # Without any vision3d TVTensor, the wrapped flip behaves as
+        # torchvision's.
+        sample = {"img": Image(torch.rand(3, 8, 8))}
+        out = v3d_v2.RandomHorizontalFlip(p=1.0)(sample)
+        assert isinstance(out["img"], Image)
+
+
+class TestSafeAlongside3D:
+    """Spot-checks that the bare re-exports work on fusion samples."""
 
     def test_color_jitter_on_fusion(self) -> None:
         sample = make_fusion_sample()
@@ -33,20 +108,11 @@ class TestImagePhotometricSafeAlongside3D:
         sample["images"] = CameraImages(sample["images"].float())
         v3d_v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])(sample)
 
-
-class TestImageGeometricSafeAlongside3D:
-    """Image-geometric transforms with an existing CameraIntrinsics
-    kernel keep image+intrinsics consistent and must accept all
-    3D-aware TVTensors."""
-
     def test_resize_on_fusion_updates_intrinsics(self) -> None:
         sample = make_fusion_sample()
         out = v3d_v2.Resize(size=[16, 16])(sample)
         assert out["images"].shape[-2:] == (16, 16)
         assert out["intrinsics"].image_size == (16, 16)
-        assert isinstance(out["points"], PointCloud3D)
-        assert isinstance(out["boxes"], BoundingBoxes3D)
-        assert isinstance(out["extrinsics"], CameraExtrinsics)
 
     def test_center_crop_on_fusion(self) -> None:
         sample = make_fusion_sample()
@@ -61,63 +127,25 @@ class TestImageGeometricSafeAlongside3D:
         assert out["intrinsics"].image_size == (36, 36)
 
 
-class TestImageGeometricUnsafeAlongside3D:
-    """Flip/rotation transforms have no matching 3D update, so they must
-    refuse any 3D-aware TVTensor in the sample."""
-
-    @pytest.mark.parametrize(
-        "transform",
-        [
-            v3d_v2.RandomHorizontalFlip(p=1.0),
-            v3d_v2.RandomVerticalFlip(p=1.0),
-        ],
-    )
-    def test_raises_on_fusion(self, transform: nn.Module) -> None:
-        sample = make_fusion_sample()
-        with pytest.raises(GeometricConsistencyError):
-            transform(sample)
-
-    def test_raises_when_only_intrinsics_present(self) -> None:
-        # Intrinsics alone are enough to make the flip unsafe because
-        # cx wouldn't be updated.
-        sample = {
-            "images": make_camera_images(num_cameras=2, height=8, width=8),
-            "intrinsics": make_camera_intrinsics(num_cameras=2),
-        }
-        with pytest.raises(GeometricConsistencyError, match="CameraIntrinsics"):
-            v3d_v2.RandomHorizontalFlip(p=1.0)(sample)
-
-    def test_passes_on_plain_image_only(self) -> None:
-        # No 3D-aware types in the sample, so flipping is acceptable.
-        from torchvision.tv_tensors import Image
-
-        sample = {"img": Image(torch.rand(3, 8, 8))}
-        out = v3d_v2.RandomHorizontalFlip(p=1.0)(sample)
-        assert isinstance(out["img"], Image)
-
-    @pytest.mark.parametrize(
-        "transform",
-        [
-            v3d_v2.RandomHorizontalFlip(p=1.0),
-            v3d_v2.RandomVerticalFlip(p=1.0),
-        ],
-    )
-    def test_refuses_camera_images_alone(self, transform: nn.Module) -> None:
-        # `_safe_for` is matched by exact type, not subclass, so a
-        # subclass of a listed type is still treated as unsafe.
-        sample = {"images": make_camera_images(num_cameras=2, height=8, width=8)}
-        with pytest.raises(GeometricConsistencyError, match="CameraImages"):
-            transform(sample)
-
-
 class TestBehaviourMatchesTorchvision:
-    """Wrapped transforms must produce the same output as their
-    torchvision counterpart on a sample they both accept."""
+    """Bare re-exports must be the same object as torchvision's; wrapped
+    transforms must remain a subclass of the torchvision original so
+    framework features (``isinstance``, pickling, ``torch.compile``)
+    keep working."""
+
+    @pytest.mark.parametrize(
+        "name",
+        ["ColorJitter", "GaussianBlur", "Normalize", "Resize", "CenterCrop", "Pad"],
+    )
+    def test_safe_reexport_is_identity(self, name: str) -> None:
+        assert getattr(v3d_v2, name) is getattr(tv_v2, name)
+
+    @pytest.mark.parametrize("name", sorted(_REFUSED))
+    def test_wrapped_subclasses_torchvision_original(self, name: str) -> None:
+        assert issubclass(getattr(v3d_v2, name), getattr(tv_v2, name))
 
     @staticmethod
     def _image_only_sample() -> tuple[CameraImages, CameraImages]:
-        # Same underlying tensor, two CameraImages wrappers, so both
-        # branches transform identical input.
         data = torch.rand(2, 3, 16, 16)
         return CameraImages(data.clone()), CameraImages(data.clone())
 
@@ -134,13 +162,6 @@ class TestBehaviourMatchesTorchvision:
         out_a = v3d_v2.Resize(size=[8, 8])({"img": img_a})["img"]
         out_b = tv_v2.Resize(size=[8, 8])({"img": img_b})["img"]
         torch.testing.assert_close(out_a, out_b)
-
-    def test_subclass_relationship(self) -> None:
-        # The wrapped class must remain a subclass of the torchvision
-        # original, so framework features (e.g. isinstance checks in
-        # downstream code, torch.compile, serialisation) keep working.
-        assert issubclass(v3d_v2.ColorJitter, tv_v2.ColorJitter)
-        assert issubclass(v3d_v2.RandomHorizontalFlip, tv_v2.RandomHorizontalFlip)
 
 
 class TestComposeInterop:
@@ -163,5 +184,5 @@ class TestComposeInterop:
                 v3d_v2.RandomHorizontalFlip(p=1.0),
             ]
         )
-        with pytest.raises(GeometricConsistencyError):
+        with pytest.raises(TypeError):
             chain(sample)

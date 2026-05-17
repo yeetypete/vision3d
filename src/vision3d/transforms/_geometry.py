@@ -4,10 +4,17 @@ import math
 from typing import Any, override
 
 import torch
+from torchvision.transforms.v2 import has_any
 
-from vision3d.tensors import BoundingBoxes3D, PointCloud3D
+from vision3d.tensors import (
+    BoundingBoxes3D,
+    CameraExtrinsics,
+    CameraImages,
+    CameraIntrinsics,
+    PointCloud3D,
+)
 
-from ._transform import ALL_VISION3D_TVTENSORS, RandomTransform
+from ._transform import _RandomApplyTransform
 from .functional._geometry import (
     _rotation_matrix,
     flip_3d,
@@ -17,22 +24,21 @@ from .functional._geometry import (
 )
 
 
-class RandomFlip3D(RandomTransform):
+class RandomFlip3D(_RandomApplyTransform):
     """Flip inputs along a 3D axis with probability ``p``.
 
-    Dispatches to type-specific kernels for
-    :class:`~vision3d.tensors.BoundingBoxes3D` and
-    :class:`~vision3d.tensors.PointCloud3D`. Other TVTensor inputs (e.g.
-    camera images, extrinsics, intrinsics) are rejected: flipping the 3D
-    scene without coordinated changes to the camera side would break
-    geometric consistency.
+    Operates on :class:`~vision3d.tensors.PointCloud3D` and
+    :class:`~vision3d.tensors.BoundingBoxes3D`. Camera inputs (images,
+    extrinsics, intrinsics) are rejected: flipping the 3D scene without
+    coordinated changes to the camera side would break geometric
+    consistency.
 
     Args:
         axis: Axis to flip along. One of ``"x"``, ``"y"``, ``"z"``.
         p: Probability of applying the flip. Default: ``0.5``.
     """
 
-    _safe_for = frozenset({PointCloud3D, BoundingBoxes3D})
+    _transformed_types = (PointCloud3D, BoundingBoxes3D)
 
     def __init__(self, axis: str = "x", p: float = 0.5) -> None:
         super().__init__(p=p)
@@ -40,6 +46,21 @@ class RandomFlip3D(RandomTransform):
             msg = f"axis must be 'x', 'y', or 'z', got '{axis}'"
             raise ValueError(msg)
         self.axis = axis
+
+    @override
+    def check_inputs(self, flat_inputs: list[Any]) -> None:
+        """Reject camera inputs.
+
+        Raises:
+            TypeError: If any camera tensor is present.
+        """
+        if has_any(flat_inputs, CameraImages, CameraExtrinsics, CameraIntrinsics):
+            msg = (
+                f"{type(self).__name__} cannot operate on samples that contain "
+                f"camera tensors: flipping the 3D scene without coordinated "
+                f"changes to the cameras would break geometric consistency."
+            )
+            raise TypeError(msg)
 
     @override
     def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
@@ -51,11 +72,10 @@ class RandomFlip3D(RandomTransform):
         return self._call_kernel(flip_3d, inpt, axis=self.axis)
 
 
-class RandomTranslate3D(RandomTransform):
+class RandomTranslate3D(_RandomApplyTransform):
     """Translate inputs by a random 3D offset with probability ``p``.
 
-    Dispatches to type-specific kernels for
-    :class:`~vision3d.tensors.PointCloud3D`,
+    Operates on :class:`~vision3d.tensors.PointCloud3D`,
     :class:`~vision3d.tensors.BoundingBoxes3D`, and
     :class:`~vision3d.tensors.CameraExtrinsics`.
 
@@ -66,7 +86,7 @@ class RandomTranslate3D(RandomTransform):
         p: Probability of applying the translation. Default: ``0.5``.
     """
 
-    _safe_for = ALL_VISION3D_TVTENSORS
+    _transformed_types = (PointCloud3D, BoundingBoxes3D, CameraExtrinsics)
 
     def __init__(
         self,
@@ -109,11 +129,10 @@ class RandomTranslate3D(RandomTransform):
         return self._call_kernel(translate_3d, inpt, offset=params["offset"])
 
 
-class RandomRotate3D(RandomTransform):
+class RandomRotate3D(_RandomApplyTransform):
     """Rotate inputs around an axis by a random angle with probability ``p``.
 
-    Dispatches to type-specific kernels for
-    :class:`~vision3d.tensors.PointCloud3D`,
+    Operates on :class:`~vision3d.tensors.PointCloud3D`,
     :class:`~vision3d.tensors.BoundingBoxes3D`, and
     :class:`~vision3d.tensors.CameraExtrinsics`.
 
@@ -124,7 +143,7 @@ class RandomRotate3D(RandomTransform):
         p: Probability of applying the rotation. Default: ``0.5``.
     """
 
-    _safe_for = ALL_VISION3D_TVTENSORS
+    _transformed_types = (PointCloud3D, BoundingBoxes3D, CameraExtrinsics)
 
     def __init__(
         self,
@@ -159,11 +178,10 @@ class RandomRotate3D(RandomTransform):
         )
 
 
-class RandomScale3D(RandomTransform):
+class RandomScale3D(_RandomApplyTransform):
     """Scale inputs by a random uniform factor with probability ``p``.
 
-    Dispatches to type-specific kernels for
-    :class:`~vision3d.tensors.PointCloud3D`,
+    Operates on :class:`~vision3d.tensors.PointCloud3D`,
     :class:`~vision3d.tensors.BoundingBoxes3D`, and
     :class:`~vision3d.tensors.CameraExtrinsics`.
 
@@ -173,7 +191,7 @@ class RandomScale3D(RandomTransform):
         p: Probability of applying the scaling. Default: ``0.5``.
     """
 
-    _safe_for = ALL_VISION3D_TVTENSORS
+    _transformed_types = (PointCloud3D, BoundingBoxes3D, CameraExtrinsics)
 
     def __init__(
         self,
