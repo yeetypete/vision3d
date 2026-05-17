@@ -10,6 +10,8 @@ from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
     CameraExtrinsics,
+    CameraImages,
+    CameraIntrinsics,
     PointCloud3D,
 )
 
@@ -111,6 +113,97 @@ def _flip_3d_bounding_boxes_dispatch(inpt: BoundingBoxes3D, *, axis: str) -> TVT
         inpt.as_subclass(Tensor), format=inpt.format, axis=axis
     )
     return wrap(output, like=inpt)
+
+
+def flip_3d_camera_images(images: Tensor) -> Tensor:
+    """Horizontally flip every camera image.
+
+    Paired with :func:`flip_3d_camera_extrinsics` and
+    :func:`flip_3d_camera_intrinsics`, this keeps the image-pixel /
+    intrinsics / extrinsics triple consistent for any world flip axis.
+    The horizontal-flip convention works regardless of camera orientation
+    because the new extrinsics absorb the world-flip-to-camera-frame
+    discrepancy.
+
+    Args:
+        images: Image tensor ``[..., H, W]``.
+
+    Returns:
+        Horizontally flipped images with the same shape.
+    """
+    return torch.flip(images, dims=[-1])
+
+
+@register_kernel(flip_3d, CameraImages)
+def _flip_3d_camera_images_kernel(images: Tensor, *, axis: str) -> Tensor:
+    del axis
+    return flip_3d_camera_images(images)
+
+
+def flip_3d_camera_intrinsics(
+    intrinsics: Tensor, *, image_size: tuple[int, int]
+) -> Tensor:
+    """Update camera intrinsics for a horizontal image flip.
+
+    ``cx → W - cx`` and the off-diagonal skew sign flips. ``fx``, ``fy``,
+    ``cy`` are unchanged. Pairs with :func:`flip_3d_camera_images` /
+    :func:`flip_3d_camera_extrinsics` to keep projection consistent
+    regardless of which world axis was flipped.
+
+    Args:
+        intrinsics: Intrinsic matrices ``[..., 3, 3]``.
+        image_size: ``(H, W)`` of the corresponding images.
+
+    Returns:
+        Updated intrinsics with the same shape.
+    """
+    _, width = image_size
+    K = intrinsics.clone()
+    K[..., 0, 1] = -K[..., 0, 1]
+    K[..., 0, 2] = width - K[..., 0, 2]
+    return K
+
+
+@register_kernel(flip_3d, CameraIntrinsics, tv_tensor_wrapper=False)
+def _flip_3d_camera_intrinsics_dispatch(
+    inpt: CameraIntrinsics, *, axis: str
+) -> TVTensor:
+    del axis
+    output = flip_3d_camera_intrinsics(
+        inpt.as_subclass(Tensor), image_size=inpt.image_size
+    )
+    return CameraIntrinsics._wrap(output, image_size=inpt.image_size)
+
+
+def flip_3d_camera_extrinsics(extrinsics: Tensor, *, axis: str) -> Tensor:
+    """Update camera extrinsics after flipping the lidar frame.
+
+    A world reflection ``M_world`` makes ``p_cam = E · M_world · p_lidar'``.
+    The product ``E · M_world`` has determinant ``-1`` and isn't a valid
+    rotation, so we left-multiply by ``M_img = diag(-1, 1, 1, 1)`` — a
+    reflection of the camera's image_x axis — to recover a valid rotation
+    in the new extrinsics. Pairs with a horizontal pixel flip on
+    :class:`CameraImages` and ``cx → W - cx`` on :class:`CameraIntrinsics`
+    so any 3D point that originally projected to ``(u, v)`` now projects to
+    ``(W - u, v)`` after the flip.
+
+    Args:
+        extrinsics: Extrinsic matrices ``[..., 4, 4]``.
+        axis: One of ``"x"``, ``"y"``, ``"z"``.
+
+    Returns:
+        Updated extrinsics with the same shape.
+    """
+    M_world = torch.eye(4, dtype=extrinsics.dtype, device=extrinsics.device)
+    M_world[AXIS_INDEX[axis], AXIS_INDEX[axis]] = -1.0
+    M_img = torch.eye(4, dtype=extrinsics.dtype, device=extrinsics.device)
+    M_img[0, 0] = -1.0
+    return M_img @ extrinsics @ M_world
+
+
+@register_kernel(flip_3d, CameraExtrinsics)
+def _flip_3d_camera_extrinsics_kernel(extrinsics: Tensor, *, axis: str) -> Tensor:
+    return flip_3d_camera_extrinsics(extrinsics, axis=axis)
 
 
 def translate_3d(inpt: Tensor, *, offset: Tensor) -> Tensor:

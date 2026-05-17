@@ -3,6 +3,9 @@
 from ._geometry import (
     flip_3d,
     flip_3d_bounding_boxes,
+    flip_3d_camera_extrinsics,
+    flip_3d_camera_images,
+    flip_3d_camera_intrinsics,
     flip_3d_point_cloud,
     rotate_3d,
     rotate_3d_bounding_boxes,
@@ -30,6 +33,9 @@ from ._registry import register_kernel
 __all__ = [
     "flip_3d",
     "flip_3d_bounding_boxes",
+    "flip_3d_camera_extrinsics",
+    "flip_3d_camera_images",
+    "flip_3d_camera_intrinsics",
     "flip_3d_point_cloud",
     "jitter_points",
     "jitter_points_point_cloud",

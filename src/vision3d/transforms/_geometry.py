@@ -5,8 +5,6 @@ from typing import Any, override
 
 import torch
 
-from vision3d.tensors import BoundingBoxes3D, PointCloud3D
-
 from ._transform import ALL_VISION3D_TVTENSORS, RandomTransform
 from .functional._geometry import (
     _rotation_matrix,
@@ -21,18 +19,21 @@ class RandomFlip3D(RandomTransform):
     """Flip inputs along a 3D axis with probability ``p``.
 
     Dispatches to type-specific kernels for
-    :class:`~vision3d.tensors.BoundingBoxes3D` and
-    :class:`~vision3d.tensors.PointCloud3D`. Other TVTensor inputs (e.g.
-    camera images, extrinsics, intrinsics) are rejected: flipping the 3D
-    scene without coordinated changes to the camera side would break
-    geometric consistency.
+    :class:`~vision3d.tensors.PointCloud3D`,
+    :class:`~vision3d.tensors.BoundingBoxes3D`,
+    :class:`~vision3d.tensors.CameraImages`,
+    :class:`~vision3d.tensors.CameraIntrinsics`, and
+    :class:`~vision3d.tensors.CameraExtrinsics`. Every camera image is
+    horizontally flipped and its ``cx`` reflected to ``W - cx``; the
+    extrinsics absorb the world-flip-to-camera-frame discrepancy so the
+    triple stays consistent for any world axis and any camera orientation.
 
     Args:
         axis: Axis to flip along. One of ``"x"``, ``"y"``, ``"z"``.
         p: Probability of applying the flip. Default: ``0.5``.
     """
 
-    _safe_for = frozenset({PointCloud3D, BoundingBoxes3D})
+    _safe_for = ALL_VISION3D_TVTENSORS
 
     def __init__(self, axis: str = "x", p: float = 0.5) -> None:
         super().__init__(p=p)

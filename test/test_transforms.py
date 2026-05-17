@@ -319,25 +319,182 @@ class TestRandomFlip3D:
             RandomFlip3D(axis="w")
 
 
-class TestRandomFlip3DFusion:
-    @pytest.mark.parametrize("key", ["images", "extrinsics", "intrinsics"])
-    def test_raises_on_camera_types(self, key: str) -> None:
-        sample = {
-            "points": make_point_cloud_3d(num_points=20),
-            "boxes": make_bounding_boxes_3d(
-                format=BoundingBox3DFormat.XYZLWHYPR, num_boxes=3
-            ),
-            key: make_fusion_sample()[key],
-        }
-        transform = RandomFlip3D(axis="x", p=1.0)
-        with pytest.raises(GeometricConsistencyError, match="RandomFlip3D"):
-            transform(sample)
+def _random_extrinsics() -> CameraExtrinsics:
+    """Build a non-trivial 1-camera extrinsics with a random rotation.
 
-    def test_raises_even_when_skipped_by_probability(self) -> None:
+    Returns:
+        ``CameraExtrinsics`` of shape ``[1, 4, 4]``.
+    """
+    angles = torch.rand(3) * math.pi
+    cx, sx = math.cos(angles[0].item()), math.sin(angles[0].item())
+    cy, sy = math.cos(angles[1].item()), math.sin(angles[1].item())
+    cz, sz = math.cos(angles[2].item()), math.sin(angles[2].item())
+    Rx = torch.tensor([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
+    Ry = torch.tensor([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+    Rz = torch.tensor([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
+    R = Rz @ Ry @ Rx
+    t = (torch.rand(3) - 0.5) * 4.0
+    E = torch.eye(4)
+    E[:3, :3] = R
+    E[:3, 3] = t
+    return CameraExtrinsics(E.unsqueeze(0))
+
+
+def _project(p_lidar: torch.Tensor, E: torch.Tensor, K: torch.Tensor) -> torch.Tensor:
+    """Project a 3D lidar point through ``E`` and ``K`` to pixel coords.
+
+    Returns:
+        ``[2]`` pixel coordinates ``(u, v)``.
+    """
+    p_cam = (E @ torch.cat([p_lidar, torch.ones(1, device=p_lidar.device)]))[:3]
+    p_img = K @ p_cam
+    return p_img[:2] / p_img[2]
+
+
+class TestRandomFlip3DFusion:
+    @pytest.mark.parametrize("axis", ["x", "y", "z"])
+    @pytest.mark.parametrize("seed", [0, 1, 2, 3])
+    def test_projection_consistency(self, axis: str, seed: int) -> None:
+        """After flipping, every 3D point still projects to (W-u, v)."""
+        torch.manual_seed(seed)
+        H, W = 64, 80
+        K = torch.tensor([[120.0, 0.0, 30.0], [0.0, 110.0, 25.0], [0.0, 0.0, 1.0]])
+        intrinsics = CameraIntrinsics(K.unsqueeze(0), image_size=(H, W))
+        extrinsics = _random_extrinsics()
+
+        # Sample a point that lies safely in front of the camera so the
+        # projection is well-conditioned for both original and flipped.
+        axis_idx = {"x": 0, "y": 1, "z": 2}[axis]
+        for _ in range(50):
+            p_lidar = (torch.rand(3) - 0.5) * 6.0
+            p_lidar_flipped = p_lidar.clone()
+            p_lidar_flipped[axis_idx] *= -1
+            depth_orig = (
+                extrinsics[0] @ torch.cat([p_lidar, torch.ones(1, device=p_lidar.device)])
+            )[2]
+            if depth_orig.item() > 0.5:
+                break
+        else:
+            pytest.skip("no point sampled in front of the camera")
+
+        sample = {
+            "points": make_point_cloud_3d(num_points=10),
+            "extrinsics": extrinsics,
+            "intrinsics": intrinsics,
+        }
+        out = RandomFlip3D(axis=axis, p=1.0)(sample)
+
+        u_v_orig = _project(p_lidar, extrinsics[0], K)
+        u_v_new = _project(p_lidar_flipped, out["extrinsics"][0], out["intrinsics"][0])
+        torch.testing.assert_close(u_v_new[0], W - u_v_orig[0], rtol=1e-5, atol=1e-4)
+        torch.testing.assert_close(u_v_new[1], u_v_orig[1], rtol=1e-5, atol=1e-4)
+
+    def test_images_are_horizontally_flipped(self) -> None:
         sample = make_fusion_sample()
-        transform = RandomFlip3D(axis="x", p=0.0)
-        with pytest.raises(GeometricConsistencyError, match="RandomFlip3D"):
-            transform(sample)
+        original = sample["images"].clone()
+        out = RandomFlip3D(axis="x", p=1.0)(sample)
+        torch.testing.assert_close(
+            out["images"].as_subclass(torch.Tensor),
+            torch.flip(original.as_subclass(torch.Tensor), dims=[-1]),
+        )
+
+    def test_intrinsics_cx_reflected_image_size_preserved(self) -> None:
+        sample = make_fusion_sample(image_size=(48, 60))
+        original_cx = sample["intrinsics"][..., 0, 2].clone()
+        out = RandomFlip3D(axis="x", p=1.0)(sample)
+        assert out["intrinsics"].image_size == (48, 60)
+        torch.testing.assert_close(out["intrinsics"][..., 0, 2], 60 - original_cx)
+
+    def test_extrinsics_remain_valid_rigid_transform(self) -> None:
+        sample = make_fusion_sample()
+        out = RandomFlip3D(axis="y", p=1.0)(sample)
+        R = out["extrinsics"][..., :3, :3].as_subclass(torch.Tensor)
+        eye = torch.eye(3).expand_as(R)
+        torch.testing.assert_close(R @ R.transpose(-1, -2), eye, rtol=1e-5, atol=1e-5)
+        det = torch.linalg.det(R)
+        torch.testing.assert_close(det, torch.ones_like(det), rtol=1e-5, atol=1e-5)
+
+    def test_types_preserved_for_fusion_sample(self) -> None:
+        sample = make_fusion_sample()
+        out = RandomFlip3D(axis="x", p=1.0)(sample)
+        assert isinstance(out["points"], PointCloud3D)
+        assert isinstance(out["boxes"], BoundingBoxes3D)
+        assert isinstance(out["images"], CameraImages)
+        assert isinstance(out["extrinsics"], CameraExtrinsics)
+        assert isinstance(out["intrinsics"], CameraIntrinsics)
+
+    def test_double_flip_is_identity_on_images(self) -> None:
+        sample = make_fusion_sample()
+        original_images = sample["images"].clone()
+        flip = RandomFlip3D(axis="x", p=1.0)
+        out = flip(flip(sample))
+        torch.testing.assert_close(
+            out["images"].as_subclass(torch.Tensor),
+            original_images.as_subclass(torch.Tensor),
+        )
+
+    @pytest.mark.parametrize("axis", ["x", "y", "z"])
+    def test_full_point_cloud_projection_mirrors_horizontally(
+        self, axis: str
+    ) -> None:
+        """Project every lidar point through every camera, before and after
+        flipping. The new pixel-cloud must equal the original pixel-cloud
+        reflected across the image center (``u → W - u``, ``v`` unchanged),
+        and per-point depths must be preserved.
+        """
+        from vision3d.ops import project_to_image
+
+        torch.manual_seed(0)
+        num_cameras = 4
+        H, W = 48, 64
+
+        # Build a fusion sample whose cameras have non-trivial rotations,
+        # so we exercise the general (non-axis-aligned) case.
+        sample = make_fusion_sample(
+            num_cameras=num_cameras, image_size=(H, W), num_points=200
+        )
+        ext = torch.eye(4).expand(num_cameras, -1, -1).clone()
+        for c in range(num_cameras):
+            ext[c, :3, :3] = _random_extrinsics()[0, :3, :3]
+            ext[c, :3, 3] = (torch.rand(3) - 0.5) * 4.0
+        sample["extrinsics"] = CameraExtrinsics(ext)
+
+        original_points = sample["points"].as_subclass(torch.Tensor)[:, :3].clone()
+        original_ext = sample["extrinsics"].as_subclass(torch.Tensor).clone()
+        original_intr = sample["intrinsics"].as_subclass(torch.Tensor).clone()
+
+        out = RandomFlip3D(axis=axis, p=1.0)(sample)
+
+        new_points = out["points"].as_subclass(torch.Tensor)[:, :3]
+        new_ext = out["extrinsics"].as_subclass(torch.Tensor)
+        new_intr = out["intrinsics"].as_subclass(torch.Tensor)
+
+        for c in range(num_cameras):
+            uv_orig, depth_orig = project_to_image(
+                original_points, original_ext[c], original_intr[c]
+            )
+            uv_new, depth_new = project_to_image(
+                new_points, new_ext[c], new_intr[c]
+            )
+
+            in_front = (depth_orig > 0) & (depth_new > 0)
+            assert in_front.any(), f"camera {c}: no points in front of camera"
+
+            torch.testing.assert_close(
+                depth_new[in_front], depth_orig[in_front], rtol=1e-5, atol=1e-4
+            )
+            torch.testing.assert_close(
+                uv_new[in_front, 0],
+                W - uv_orig[in_front, 0],
+                rtol=1e-4,
+                atol=1e-3,
+            )
+            torch.testing.assert_close(
+                uv_new[in_front, 1],
+                uv_orig[in_front, 1],
+                rtol=1e-4,
+                atol=1e-3,
+            )
 
 
 # Reference implementations

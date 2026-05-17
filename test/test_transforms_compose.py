@@ -77,12 +77,13 @@ def _make_sample() -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def _pipeline() -> list[Any]:
-    """A representative 3-transform scene pipeline.
+    """A representative 4-transform scene pipeline.
 
     Returns:
-        Rotate + scale + translate, deterministic with ``p=1``.
+        Flip + rotate + scale + translate, deterministic with ``p=1``.
     """
     return [
+        RandomFlip3D(axis="x", p=1.0),
         RandomRotate3D(angle_range=math.pi / 8, p=1.0),
         RandomScale3D(scale_range=(0.9, 1.1), p=1.0),
         RandomTranslate3D(translation_range=1.0, p=1.0),
@@ -185,6 +186,7 @@ class TestModalityCompose:
 
         compose = v2.Compose(
             [
+                RandomFlip3D(axis="x", p=1.0),
                 RandomRotate3D(angle_range=math.pi / 8, p=1.0),
                 v2.Resize(size=[8, 12]),
                 v2.CenterCrop(size=[6, 10]),
@@ -209,6 +211,7 @@ class TestModalityCompose:
 
         compose = v2.Compose(
             [
+                RandomFlip3D(axis="x", p=1.0),
                 RandomRotate3D(angle_range=math.pi / 8, p=1.0),
                 RandomScale3D(scale_range=(0.9, 1.1), p=1.0),
                 RandomTranslate3D(translation_range=1.0, p=1.0),

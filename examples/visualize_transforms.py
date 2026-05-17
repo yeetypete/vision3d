@@ -100,6 +100,8 @@ def main() -> None:
 
     transforms: list[tuple[str, str, _Pipeline]] = [
         ("original", "Original", lambda i, t: (i, t)),
+        ("flip_x", "RandomFlip3D(axis='x')", RandomFlip3D(axis="x", p=1.0)),
+        ("flip_y", "RandomFlip3D(axis='y')", RandomFlip3D(axis="y", p=1.0)),
         ("flip_z", "RandomFlip3D(axis='z')", RandomFlip3D(axis="z", p=1.0)),
         (
             "translate",
