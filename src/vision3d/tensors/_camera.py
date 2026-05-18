@@ -280,3 +280,47 @@ def _resized_crop_intrinsics(
 ) -> CameraIntrinsics:
     cropped = _crop_intrinsics(inpt, top=top, left=left, height=height, width=width)
     return _resize_intrinsics(cropped, size=size)
+
+
+@_register_kernel(_F.horizontal_flip, CameraIntrinsics)
+def _horizontal_flip_intrinsics(inpt: CameraIntrinsics) -> CameraIntrinsics:
+    _, w = inpt.image_size
+    K = inpt.as_subclass(Tensor).clone()
+    K[..., 0, 1] = -K[..., 0, 1]
+    K[..., 0, 2] = w - K[..., 0, 2]
+    return CameraIntrinsics._wrap(K, image_size=inpt.image_size)
+
+
+@_register_kernel(_F.vertical_flip, CameraIntrinsics)
+def _vertical_flip_intrinsics(inpt: CameraIntrinsics) -> CameraIntrinsics:
+    h, _ = inpt.image_size
+    K = inpt.as_subclass(Tensor).clone()
+    K[..., 0, 1] = -K[..., 0, 1]
+    K[..., 1, 2] = h - K[..., 1, 2]
+    return CameraIntrinsics._wrap(K, image_size=inpt.image_size)
+
+
+def _flip_extrinsics(E: Tensor, *, world_axis: int, image_axis: int) -> Tensor:
+    """Build ``M_img · E · M_world`` for a world-axis reflection paired with a camera-frame reflection.
+
+    Returns:
+        New extrinsics ``[..., 4, 4]`` whose rotation has det +1 and whose
+        projection of any 3D point matches the flipped pixel coordinate.
+    """
+    M_world = torch.eye(4, dtype=E.dtype, device=E.device)
+    M_world[world_axis, world_axis] = -1.0
+    M_img = torch.eye(4, dtype=E.dtype, device=E.device)
+    M_img[image_axis, image_axis] = -1.0
+    return M_img @ E @ M_world
+
+
+@_register_kernel(_F.horizontal_flip, CameraExtrinsics)
+def _horizontal_flip_extrinsics(inpt: CameraExtrinsics) -> CameraExtrinsics:
+    out = _flip_extrinsics(inpt.as_subclass(Tensor), world_axis=1, image_axis=0)
+    return out.as_subclass(CameraExtrinsics)
+
+
+@_register_kernel(_F.vertical_flip, CameraExtrinsics)
+def _vertical_flip_extrinsics(inpt: CameraExtrinsics) -> CameraExtrinsics:
+    out = _flip_extrinsics(inpt.as_subclass(Tensor), world_axis=2, image_axis=1)
+    return out.as_subclass(CameraExtrinsics)

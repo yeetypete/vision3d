@@ -31,6 +31,19 @@ samples.
 
 To remove a transform from the refused set (after registering the
 necessary kernels), delete the entry from ``_REFUSED``.
+
+Flip-axis convention
+--------------------
+
+For an upright camera rig (image_y aligned with -world_Z) the registered
+kernels map image-space flips to world-space reflections:
+
+* :class:`RandomHorizontalFlip` → world **Y** reflection
+* :class:`RandomVerticalFlip` → world **Z** reflection
+
+World X-flip has no torchvision equivalent and stays in
+:class:`vision3d.transforms.RandomFlip3D` (achievable via Y-flip + a
+180° yaw rotation).
 """
 
 from typing import TYPE_CHECKING, Any, override
@@ -64,9 +77,6 @@ _3D_AWARE_TVTENSORS = (
 #: kernels are added that make a transform safe for 3D-aware samples.
 _REFUSED: frozenset[str] = frozenset(
     {
-        # Chirality (no proper rigid camera equivalent)
-        "RandomHorizontalFlip",
-        "RandomVerticalFlip",
         # Non-rigid image-plane warp
         "ElasticTransform",
         "RandomPerspective",

@@ -1,6 +1,9 @@
 from typing import Any, Self, override
 
 import torch
+from torch import Tensor
+from torchvision.transforms.v2 import functional as _F
+from torchvision.transforms.v2.functional import register_kernel as _register_kernel
 from torchvision.tv_tensors import TVTensor
 
 
@@ -58,3 +61,17 @@ class PointCloud3D(TVTensor):
     @override
     def __repr__(self, *, tensor_contents: Any = None) -> str:
         return self._make_repr()
+
+
+@_register_kernel(_F.horizontal_flip, PointCloud3D)
+def _horizontal_flip_point_cloud(inpt: PointCloud3D) -> PointCloud3D:
+    out = inpt.as_subclass(Tensor).clone()
+    out[..., 1] = -out[..., 1]
+    return out.as_subclass(PointCloud3D)
+
+
+@_register_kernel(_F.vertical_flip, PointCloud3D)
+def _vertical_flip_point_cloud(inpt: PointCloud3D) -> PointCloud3D:
+    out = inpt.as_subclass(Tensor).clone()
+    out[..., 2] = -out[..., 2]
+    return out.as_subclass(PointCloud3D)

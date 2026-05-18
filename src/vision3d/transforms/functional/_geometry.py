@@ -12,20 +12,12 @@ from vision3d.tensors import (
     CameraExtrinsics,
     PointCloud3D,
 )
+from vision3d.tensors._bounding_boxes_3d import flip_3d_bounding_boxes
 
 from ._registry import register_kernel
 
 # Axis indices for flip
 AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
-
-# Which rotation angles to negate for each flip axis.
-# Convention: yaw=around Z (idx 6), pitch=around Y (idx 7), roll=around X (idx 8).
-# A flip negates angles that rotate around axes OTHER than the flip axis.
-_FLIP_NEGATE_YPR: dict[str, list[int]] = {
-    "x": [6, 7],  # negate yaw (Z) and pitch (Y)
-    "y": [6, 8],  # negate yaw (Z) and roll (X)
-    "z": [7, 8],  # negate pitch (Y) and roll (X)
-}
 
 
 def flip_3d(inpt: Tensor, *, axis: str) -> Tensor:
@@ -64,43 +56,6 @@ def flip_3d_point_cloud(points: Tensor, *, axis: str) -> Tensor:
 @register_kernel(flip_3d, PointCloud3D)
 def _flip_3d_point_cloud_kernel(points: Tensor, *, axis: str) -> Tensor:
     return flip_3d_point_cloud(points, axis=axis)
-
-
-def flip_3d_bounding_boxes(
-    boxes: Tensor, *, format: BoundingBox3DFormat, axis: str
-) -> Tensor:
-    """Flip 3D bounding boxes along ``axis``.
-
-    Args:
-        boxes: Bounding box tensor ``[..., K]``.
-        format: Format of the boxes.
-        axis: One of ``"x"``, ``"y"``, ``"z"``.
-
-    Returns:
-        Flipped bounding boxes with the same shape.
-    """
-    idx = AXIS_INDEX[axis]
-    shape = boxes.shape
-    boxes = boxes.clone().reshape(-1, shape[-1])
-
-    if format is BoundingBox3DFormat.XYZXYZ:
-        # Swap and negate: min/max corners flip
-        lo, hi = idx, idx + 3
-        boxes[:, [lo, hi]] = boxes[:, [hi, lo]].neg_()
-    elif format in (
-        BoundingBox3DFormat.XYZLWH,
-        BoundingBox3DFormat.XYZLWHY,
-        BoundingBox3DFormat.XYZLWHYPR,
-    ):
-        boxes[:, idx].neg_()
-        if format is BoundingBox3DFormat.XYZLWHY:
-            if axis in ("x", "y"):
-                boxes[:, 6].neg_()
-        elif format is BoundingBox3DFormat.XYZLWHYPR:
-            for angle_idx in _FLIP_NEGATE_YPR[axis]:
-                boxes[:, angle_idx].neg_()
-
-    return boxes.reshape(shape)
 
 
 @register_kernel(flip_3d, BoundingBoxes3D, tv_tensor_wrapper=False)
