@@ -5,6 +5,8 @@ from typing import Any, Self, override
 import torch
 from torch import Tensor
 from torch.utils._pytree import tree_flatten
+from torchvision.transforms.v2 import functional as _F
+from torchvision.transforms.v2.functional import register_kernel as _register_kernel
 from torchvision.tv_tensors import TVTensor
 
 
@@ -153,3 +155,63 @@ class BoundingBoxes3D(TVTensor):
     @override
     def __repr__(self, *, tensor_contents: Any = None) -> str:
         return self._make_repr(format=self.format)
+
+
+_AXIS_INDEX: dict[str, int] = {"x": 0, "y": 1, "z": 2}
+
+# Convention: yaw=around Z (idx 6), pitch=around Y (idx 7), roll=around X
+# (idx 8). A flip negates angles that rotate around axes *other* than the
+# flip axis.
+_FLIP_NEGATE_YPR: dict[str, list[int]] = {
+    "x": [6, 7],
+    "y": [6, 8],
+    "z": [7, 8],
+}
+
+
+def flip_3d_bounding_boxes(
+    boxes: Tensor, *, format: BoundingBox3DFormat, axis: str
+) -> Tensor:
+    """Flip 3D bounding boxes along ``axis``.
+
+    Args:
+        boxes: Bounding box tensor ``[..., K]``.
+        format: Format of the boxes.
+        axis: One of ``"x"``, ``"y"``, ``"z"``.
+
+    Returns:
+        Flipped bounding boxes with the same shape.
+    """
+    idx = _AXIS_INDEX[axis]
+    shape = boxes.shape
+    boxes = boxes.clone().reshape(-1, shape[-1])
+
+    if format is BoundingBox3DFormat.XYZXYZ:
+        lo, hi = idx, idx + 3
+        boxes[:, [lo, hi]] = boxes[:, [hi, lo]].neg_()
+    elif format in (
+        BoundingBox3DFormat.XYZLWH,
+        BoundingBox3DFormat.XYZLWHY,
+        BoundingBox3DFormat.XYZLWHYPR,
+    ):
+        boxes[:, idx].neg_()
+        if format is BoundingBox3DFormat.XYZLWHY:
+            if axis in ("x", "y"):
+                boxes[:, 6].neg_()
+        elif format is BoundingBox3DFormat.XYZLWHYPR:
+            for angle_idx in _FLIP_NEGATE_YPR[axis]:
+                boxes[:, angle_idx].neg_()
+
+    return boxes.reshape(shape)
+
+
+@_register_kernel(_F.horizontal_flip, BoundingBoxes3D)
+def _horizontal_flip_boxes_3d(inpt: BoundingBoxes3D) -> BoundingBoxes3D:
+    out = flip_3d_bounding_boxes(inpt.as_subclass(Tensor), format=inpt.format, axis="y")
+    return BoundingBoxes3D._wrap(out, format=inpt.format)
+
+
+@_register_kernel(_F.vertical_flip, BoundingBoxes3D)
+def _vertical_flip_boxes_3d(inpt: BoundingBoxes3D) -> BoundingBoxes3D:
+    out = flip_3d_bounding_boxes(inpt.as_subclass(Tensor), format=inpt.format, axis="z")
+    return BoundingBoxes3D._wrap(out, format=inpt.format)
