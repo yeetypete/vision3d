@@ -224,7 +224,7 @@ class TestPadIntrinsics:
         assert output[0, 1, 2].isclose(torch.tensor(260.0))  # cy + 20
 
     def test_int_padding(self, intrinsics: CameraIntrinsics) -> None:
-        output = F.pad(intrinsics, padding=15)  # pyrefly: ignore[bad-argument-type]
+        output = F.pad(intrinsics, padding=[15])
         assert isinstance(output, CameraIntrinsics)
         assert output[0, 0, 2].isclose(torch.tensor(335.0))  # cx + 15
         assert output[0, 1, 2].isclose(torch.tensor(255.0))  # cy + 15
