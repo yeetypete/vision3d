@@ -38,8 +38,8 @@ Flip-axis convention
 For an upright camera rig (image_y aligned with -world_Z) the registered
 kernels map image-space flips to world-space reflections:
 
-* :class:`RandomHorizontalFlip` → world **Y** reflection
-* :class:`RandomVerticalFlip` → world **Z** reflection
+* ``RandomHorizontalFlip`` → world **Y** reflection
+* ``RandomVerticalFlip`` → world **Z** reflection
 
 World X-flip has no torchvision equivalent and stays in
 :class:`vision3d.transforms.RandomFlip3D` (achievable via Y-flip + a

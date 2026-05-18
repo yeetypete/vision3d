@@ -130,9 +130,7 @@ class TestFlipDispatchOnFusion:
         out = v3d_v2.RandomHorizontalFlip(p=1.0)(sample)
         expected = original.clone()
         expected[..., 1] = -expected[..., 1]
-        torch.testing.assert_close(
-            out["points"].as_subclass(torch.Tensor), expected
-        )
+        torch.testing.assert_close(out["points"].as_subclass(torch.Tensor), expected)
 
     def test_vertical_flip_negates_point_cloud_z(self) -> None:
         sample = make_fusion_sample()
@@ -140,9 +138,7 @@ class TestFlipDispatchOnFusion:
         out = v3d_v2.RandomVerticalFlip(p=1.0)(sample)
         expected = original.clone()
         expected[..., 2] = -expected[..., 2]
-        torch.testing.assert_close(
-            out["points"].as_subclass(torch.Tensor), expected
-        )
+        torch.testing.assert_close(out["points"].as_subclass(torch.Tensor), expected)
 
     def test_horizontal_flip_updates_intrinsics_cx(self) -> None:
         sample = make_fusion_sample(image_size=(48, 60))
@@ -248,12 +244,8 @@ class TestFlipDispatchOnFusion:
         torch.testing.assert_close(new_pts, expected_pts)
 
         for c in range(num_cameras):
-            uv_orig, depth_orig = project_to_image(
-                orig_pts, orig_ext[c], orig_intr[c]
-            )
-            uv_new, depth_new = project_to_image(
-                new_pts, new_ext[c], new_intr[c]
-            )
+            uv_orig, depth_orig = project_to_image(orig_pts, orig_ext[c], orig_intr[c])
+            uv_new, depth_new = project_to_image(new_pts, new_ext[c], new_intr[c])
             in_front = (depth_orig > 0) & (depth_new > 0)
             assert in_front.any(), f"camera {c}: no points in front of camera"
             torch.testing.assert_close(

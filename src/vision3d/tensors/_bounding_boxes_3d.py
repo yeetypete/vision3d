@@ -207,15 +207,11 @@ def flip_3d_bounding_boxes(
 
 @_register_kernel(_F.horizontal_flip, BoundingBoxes3D)
 def _horizontal_flip_boxes_3d(inpt: BoundingBoxes3D) -> BoundingBoxes3D:
-    out = flip_3d_bounding_boxes(
-        inpt.as_subclass(Tensor), format=inpt.format, axis="y"
-    )
+    out = flip_3d_bounding_boxes(inpt.as_subclass(Tensor), format=inpt.format, axis="y")
     return BoundingBoxes3D._wrap(out, format=inpt.format)
 
 
 @_register_kernel(_F.vertical_flip, BoundingBoxes3D)
 def _vertical_flip_boxes_3d(inpt: BoundingBoxes3D) -> BoundingBoxes3D:
-    out = flip_3d_bounding_boxes(
-        inpt.as_subclass(Tensor), format=inpt.format, axis="z"
-    )
+    out = flip_3d_bounding_boxes(inpt.as_subclass(Tensor), format=inpt.format, axis="z")
     return BoundingBoxes3D._wrap(out, format=inpt.format)
