@@ -22,16 +22,16 @@ def wrap[T: TVTensor](
     metadata is copied to the output. Individual fields can be overridden
     via ``kwargs``.
 
-    Subclass authors can override
-    :meth:`~torchvision.tv_tensors.TVTensor.wrap` to define how their
-    metadata is propagated.
+    Subclass authors can define a ``wrap`` classmethod on their subclass
+    of :class:`~torchvision.tv_tensors.TVTensor` to control how metadata
+    propagates.
 
     Args:
         wrappee (:class:`~torch.Tensor`): The tensor to convert.
         like (:class:`~torchvision.tv_tensors.TVTensor`): The reference.
             ``wrappee`` will be converted into the same subclass as ``like``.
-        kwargs: Metadata overrides forwarded to the subclass's
-            :meth:`~torchvision.tv_tensors.TVTensor.wrap` classmethod.
+        kwargs: Metadata overrides forwarded to the subclass's ``wrap``
+            classmethod.
 
     Returns:
         :class:`~torchvision.tv_tensors.TVTensor`: A TVTensor of the same

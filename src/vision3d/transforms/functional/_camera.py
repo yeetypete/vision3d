@@ -23,6 +23,22 @@ def resize_camera_intrinsics(
     max_size: int | None = None,
     **kwargs: Any,
 ) -> CameraIntrinsics:
+    """Update :class:`~vision3d.tensors.CameraIntrinsics` for a resize of the corresponding image.
+
+    Scales the focal lengths, skew, and principal point so projection
+    through the updated intrinsics matches projection through the
+    original intrinsics on the resized image.
+
+    Args:
+        inpt: The intrinsics to update.
+        size: Target ``(h, w)`` after resize.
+        max_size: Optional cap on the longer edge.
+        kwargs: Unused; accepted for signature compatibility with
+            :func:`torchvision.transforms.v2.functional.resize`.
+
+    Returns:
+        Updated intrinsics with the new ``image_size``.
+    """
     old_h, old_w = inpt.image_size
     new_h, new_w = _compute_resized_output_size(
         (old_h, old_w), size=size, max_size=max_size
@@ -37,6 +53,22 @@ def resize_camera_intrinsics(
 def crop_camera_intrinsics(
     inpt: CameraIntrinsics, top: int, left: int, height: int, width: int
 ) -> CameraIntrinsics:
+    """Update :class:`~vision3d.tensors.CameraIntrinsics` for a crop of the corresponding image.
+
+    Shifts the principal point so projection through the updated
+    intrinsics matches projection through the original intrinsics on
+    the cropped image.
+
+    Args:
+        inpt: The intrinsics to update.
+        top: Top edge of the crop in pixels.
+        left: Left edge of the crop in pixels.
+        height: Crop height in pixels.
+        width: Crop width in pixels.
+
+    Returns:
+        Updated intrinsics with ``image_size`` set to ``(height, width)``.
+    """
     K = inpt.as_subclass(Tensor).clone()
     K[..., 0, 2] -= left  # cx
     K[..., 1, 2] -= top  # cy
@@ -47,6 +79,15 @@ def crop_camera_intrinsics(
 def center_crop_camera_intrinsics(
     inpt: CameraIntrinsics, output_size: list[int]
 ) -> CameraIntrinsics:
+    """Update :class:`~vision3d.tensors.CameraIntrinsics` for a center crop of the corresponding image.
+
+    Args:
+        inpt: The intrinsics to update.
+        output_size: Target ``(h, w)`` after the center crop.
+
+    Returns:
+        Updated intrinsics with ``image_size`` set to ``output_size``.
+    """
     crop_h, crop_w = _center_crop_parse_output_size(output_size)
     old_h, old_w = inpt.image_size
     top = (old_h - crop_h) // 2
@@ -58,6 +99,21 @@ def center_crop_camera_intrinsics(
 def pad_camera_intrinsics(
     inpt: CameraIntrinsics, padding: int | list[int], **kwargs: Any
 ) -> CameraIntrinsics:
+    """Update :class:`~vision3d.tensors.CameraIntrinsics` for a pad of the corresponding image.
+
+    Shifts the principal point by the top-left pad and grows
+    ``image_size`` to include the padded borders.
+
+    Args:
+        inpt: The intrinsics to update.
+        padding: Padding spec as accepted by
+            :func:`torchvision.transforms.v2.functional.pad`.
+        kwargs: Unused; accepted for signature compatibility with
+            :func:`torchvision.transforms.v2.functional.pad`.
+
+    Returns:
+        Updated intrinsics with the padded ``image_size``.
+    """
     left, right, top, bottom = _parse_pad_padding(padding)
     K = inpt.as_subclass(Tensor).clone()
     K[..., 0, 2] += left  # cx
@@ -78,6 +134,21 @@ def resized_crop_camera_intrinsics(
     size: list[int],
     **kwargs: Any,
 ) -> CameraIntrinsics:
+    """Update :class:`~vision3d.tensors.CameraIntrinsics` for a crop followed by a resize.
+
+    Args:
+        inpt: The intrinsics to update.
+        top: Top edge of the crop in pixels.
+        left: Left edge of the crop in pixels.
+        height: Crop height in pixels.
+        width: Crop width in pixels.
+        size: Target ``(h, w)`` after the resize.
+        kwargs: Unused; accepted for signature compatibility with
+            :func:`torchvision.transforms.v2.functional.resized_crop`.
+
+    Returns:
+        Updated intrinsics with ``image_size`` set to ``size``.
+    """
     cropped = crop_camera_intrinsics(
         inpt, top=top, left=left, height=height, width=width
     )
