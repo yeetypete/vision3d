@@ -4,6 +4,7 @@ from torch import Tensor
 from torchvision.tv_tensors import TVTensor
 
 from ._bounding_boxes_3d import BoundingBoxes3D
+from ._camera import CameraIntrinsics
 
 
 def wrap(
@@ -14,15 +15,19 @@ def wrap(
 ) -> TVTensor:
     """Convert a :class:`~torch.Tensor` into the same TVTensor subclass as ``like``.
 
-    If ``like`` is a :class:`~vision3d.tensors.BoundingBoxes3D`, the ``format``
-    of ``like`` is assigned to ``wrappee`` unless overridden via ``kwargs``.
+    If ``like`` carries metadata (e.g.
+    :class:`~vision3d.tensors.BoundingBoxes3D` format,
+    :class:`~vision3d.tensors.CameraIntrinsics` image_size), it is copied
+    from ``like`` to ``wrappee`` unless overridden via ``kwargs``.
 
     Args:
         wrappee: The tensor to convert.
         like: The reference. ``wrappee`` will be converted into the same
             subclass as ``like``.
         kwargs: Can contain ``"format"`` if ``like`` is a
-            :class:`~vision3d.tensors.BoundingBoxes3D`. Ignored otherwise.
+            :class:`~vision3d.tensors.BoundingBoxes3D`, or ``"image_size"``
+            if ``like`` is a :class:`~vision3d.tensors.CameraIntrinsics`.
+            Ignored otherwise.
 
     Returns:
         A TVTensor of the same subclass as ``like``.
@@ -31,6 +36,11 @@ def wrap(
         return type(like)._wrap(
             wrappee,
             format=kwargs.get("format", like.format),
+        )
+    elif isinstance(like, CameraIntrinsics):
+        return type(like)._wrap(
+            wrappee,
+            image_size=kwargs.get("image_size", like.image_size),
         )
     else:
         return wrappee.as_subclass(type(like))
