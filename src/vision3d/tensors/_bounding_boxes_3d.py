@@ -101,6 +101,10 @@ class BoundingBoxes3D(TVTensor):
         bounding_boxes.format = format
         return bounding_boxes
 
+    @classmethod
+    def wrap(cls, tensor: Tensor, like: "BoundingBoxes3D", **kwargs: Any) -> Self:
+        return cls._wrap(tensor, format=kwargs.get("format", like.format))
+
     def __new__(
         cls,
         data: Any,

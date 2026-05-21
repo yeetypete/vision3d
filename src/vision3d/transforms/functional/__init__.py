@@ -1,5 +1,12 @@
 """Functional form of the 3D transforms in :mod:`vision3d.transforms`."""
 
+from ._camera import (
+    center_crop_camera_intrinsics,
+    crop_camera_intrinsics,
+    pad_camera_intrinsics,
+    resize_camera_intrinsics,
+    resized_crop_camera_intrinsics,
+)
 from ._geometry import (
     flip_3d,
     flip_3d_bounding_boxes,
@@ -28,12 +35,17 @@ from ._point_cloud import (
 from ._registry import register_kernel
 
 __all__ = [
+    "center_crop_camera_intrinsics",
+    "crop_camera_intrinsics",
     "flip_3d",
     "flip_3d_bounding_boxes",
     "flip_3d_point_cloud",
     "jitter_points",
     "jitter_points_point_cloud",
+    "pad_camera_intrinsics",
     "register_kernel",
+    "resize_camera_intrinsics",
+    "resized_crop_camera_intrinsics",
     "rotate_3d",
     "rotate_3d_bounding_boxes",
     "rotate_3d_camera_extrinsics",
