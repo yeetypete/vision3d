@@ -58,7 +58,7 @@ branch = true
 [tool.pyrefly]
 preset = "strict"
 min-severity = "ignore"
-search-path = ["examples", "test", "gallery", "docs/source/_ext"]
+search-path = ["test", "gallery", "docs/source/_ext"]
 
 [tool.pytest.ini_options]
 addopts = "--cov --cov-report=term-missing --strict-markers"
@@ -76,7 +76,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "test/**" = ["D"]
-"examples/**" = ["D"]
 "gallery/**" = ["D", "E402"]
 
 [tool.ruff.lint.pydocstyle]
