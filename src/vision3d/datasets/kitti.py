@@ -63,12 +63,11 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
             named in ``frames`` via HTTP range requests against the
             upstream archives instead of the full dataset. Has no effect
             when ``download`` is ``False``.
-        frames (Iterable[int], optional): Frame indices to retrieve
-            when ``mini`` is true. Each ``i`` is formatted as
-            ``f"{i:06d}"`` and pulled from the requested split; the
-            iterable may be contiguous (``range(10)``), strided
-            (``range(0, 7481, 700)``), or scattered (``[0, 23, 412]``).
-            Defaults to ``range(10)``.
+        frames: Frame indices to retrieve when ``mini`` is true. Each
+            ``i`` is formatted as ``f"{i:06d}"`` and pulled from the
+            requested split; the iterable may be contiguous
+            (``range(10)``), strided (``range(0, 7481, 700)``), or
+            scattered (``[0, 23, 412]``). Defaults to ``range(10)``.
     """
 
     data_url: ClassVar[str] = "https://s3.eu-central-1.amazonaws.com/avg-kitti/"
