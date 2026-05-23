@@ -61,6 +61,11 @@ jobs:
         with:
           path: ~/.cache/vision3d/nuscenes-mini
           key: nuscenes-mini-v1.0
+      - name: Cache KITTI mini
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
+        with:
+          path: ~/.cache/vision3d/kitti-mini
+          key: kitti-mini-10frames
       - name: Build docs
         run: uv run make -C docs html
       - name: Upload docs artifact
