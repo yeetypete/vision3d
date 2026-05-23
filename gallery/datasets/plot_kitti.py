@@ -24,7 +24,7 @@ from vision3d.datasets import Kitti3D
 
 KITTI_ROOT = Path("~/.cache/vision3d/kitti-mini").expanduser()
 
-dataset = Kitti3D(KITTI_ROOT, train=True, mini=True, num_frames=10, download=True)
+dataset = Kitti3D(KITTI_ROOT, train=True, mini=True, frames=range(10), download=True)
 print(f"len(dataset) = {len(dataset)}")
 print(f"classes ({len(dataset.classes)}): {dataset.classes}")
 

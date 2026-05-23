@@ -5,6 +5,7 @@ import io
 import os
 import urllib.request
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, ClassVar, override
 
@@ -58,13 +59,16 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         download (bool, optional): If true, downloads the dataset from the internet
             and puts it in root directory. If dataset is already downloaded, it is
             not downloaded again.
-        mini (bool, optional): If true, downloading fetches only the first
-            ``num_frames`` frames via HTTP range requests against the upstream
-            archives instead of the full dataset. Has no effect when
-            ``download`` is ``False``.
-        num_frames (int, optional): Number of frames to retrieve when ``mini``
-            is true. Frame ids ``000000..00000(N-1)`` are extracted from the
-            requested split. Defaults to ``10``.
+        mini (bool, optional): If true, downloading fetches only the frames
+            named in ``frames`` via HTTP range requests against the
+            upstream archives instead of the full dataset. Has no effect
+            when ``download`` is ``False``.
+        frames (Iterable[int], optional): Frame indices to retrieve
+            when ``mini`` is true. Each ``i`` is formatted as
+            ``f"{i:06d}"`` and pulled from the requested split; the
+            iterable may be contiguous (``range(10)``), strided
+            (``range(0, 7481, 700)``), or scattered (``[0, 23, 412]``).
+            Defaults to ``range(10)``.
     """
 
     data_url: ClassVar[str] = "https://s3.eu-central-1.amazonaws.com/avg-kitti/"
@@ -102,18 +106,18 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         transforms: Any | None = None,
         download: bool = False,
         mini: bool = False,
-        num_frames: int = 10,
+        frames: Iterable[int] = range(10),
     ) -> None:
         self.root = Path(root)
         self.train = train
         self.transforms = transforms
         self.mini = mini
-        self.num_frames = num_frames
+        self.frames = tuple(frames)
         self._location = "training" if train else "testing"
 
         if download:
             if mini:
-                self._download_mini(num_frames)
+                self._download_mini(self.frames)
             else:
                 self.download()
         if not self._check_exists():
@@ -212,18 +216,18 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
                 filename=fname,
             )
 
-    def _download_mini(self, num_frames: int) -> None:
-        """Extract the first ``num_frames`` frames via HTTP range requests.
+    def _download_mini(self, frames: tuple[int, ...]) -> None:
+        """Extract the named frames via HTTP range requests.
 
         Args:
-            num_frames: The number of frames (ids ``000000..00000(N-1)``) to
-                extract from the requested split.
+            frames: Frame indices to extract from the requested
+                split. Each ``i`` resolves to member ``{i:06d}.<ext>``.
 
         Raises:
-            ValueError: If ``num_frames`` is non-positive.
+            ValueError: If ``frames`` is empty.
         """
-        if num_frames <= 0:
-            msg = f"num_frames must be positive, got {num_frames}"
+        if not frames:
+            msg = "frames must be non-empty"
             raise ValueError(msg)
         if self._check_exists():
             return
@@ -231,7 +235,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         location_dir = self._raw_folder / self._location
         location_dir.mkdir(parents=True, exist_ok=True)
 
-        frame_ids = [f"{i:06d}" for i in range(num_frames)]
+        frame_ids = [f"{i:06d}" for i in frames]
         # (zip filename, member subdirectory, file extension). The label_2
         # archive only contains the training split.
         archives = [
