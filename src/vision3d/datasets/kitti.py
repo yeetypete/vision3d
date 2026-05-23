@@ -1,7 +1,10 @@
 """`KITTI 3D Object Detection <http://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=3d>`_ Dataset."""
 
 import csv
+import io
 import os
+import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Any, ClassVar, override
 
@@ -55,6 +58,13 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         download (bool, optional): If true, downloads the dataset from the internet
             and puts it in root directory. If dataset is already downloaded, it is
             not downloaded again.
+        mini (bool, optional): If true, downloading fetches only the first
+            ``num_frames`` frames via HTTP range requests against the upstream
+            archives instead of the full dataset. Has no effect when
+            ``download`` is ``False``.
+        num_frames (int, optional): Number of frames to retrieve when ``mini``
+            is true. Frame ids ``000000..00000(N-1)`` are extracted from the
+            requested split. Defaults to ``10``.
     """
 
     data_url: ClassVar[str] = "https://s3.eu-central-1.amazonaws.com/avg-kitti/"
@@ -68,6 +78,10 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
     image_dir_name: ClassVar[str] = "image_2"
     labels_dir_name: ClassVar[str] = "label_2"
     calib_dir_name: ClassVar[str] = "calib"
+
+    # Single forward-facing left color camera ("P2" in KITTI's calibration).
+    camera_names: ClassVar[tuple[str, ...]] = ("CAM_2",)
+    camera_grid: ClassVar[tuple[tuple[int, ...], ...] | None] = None
 
     classes: ClassVar[tuple[str, ...]] = (
         "Car",
@@ -87,14 +101,21 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         train: bool = True,
         transforms: Any | None = None,
         download: bool = False,
+        mini: bool = False,
+        num_frames: int = 10,
     ) -> None:
         self.root = Path(root)
         self.train = train
         self.transforms = transforms
+        self.mini = mini
+        self.num_frames = num_frames
         self._location = "training" if train else "testing"
 
         if download:
-            self.download()
+            if mini:
+                self._download_mini(num_frames)
+            else:
+                self.download()
         if not self._check_exists():
             raise RuntimeError(
                 "Dataset not found. You may use download=True to download it."
@@ -189,6 +210,44 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
                 url=f"{self.data_url}{fname}",
                 download_root=str(self._raw_folder),
                 filename=fname,
+            )
+
+    def _download_mini(self, num_frames: int) -> None:
+        """Extract the first ``num_frames`` frames via HTTP range requests.
+
+        Args:
+            num_frames: The number of frames (ids ``000000..00000(N-1)``) to
+                extract from the requested split.
+
+        Raises:
+            ValueError: If ``num_frames`` is non-positive.
+        """
+        if num_frames <= 0:
+            msg = f"num_frames must be positive, got {num_frames}"
+            raise ValueError(msg)
+        if self._check_exists():
+            return
+
+        location_dir = self._raw_folder / self._location
+        location_dir.mkdir(parents=True, exist_ok=True)
+
+        frame_ids = [f"{i:06d}" for i in range(num_frames)]
+        # (zip filename, member subdirectory, file extension). The label_2
+        # archive only contains the training split.
+        archives = [
+            ("data_object_velodyne.zip", self.velodyne_dir_name, "bin"),
+            ("data_object_image_2.zip", self.image_dir_name, "png"),
+            ("data_object_calib.zip", self.calib_dir_name, "txt"),
+        ]
+        if self.train:
+            archives.append(("data_object_label_2.zip", self.labels_dir_name, "txt"))
+
+        for fname, subdir, ext in archives:
+            members = [f"{self._location}/{subdir}/{fid}.{ext}" for fid in frame_ids]
+            _extract_remote_zip_members(
+                url=f"{self.data_url}{fname}",
+                members=members,
+                dest=self._raw_folder,
             )
 
     def _load_velodyne(self, base: Path, frame_id: str) -> Tensor:
@@ -371,3 +430,88 @@ def _get_fov_mask(
 
     valid = (depth > 0) & (u >= 0) & (u < img_w) & (v >= 0) & (v < img_h)
     return valid
+
+
+def _extract_remote_zip_members(
+    url: str,
+    members: list[str],
+    dest: Path,
+) -> None:
+    """Extract specific members from a remote zip via HTTP range requests.
+
+    Args:
+        url: HTTP(S) URL of the zip archive. The server must respond to
+            ``Range`` requests.
+        members: Member names to extract, as they appear in the zip's
+            central directory. Each is written to ``dest / member``. A
+            :class:`KeyError` propagates from :mod:`zipfile` if any member
+            is missing.
+        dest: Destination root directory. Member paths are joined relative
+            to it; intermediate directories are created as needed.
+    """
+    remote = _HttpRangeFile(url)
+    with zipfile.ZipFile(remote) as zf:
+        for member in members:
+            dst = dest / member
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as src, dst.open("wb") as out:
+                out.write(src.read())
+
+
+class _HttpRangeFile(io.RawIOBase):
+    """Read-only seekable file-like backed by HTTP ``Range`` requests.
+
+    Lets :class:`zipfile.ZipFile` open a remote archive without downloading
+    it in full. This is required for the KITTI mini split, where the upstream zips
+    are tens of gigabytes but only a handful of stored (uncompressed)
+    members are needed.
+    """
+
+    def __init__(self, url: str) -> None:
+        super().__init__()
+        self._url = url
+        self._pos = 0
+        with urllib.request.urlopen(
+            urllib.request.Request(url, method="HEAD")
+        ) as response:
+            length = response.headers.get("Content-Length")
+            if length is None:
+                msg = f"server did not return Content-Length for {url!r}"
+                raise OSError(msg)
+            self._size = int(length)
+
+    @override
+    def readable(self) -> bool:
+        return True
+
+    @override
+    def seekable(self) -> bool:
+        return True
+
+    @override
+    def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        if whence == io.SEEK_SET:
+            self._pos = offset
+        elif whence == io.SEEK_CUR:
+            self._pos += offset
+        elif whence == io.SEEK_END:
+            self._pos = self._size + offset
+        else:
+            msg = f"invalid whence: {whence}"
+            raise ValueError(msg)
+        return self._pos
+
+    @override
+    def read(self, size: int = -1) -> bytes:
+        if size is None or size < 0:
+            size = self._size - self._pos
+        if size <= 0 or self._pos >= self._size:
+            return b""
+        end = min(self._pos + size, self._size) - 1
+        req = urllib.request.Request(
+            self._url, headers={"Range": f"bytes={self._pos}-{end}"}
+        )
+        with urllib.request.urlopen(req) as response:
+            data = response.read()
+        self._pos += len(data)
+        return data
