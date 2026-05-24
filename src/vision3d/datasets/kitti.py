@@ -509,7 +509,7 @@ def _extract_remote_zip_members(
             :class:`KeyError` propagates from :mod:`zipfile` if any member
             is missing.
         dest: Destination root directory. Member paths are joined relative
-            to it; intermediate directories are created as needed.
+            to it.
     """
     remote = _HttpRangeFile(url)
     with zipfile.ZipFile(remote) as zf:
