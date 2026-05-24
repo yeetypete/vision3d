@@ -435,32 +435,6 @@ def _get_fov_mask(
     return valid
 
 
-def _extract_remote_zip_members(
-    url: str,
-    members: list[str],
-    dest: Path,
-) -> None:
-    """Extract specific members from a remote zip via HTTP range requests.
-
-    Args:
-        url: HTTP(S) URL of the zip archive. The server must respond to
-            ``Range`` requests.
-        members: Member names to extract, as they appear in the zip's
-            central directory. Each is written to ``dest / member``. A
-            :class:`KeyError` propagates from :mod:`zipfile` if any member
-            is missing.
-        dest: Destination root directory. Member paths are joined relative
-            to it; intermediate directories are created as needed.
-    """
-    remote = _HttpRangeFile(url)
-    with zipfile.ZipFile(remote) as zf:
-        for member in members:
-            dst = dest / member
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(member) as src, dst.open("wb") as out:
-                out.write(src.read())
-
-
 class _HttpRangeFile(io.RawIOBase):
     """Read-only seekable file-like backed by HTTP ``Range`` requests.
 
@@ -518,3 +492,29 @@ class _HttpRangeFile(io.RawIOBase):
             data = response.read()
         self._pos += len(data)
         return data
+
+
+def _extract_remote_zip_members(
+    url: str,
+    members: list[str],
+    dest: Path,
+) -> None:
+    """Extract specific members from a remote zip via HTTP range requests.
+
+    Args:
+        url: HTTP(S) URL of the zip archive. The server must respond to
+            ``Range`` requests.
+        members: Member names to extract, as they appear in the zip's
+            central directory. Each is written to ``dest / member``. A
+            :class:`KeyError` propagates from :mod:`zipfile` if any member
+            is missing.
+        dest: Destination root directory. Member paths are joined relative
+            to it; intermediate directories are created as needed.
+    """
+    remote = _HttpRangeFile(url)
+    with zipfile.ZipFile(remote) as zf:
+        for member in members:
+            dst = dest / member
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as src, dst.open("wb") as out:
+                out.write(src.read())
