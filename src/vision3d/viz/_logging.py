@@ -147,8 +147,7 @@ def log_cameras(
 ) -> None:
     """Log all camera images with optional pinhole projection to Rerun.
 
-    Each camera is logged to ``{entity_prefix}`` for a single camera, or
-    ``{entity_prefix}_{i}`` for multiple cameras.
+    Each camera is logged to ``{entity_prefix}_{i}``.
 
     Args:
         entity_prefix: Rerun entity path prefix (e.g. ``"world/cam"``).
@@ -158,11 +157,9 @@ def log_cameras(
         jpeg_quality: If set, JPEG-encode each image at this quality (0-100)
             before logging. ``None`` (default) logs uncompressed.
     """
-    n_cams = images.shape[0]
-    for i in range(n_cams):
-        entity = f"{entity_prefix}_{i}" if n_cams > 1 else entity_prefix
+    for i in range(images.shape[0]):
         _log_single_camera(
-            entity,
+            f"{entity_prefix}_{i}",
             images,
             intrinsics,
             extrinsics,
