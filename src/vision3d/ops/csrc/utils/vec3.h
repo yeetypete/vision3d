@@ -16,8 +16,8 @@
 
 template <
     typename T,
-    typename = std::enable_if_t<
-        std::is_same<T, double>::value || std::is_same<T, float>::value>>
+    typename =
+        std::enable_if_t<std::is_same_v<T, double> || std::is_same_v<T, float>>>
 struct vec3 {
   T x, y, z;
   using scalar_t = T;

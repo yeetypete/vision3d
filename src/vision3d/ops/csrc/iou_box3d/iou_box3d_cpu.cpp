@@ -9,6 +9,7 @@
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
 #include <torch/csrc/stable/tensor.h>
+#include <algorithm>
 #include <tuple>
 #include "iou_box3d/iou_box3d.h"
 #include "iou_box3d/iou_utils.h"
@@ -77,16 +78,15 @@ std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
           BoxIntersections(box2_tris, box1_planes, box1_center);
 
       // If there are overlapping regions in Box2, remove any coplanar faces
-      if (box2_intersect.size() > 0) {
+      if (!box2_intersect.empty()) {
         // Identify if any triangles in Box2 are coplanar with Box1
         std::vector<int> tri2_keep(box2_intersect.size());
-        std::fill(tri2_keep.begin(), tri2_keep.end(), 1);
-        for (size_t b1 = 0; b1 < box1_intersect.size(); ++b1) {
+        std::ranges::fill(tri2_keep, 1);
+        for (const auto& b1 : box1_intersect) {
           for (size_t b2 = 0; b2 < box2_intersect.size(); ++b2) {
-            const bool is_coplanar =
-                IsCoplanarTriTri(box1_intersect[b1], box2_intersect[b2]);
-            const float area = FaceArea(box1_intersect[b1]);
-            if ((is_coplanar) && (area > aEpsilon)) {
+            const bool is_coplanar = IsCoplanarTriTri(b1, box2_intersect[b2]);
+            const float area = FaceArea(b1);
+            if (is_coplanar && area > aEpsilon) {
               tri2_keep[b2] = 0;
             }
           }
@@ -96,7 +96,7 @@ std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
         // Box1 triangles.
         for (size_t b2 = 0; b2 < box2_intersect.size(); ++b2) {
           if (tri2_keep[b2] == 1) {
-            box1_intersect.push_back((box2_intersect[b2]));
+            box1_intersect.push_back(box2_intersect[b2]);
           }
         }
       }
@@ -107,7 +107,7 @@ std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
       float iou = 0.0;
 
       // If there are triangles in the intersecting shape
-      if (box1_intersect.size() > 0) {
+      if (!box1_intersect.empty()) {
         // The intersecting shape is a polyhedron made up of the
         // triangular faces that are all now in box1_intersect.
         // Calculate the polyhedron center

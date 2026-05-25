@@ -24,10 +24,10 @@ struct BoxView {
   };
 
   C10_HOST_DEVICE Row operator[](int i) const {
-    return Row{data + i * 3};
+    return Row{data + static_cast<ptrdiff_t>(i) * 3};
   }
 
-  C10_HOST_DEVICE int size(int /*dim*/) const {
+  C10_HOST_DEVICE static int size(int /*dim*/) {
     return 8;
   }
 };
