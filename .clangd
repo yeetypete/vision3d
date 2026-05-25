@@ -1,13 +1,8 @@
 CompileFlags:
   CompilationDatabase: build
-  Add:
-    - --no-cuda-version-check
-  Remove:
-    - -gencode*
-    - -Xcompiler*
-    - -Xcudafe*
-    - --diag_suppress*
-    - --expt-extended-lambda
-    - --expt-relaxed-constexpr
-    - -forward-unknown-to-host-compiler
-    - --options-file
+
+# libstdc++'s deduction guides aren't annotated __host__ __device__, which
+# clang flags when parsing .cu files. Harmless in practice, so silence it.
+Diagnostics:
+  Suppress:
+    - deduction_guide_target_attr

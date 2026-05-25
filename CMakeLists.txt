@@ -1,20 +1,26 @@
 # CMakeLists.txt for editor ``build/compile_commands.json`` generation
-# for clangd. Run ``cmake -B build`` at the repo root to generate the file.
+# for clangd / clang-tidy. Run ``cmake -B build`` at the repo root.
+#
+# NOTE: The real build is driven by setup.py (nvcc). This file only
+# produces a compile-commands database for tooling.
 
 cmake_minimum_required(VERSION 3.18)
-# CMP0104 OLD: don't auto-populate CMAKE_CUDA_ARCHITECTURES. Torch
-# cuda.cmake warns if it's set and wants TORCH_CUDA_ARCH_LIST instead.
-cmake_policy(SET CMP0104 OLD)
 project(vision3d_ops LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-add_definitions(-DUSE_CUDA -DTORCH_TARGET_VERSION=0x020a000000000000)
+# Inline include paths so clangd (which doesn't follow nvcc's
+# ``--options-file``) picks them up.
+set(CMAKE_CUDA_USE_RESPONSE_FILE_FOR_INCLUDES OFF)
 
 find_package(CUDAToolkit QUIET)
-if(CUDAToolkit_FOUND AND NOT DEFINED CMAKE_CUDA_COMPILER)
-  set(CMAKE_CUDA_COMPILER "${CUDAToolkit_NVCC_EXECUTABLE}")
+if(CUDAToolkit_FOUND)
+  find_program(CMAKE_CUDA_COMPILER REQUIRED
+    NAMES clang++ clang++-22 clang++-21 clang++-20)
+  enable_language(CUDA)
+  set(CMAKE_CUDA_STANDARD 20)
+  set(CMAKE_CUDA_COMPILER_VERSION "${CUDAToolkit_VERSION}")
+  add_definitions(-DUSE_CUDA)
 endif()
 
 set(Python3_ROOT_DIR "${CMAKE_SOURCE_DIR}/.venv" CACHE PATH "")
@@ -30,11 +36,21 @@ execute_process(
 list(APPEND CMAKE_PREFIX_PATH "${_torch_cmake_prefix}")
 find_package(Torch REQUIRED)
 
+# Reset CMAKE_CUDA_FLAGS to drop the nvcc-only flags Torch appended, then add
+# the cccl include so clang resolves <thrust/...> (CUDA 12.6+ moved it here).
+if(CUDAToolkit_FOUND)
+  set(CMAKE_CUDA_FLAGS "-isystem ${CUDAToolkit_TARGET_DIR}/include/cccl")
+endif()
+
 set(_csrc src/vision3d/ops/csrc)
-add_library(vision3d_ops SHARED
+set(_sources
   ${_csrc}/iou_box3d.cpp
   ${_csrc}/iou_box3d/iou_box3d_cpu.cpp
 )
+if(CUDAToolkit_FOUND)
+  list(APPEND _sources ${_csrc}/iou_box3d/iou_box3d.cu)
+endif()
+add_library(vision3d_ops OBJECT ${_sources})
 target_include_directories(vision3d_ops PRIVATE ${_csrc})
 target_link_libraries(vision3d_ops PRIVATE ${TORCH_LIBRARIES} Python3::Module)
 target_compile_definitions(vision3d_ops PRIVATE TORCH_EXTENSION_NAME=vision3d_ops)
