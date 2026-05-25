@@ -6,16 +6,18 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <math.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <cuda_runtime.h>
 #include <torch/csrc/inductor/aoti_torch/c/shim.h>
 #include <torch/csrc/stable/accelerator.h>
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
-#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/tensor.h> // NOLINT(misc-include-cleaner)
 #include <torch/headeronly/util/Exception.h>
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <tuple>
+#include <utility>
 #include "iou_box3d/iou_box3d.h"
 #include "iou_box3d/iou_utils.cuh"
 #include "utils/pytorch3d_cutils.h"
@@ -29,17 +31,17 @@ __global__ void IoUBox3DKernel(
     float* __restrict__ ious,
     int64_t N,
     int64_t M) {
-  const size_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-  const size_t stride = gridDim.x * blockDim.x;
+  const int64_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
 
-  FaceVerts box1_tris[NUM_TRIS];
-  FaceVerts box2_tris[NUM_TRIS];
-  FaceVerts box1_planes[NUM_PLANES];
-  FaceVerts box2_planes[NUM_PLANES];
+  std::array<FaceVerts, NUM_TRIS> box1_tris{};
+  std::array<FaceVerts, NUM_TRIS> box2_tris{};
+  std::array<FaceVerts, NUM_PLANES> box1_planes{};
+  std::array<FaceVerts, NUM_PLANES> box2_planes{};
 
-  for (size_t i = tid; i < static_cast<size_t>(N * M); i += stride) {
-    const size_t n = i / M; // box1 index
-    const size_t m = i % M; // box2 index
+  for (int64_t i = tid; i < N * M; i += stride) {
+    const int64_t n = i / M; // box1 index
+    const int64_t m = i % M; // box2 index
 
     const BoxView box1{boxes1 + n * 8 * 3};
     const BoxView box2{boxes2 + m * 8 * 3};
@@ -68,7 +70,7 @@ __global__ void IoUBox3DKernel(
     // TODO: determine if the value of MAX_TRIS is sufficient or
     // if we should store the max tris for each NxM computation
     // and throw an error if any exceeds the max.
-    FaceVerts box1_intersect[MAX_TRIS];
+    std::array<FaceVerts, MAX_TRIS> box1_intersect{};
     for (int j = 0; j < NUM_TRIS; ++j) {
       // Initialize the faces from the box
       box1_intersect[j] = box1_tris[j];
@@ -77,7 +79,7 @@ __global__ void IoUBox3DKernel(
     int box1_count = BoxIntersections(box2_planes, box2_center, box1_intersect);
 
     // Tris in Box2 intersection with Planes in Box1
-    FaceVerts box2_intersect[MAX_TRIS];
+    std::array<FaceVerts, MAX_TRIS> box2_intersect{};
     for (int j = 0; j < NUM_TRIS; ++j) {
       box2_intersect[j] = box2_tris[j];
     }
@@ -87,17 +89,17 @@ __global__ void IoUBox3DKernel(
     // If there are overlapping regions in Box2, remove any coplanar faces
     if (box2_count > 0) {
       // Identify if any triangles in Box2 are coplanar with Box1
-      Keep tri2_keep[MAX_TRIS];
+      std::array<Keep, MAX_TRIS> tri2_keep{};
       for (int j = 0; j < MAX_TRIS; ++j) {
         // Initialize the valid faces to be true
-        tri2_keep[j].keep = j < box2_count ? true : false;
+        tri2_keep[j].keep = j < box2_count;
       }
       for (int b1 = 0; b1 < box1_count; ++b1) {
         for (int b2 = 0; b2 < box2_count; ++b2) {
           const bool is_coplanar =
               IsCoplanarTriTri(box1_intersect[b1], box2_intersect[b2]);
           const float area = FaceArea(box1_intersect[b1]);
-          if ((is_coplanar) && (area > aEpsilon)) {
+          if (is_coplanar && area > aEpsilon) {
             tri2_keep[b2].keep = false;
           }
         }
@@ -177,7 +179,7 @@ std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCuda(
   void* raw_stream = nullptr;
   TORCH_ERROR_CODE_CHECK(
       aoti_torch_get_current_cuda_stream(device_index, &raw_stream));
-  auto stream = static_cast<cudaStream_t>(raw_stream);
+  auto* stream = static_cast<cudaStream_t>(raw_stream);
 
   const size_t blocks = 512;
   const size_t threads = 256;
