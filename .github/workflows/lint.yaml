@@ -34,13 +34,35 @@ jobs:
         run: uv run ruff format --check
       - name: Pyrefly typecheck
         run: uv run pyrefly check
+
+  clang-tidy:
+    runs-on: ubuntu-24.04
+    container:
+      image: nvidia/cuda:12.8.0-devel-ubuntu24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git make sudo wget
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
       - name: Install clang-tidy 22
         run: |
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
-            | sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg
-          echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
-            | sudo tee /etc/apt/sources.list.d/llvm.list
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang-tidy-22 clang-tools-22
+          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
+          bash llvm.sh 22
+          apt-get install -y --no-install-recommends clang-tidy-22 clang-tools-22
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8
+        with:
+          enable-cache: ${{ inputs.cache }}
+          cache-local-path: ${{ github.workspace }}/.uv-cache
+          cache-suffix: tidy
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --all-groups --no-install-project
       - name: clang-tidy
         run: make tidy
