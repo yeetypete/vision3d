@@ -48,6 +48,8 @@ set(_csrc src/vision3d/ops/csrc)
 set(_sources
   ${_csrc}/iou_box3d.cpp
   ${_csrc}/iou_box3d/iou_box3d_cpu.cpp
+  ${_csrc}/voxelize.cpp
+  ${_csrc}/voxelize/voxelize_cpu.cpp
 )
 if(CUDAToolkit_FOUND)
   list(APPEND _sources ${_csrc}/iou_box3d/iou_box3d.cu)
