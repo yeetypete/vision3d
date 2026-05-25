@@ -143,8 +143,8 @@ VoxelizeCuda(
       "max_voxels must be -1 (no cap) or positive");
 
   points = torch::stable::contiguous(points);
-  auto range_c = torch::stable::contiguous(point_cloud_range);
-  auto size_c = torch::stable::contiguous(voxel_size);
+  point_cloud_range = torch::stable::contiguous(point_cloud_range);
+  voxel_size = torch::stable::contiguous(voxel_size);
 
   const int64_t N = points.size(0);
   const int64_t C = points.size(1);
@@ -155,8 +155,8 @@ VoxelizeCuda(
       N,
       ")");
 
-  const float* pcr = range_c.const_data_ptr<float>();
-  const float* vs = size_c.const_data_ptr<float>();
+  const float* pcr = point_cloud_range.const_data_ptr<float>();
+  const float* vs = voxel_size.const_data_ptr<float>();
   const float x_min = pcr[0], y_min = pcr[1], z_min = pcr[2];
   const float x_max = pcr[3], y_max = pcr[4], z_max = pcr[5];
   const float dx = vs[0], dy = vs[1], dz = vs[2];
