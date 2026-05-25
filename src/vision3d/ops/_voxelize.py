@@ -40,18 +40,15 @@ def voxelize(
             get written.
 
     Returns:
-        Tuple of:
-
-        * ``voxels``: ``[P, max_points_per_voxel, C]`` per-voxel point
-          buffers padded with zeros at unfilled slots.
-        * ``coords``: ``[P, 3]`` ``int64`` ``(iz, iy, ix)`` voxel
-          indices.
-        * ``num_points``: ``[P]`` ``int64`` point counts per voxel,
-          each in ``[1, max_points_per_voxel]``.
-
-        ``P`` is the number of non-empty voxels (capped at ``max_voxels``
-        when set). When no points fall inside ``point_cloud_range``,
-        all three tensors have a leading dimension of zero.
+        ``(voxels, coords, num_points)`` where ``voxels`` is
+        ``[P, max_points_per_voxel, C]`` per-voxel point buffers padded
+        with zeros at unfilled slots, ``coords`` is ``[P, 3]`` ``int64``
+        ``(iz, iy, ix)`` voxel indices, and ``num_points`` is ``[P]``
+        ``int64`` point counts per voxel, each in
+        ``[1, max_points_per_voxel]``. ``P`` is the number of non-empty
+        voxels (capped at ``max_voxels`` when set). When no points fall
+        inside ``point_cloud_range``, all three tensors have a leading
+        dimension of zero.
     """
     range_t = torch.as_tensor(point_cloud_range, dtype=torch.float32, device="cpu")
     size_t = torch.as_tensor(voxel_size, dtype=torch.float32, device="cpu")
