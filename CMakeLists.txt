@@ -52,7 +52,10 @@ set(_sources
   ${_csrc}/voxelize/voxelize_cpu.cpp
 )
 if(CUDAToolkit_FOUND)
-  list(APPEND _sources ${_csrc}/iou_box3d/iou_box3d.cu)
+  list(APPEND _sources
+    ${_csrc}/iou_box3d/iou_box3d.cu
+    ${_csrc}/voxelize/voxelize.cu
+  )
 endif()
 add_library(vision3d_ops OBJECT ${_sources})
 target_include_directories(vision3d_ops PRIVATE ${_csrc})
