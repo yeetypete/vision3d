@@ -5,14 +5,18 @@
 #include <torch/csrc/stable/accelerator.h>
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
-#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/tensor.h> // NOLINT(misc-include-cleaner)
 #include <torch/headeronly/core/ScalarType.h>
 #include <torch/headeronly/util/Exception.h>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
-#include <cub/cub.cuh>
+#include <cub/device/device_radix_sort.cuh>
+#include <cub/device/device_run_length_encode.cuh>
+#include <cub/device/device_scan.cuh>
 #include <tuple>
+#include <utility>
 #include "utils/pytorch3d_cutils.h"
 #include "voxelize/voxelize.h"
 
