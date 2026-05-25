@@ -12,6 +12,7 @@ Checks: >
   -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
   -cppcoreguidelines-pro-bounds-pointer-arithmetic,
   -cppcoreguidelines-pro-type-reinterpret-cast,
+  misc-include-cleaner,
   modernize-*,
   -modernize-use-trailing-return-type,
   -modernize-use-nodiscard,
@@ -25,3 +26,7 @@ Checks: >
   -readability-uppercase-literal-suffix,
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'src/vision3d/ops/csrc/.*'
+CheckOptions:
+  # Torch's stable headers re-export from internal *_struct.h / headeronly/* headers.
+  # Ignore so the cleaner only reasons about the top-level torch includes.
+  misc-include-cleaner.IgnoreHeaders: 'torch/csrc/stable/.*_struct\.h;torch/headeronly/.*'
