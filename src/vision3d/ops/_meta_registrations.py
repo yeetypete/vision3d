@@ -20,3 +20,24 @@ def _meta_iou_box3d(boxes1: Tensor, boxes2: Tensor) -> tuple[Tensor, Tensor]:
     vol = boxes1.new_empty((n, m), dtype=torch.float32)
     iou = boxes1.new_empty((n, m), dtype=torch.float32)
     return vol, iou
+
+
+@torch.library.register_fake("vision3d::voxelize")
+def _meta_voxelize(
+    points: Tensor,
+    point_cloud_range: Tensor,
+    voxel_size: Tensor,
+    max_points_per_voxel: int,
+    max_voxels: int,
+) -> tuple[Tensor, Tensor, Tensor]:
+    torch._check(
+        points.dim() == 2,
+        lambda: f"points must be 2D [N, C], got {tuple(points.shape)}",
+    )
+    torch._check(point_cloud_range.numel() == 6, lambda: "point_cloud_range size != 6")
+    torch._check(voxel_size.numel() == 3, lambda: "voxel_size size != 3")
+    c = points.size(1)
+    voxels = points.new_empty((0, max_points_per_voxel, c))
+    coords = points.new_empty((0, 3), dtype=torch.int64)
+    num_points = points.new_empty((0,), dtype=torch.int64)
+    return voxels, coords, num_points

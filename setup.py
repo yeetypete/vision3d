@@ -63,9 +63,12 @@ _CSRC = _ROOT / "src/vision3d/ops/csrc"
 _SOURCES = [
     "src/vision3d/ops/csrc/iou_box3d.cpp",
     "src/vision3d/ops/csrc/iou_box3d/iou_box3d_cpu.cpp",
+    "src/vision3d/ops/csrc/voxelize.cpp",
+    "src/vision3d/ops/csrc/voxelize/voxelize_cpu.cpp",
 ]
 if _HAS_CUDA:
     _SOURCES.append("src/vision3d/ops/csrc/iou_box3d/iou_box3d.cu")
+    _SOURCES.append("src/vision3d/ops/csrc/voxelize/voxelize.cu")
 
 Extension = CUDAExtension if _HAS_CUDA else CppExtension
 
