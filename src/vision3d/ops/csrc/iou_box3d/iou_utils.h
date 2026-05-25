@@ -6,14 +6,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <algorithm>
 #include <array>
-#include <cassert>
-#include <list>
-#include <numeric>
-#include <queue>
+#include <cmath>
 #include <tuple>
-#include <type_traits>
+#include <vector>
 #include "utils/vec3.h"
 
 // dEpsilon: Used in dot products and is used to assess whether two unit vectors
