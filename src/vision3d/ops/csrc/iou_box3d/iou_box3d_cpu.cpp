@@ -8,12 +8,17 @@
 
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
-#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/tensor.h> // NOLINT(misc-include-cleaner)
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <tuple>
+#include <utility>
+#include <vector>
 #include "iou_box3d/iou_box3d.h"
 #include "iou_box3d/iou_utils.h"
 #include "utils/pytorch3d_cutils.h"
+#include "utils/vec3.h"
 
 std::tuple<torch::stable::Tensor, torch::stable::Tensor> IoUBox3DCpu(
     torch::stable::Tensor boxes1,
