@@ -1,2 +1,13 @@
 CompileFlags:
   CompilationDatabase: build
+  Add:
+    - --no-cuda-version-check
+  Remove:
+    - -gencode*
+    - -Xcompiler*
+    - -Xcudafe*
+    - --diag_suppress*
+    - --expt-extended-lambda
+    - --expt-relaxed-constexpr
+    - -forward-unknown-to-host-compiler
+    - --options-file
