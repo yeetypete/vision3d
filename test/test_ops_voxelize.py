@@ -1,5 +1,6 @@
 """Tests for vision3d.ops.voxelize."""
 
+import math
 from collections.abc import Sequence
 
 import pytest
@@ -28,15 +29,23 @@ def _python_voxelize_reference(
     """
     x_min, y_min, z_min, x_max, y_max, z_max = point_cloud_range
     dx, dy, dz = voxel_size
-    nx = round((x_max - x_min) / dx)
-    ny = round((y_max - y_min) / dy)
-    nz = round((z_max - z_min) / dz)
+    # round-half-away-from-zero to match std::lround in the C++/CUDA backends.
+    nx = math.floor((x_max - x_min) / dx + 0.5)
+    ny = math.floor((y_max - y_min) / dy + 0.5)
+    nz = math.floor((z_max - z_min) / dz + 0.5)
 
     p = points.cpu()
     pairs: list[tuple[int, int]] = []
     for i, row in enumerate(p):
         x, y, z = float(row[0]), float(row[1]), float(row[2])
-        if not (x_min <= x < x_max and y_min <= y < y_max and z_min <= z < z_max):
+        if not (
+            math.isfinite(x)
+            and math.isfinite(y)
+            and math.isfinite(z)
+            and x_min <= x < x_max
+            and y_min <= y < y_max
+            and z_min <= z < z_max
+        ):
             continue
         ix = min(int((x - x_min) / dx), nx - 1)
         iy = min(int((y - y_min) / dy), ny - 1)
@@ -226,6 +235,61 @@ class TestVoxelize:
             voxelize(points, (0.0, 0.0, 0.0, 1.0, 1.0, 0.0), (1.0, 1.0, 1.0), 4)
         with pytest.raises(RuntimeError, match="max > min"):
             voxelize(points, (0.0, 0.0, 0.0, 1.0, -1.0, 1.0), (1.0, 1.0, 1.0), 4)
+
+    def test_rejects_non_positive_max_voxels(self, device: torch.device) -> None:
+        points = torch.zeros(4, 4, device=device)
+        points[:, :3] = 0.5
+        with pytest.raises(RuntimeError, match="max_voxels must be positive"):
+            voxelize(
+                points,
+                (0.0, 0.0, 0.0, 1.0, 1.0, 1.0),
+                (1.0, 1.0, 1.0),
+                max_points_per_voxel=4,
+                max_voxels=0,
+            )
+
+    def test_non_integer_range_ratio_matches_reference(
+        self, device: torch.device
+    ) -> None:
+        # (x_max - x_min) / dx = 10 / 3 = 3.333... -> nx = 3. Points landing
+        # in the partial trailing cell are clamped to ix = nx - 1 = 2. Both
+        # backends and the reference must agree on this clamp.
+        torch.manual_seed(7)
+        points = torch.rand(300, 4, device=device) * 10.0
+        args = ((0.0, 0.0, 0.0, 10.0, 10.0, 10.0), (3.0, 3.0, 3.0), 8)
+        voxels, coords, num_points = voxelize(points, *args)
+        ref_voxels, ref_coords, ref_num = _python_voxelize_reference(points, *args)
+        torch.testing.assert_close(voxels.cpu(), ref_voxels.cpu())
+        torch.testing.assert_close(coords.cpu(), ref_coords.cpu())
+        torch.testing.assert_close(num_points.cpu(), ref_num.cpu())
+        # Sanity: the clamp logic actually fired (we saw an ix == 2).
+        assert (coords[:, 2] == 2).any()
+
+    def test_non_finite_coords_dropped(self, device: torch.device) -> None:
+        nan = float("nan")
+        inf = float("inf")
+        points = torch.tensor(
+            [
+                [0.5, 0.5, 0.5, 1.0],  # in-range, kept
+                [nan, 0.5, 0.5, 2.0],  # NaN x, dropped
+                [0.5, nan, 0.5, 3.0],  # NaN y, dropped
+                [0.5, 0.5, nan, 4.0],  # NaN z, dropped
+                [inf, 0.5, 0.5, 5.0],  # +Inf x, dropped
+                [-inf, 0.5, 0.5, 6.0],  # -Inf x, dropped
+                [0.5, 0.5, 0.5, 7.0],  # in-range, kept
+            ],
+            device=device,
+        )
+        voxels, coords, num_points = voxelize(
+            points, (0.0, 0.0, 0.0, 1.0, 1.0, 1.0), (1.0, 1.0, 1.0), 8
+        )
+        assert coords.shape[0] == 1
+        assert int(num_points.item()) == 2
+        # Two surviving points are at slots 0 and 1, with feature col == 1.0
+        # and 7.0 respectively (input order preserved).
+        torch.testing.assert_close(
+            voxels[0, :2, 3].cpu(), torch.tensor([1.0, 7.0], device="cpu")
+        )
 
     @pytest.mark.skip_device("cpu")
     def test_cpu_cuda_parity(self) -> None:
