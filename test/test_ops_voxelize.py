@@ -14,11 +14,17 @@ def _python_voxelize_reference(
     point_cloud_range: Sequence[float],
     voxel_size: Sequence[float],
     max_points_per_voxel: int,
+    max_voxels: int | None = None,
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """Pure-Python voxelize reference implementation matching the C++ op signature.
+    """Pure-Python voxelize reference matching the C++/CUDA op contract.
+
+    Voxels are returned in ascending flat-cell-id (lexicographic ``(iz,
+    iy, ix)``) order. Within a voxel, points are stored in input order
+    up to ``max_points_per_voxel``. The cap on number of voxels picks
+    the lowest-cell-id winners.
 
     Returns:
-        ``(voxels, coords, num_points)`` matching the C++ op's shapes.
+        ``(voxels, coords, num_points)`` matching the op's shapes.
     """
     x_min, y_min, z_min, x_max, y_max, z_max = point_cloud_range
     dx, dy, dz = voxel_size
@@ -27,53 +33,58 @@ def _python_voxelize_reference(
     nz = round((z_max - z_min) / dz)
 
     p = points.cpu()
-    cell_to_voxel: dict[tuple[int, int, int], int] = {}
-    voxel_points: list[list[Tensor]] = []
-    for row in p:
+    pairs: list[tuple[int, int]] = []
+    for i, row in enumerate(p):
         x, y, z = float(row[0]), float(row[1]), float(row[2])
         if not (x_min <= x < x_max and y_min <= y < y_max and z_min <= z < z_max):
             continue
         ix = min(int((x - x_min) / dx), nx - 1)
         iy = min(int((y - y_min) / dy), ny - 1)
         iz = min(int((z - z_min) / dz), nz - 1)
-        key = (iz, iy, ix)
-        if key not in cell_to_voxel:
-            cell_to_voxel[key] = len(cell_to_voxel)
-            voxel_points.append([])
-        v = cell_to_voxel[key]
-        if len(voxel_points[v]) < max_points_per_voxel:
-            voxel_points[v].append(row)
+        pairs.append((iz * ny * nx + iy * nx + ix, i))
+    pairs.sort(key=lambda kv: kv[0])
 
-    pcount = len(cell_to_voxel)
+    unique_cells: list[int] = []
+    voxel_points: list[list[int]] = []
+    prev = -1
+    for cell, pt in pairs:
+        if cell != prev:
+            if max_voxels is not None and len(unique_cells) >= max_voxels:
+                break
+            unique_cells.append(cell)
+            voxel_points.append([])
+            prev = cell
+        if len(voxel_points[-1]) < max_points_per_voxel:
+            voxel_points[-1].append(pt)
+
+    pcount = len(unique_cells)
     c = p.shape[1]
     voxels = torch.zeros(pcount, max_points_per_voxel, c)
-    coords = torch.empty(pcount, 3, dtype=torch.int64)
+    coords = torch.zeros(pcount, 3, dtype=torch.int64)
     num_points = torch.zeros(pcount, dtype=torch.int64)
-    for (iz, iy, ix), v in cell_to_voxel.items():
-        coords[v] = torch.tensor([iz, iy, ix], dtype=torch.int64)
+    for v, cell in enumerate(unique_cells):
+        coords[v] = torch.tensor(
+            [cell // (ny * nx), (cell // nx) % ny, cell % nx], dtype=torch.int64
+        )
         pts = voxel_points[v]
         num_points[v] = len(pts)
-        for slot, pt in enumerate(pts):
-            voxels[v, slot] = pt
+        for slot, idx in enumerate(pts):
+            voxels[v, slot] = p[idx]
     return voxels, coords, num_points
 
 
-@pytest.mark.skip_device("cuda")  # TODO: remove when CUDA kernel is implemented
 class TestVoxelize:
-    """Behavior tests for the voxelize op."""
+    """Behavior tests for the voxelize op (CPU and CUDA must agree exactly)."""
 
     def test_basic_3d_voxel_matches_reference(self, device: torch.device) -> None:
         torch.manual_seed(0)
-        points = torch.rand(500, 4, device=device) * 10 - 5  # range [-5, 5]
+        points = torch.rand(500, 4, device=device) * 10 - 5
         args = ((-5.0, -5.0, -5.0, 5.0, 5.0, 5.0), (1.0, 1.0, 1.0), 8)
         voxels, coords, num_points = voxelize(points, *args)
-        ref_voxels, ref_coords, ref_num = _python_voxelize_reference(
-            points,
-            *args,
-        )
-        torch.testing.assert_close(voxels.cpu(), ref_voxels)
-        torch.testing.assert_close(coords.cpu(), ref_coords)
-        torch.testing.assert_close(num_points.cpu(), ref_num)
+        ref_voxels, ref_coords, ref_num = _python_voxelize_reference(points, *args)
+        torch.testing.assert_close(voxels.cpu(), ref_voxels.cpu())
+        torch.testing.assert_close(coords.cpu(), ref_coords.cpu())
+        torch.testing.assert_close(num_points.cpu(), ref_num.cpu())
 
     def test_pillar_mode_has_single_z_slice(self, device: torch.device) -> None:
         torch.manual_seed(1)
@@ -81,14 +92,13 @@ class TestVoxelize:
         _, coords, _ = voxelize(
             points,
             point_cloud_range=(-5.0, -5.0, -5.0, 5.0, 5.0, 5.0),
-            voxel_size=(1.0, 1.0, 10.0),  # dz spans the full z range -> nz=1
+            voxel_size=(1.0, 1.0, 10.0),  # dz spans the full z range
             max_points_per_voxel=8,
         )
         assert coords.shape[1] == 3
         assert torch.equal(coords[:, 0].unique(), torch.tensor([0], device=device))
 
     def test_out_of_range_points_dropped(self, device: torch.device) -> None:
-        # Half the points are far outside the range box.
         in_pts = torch.tensor(
             [[0.5, 0.5, 0.5, 0.0], [1.5, 1.5, 1.5, 0.0]], device=device
         )
@@ -99,12 +109,11 @@ class TestVoxelize:
         _, _, num_points = voxelize(
             points, (0.0, 0.0, 0.0, 2.0, 2.0, 2.0), (1.0, 1.0, 1.0), 8
         )
-        assert int(num_points.sum()) == 2  # only the two in-range points
+        assert int(num_points.sum()) == 2
 
     def test_max_points_cap_drops_surplus(self, device: torch.device) -> None:
-        # 10 points all landing in the same single voxel.
         points = torch.zeros(10, 4, device=device)
-        points[:, :3] = 0.5  # everything in cell (0, 0, 0)
+        points[:, :3] = 0.5
         _, _, num_points = voxelize(
             points, (0.0, 0.0, 0.0, 1.0, 1.0, 1.0), (1.0, 1.0, 1.0), 4
         )
@@ -128,10 +137,9 @@ class TestVoxelize:
         assert coords.shape[0] == 0
         assert num_points.shape[0] == 0
 
-    def test_max_voxels_caps_unique_cells(self, device: torch.device) -> None:
-        # 10 input points, each landing in its own voxel. Cap at 4 -> only the
-        # first 4 voxels in input order should survive. The trailing 6 points'
-        # would-be voxels are dropped.
+    def test_max_voxels_caps_lowest_cell_ids(self, device: torch.device) -> None:
+        # 10 input points, each landing in its own voxel (ix = 0..9). Cap at 4
+        # keeps the lowest 4 cell ids. With this layout, ix = 0..3.
         points = torch.stack(
             [torch.tensor([i + 0.5, 0.5, 0.5, 0.0]) for i in range(10)]
         ).to(device)
@@ -143,13 +151,10 @@ class TestVoxelize:
             max_voxels=4,
         )
         assert voxels.shape[0] == 4
-        assert coords.shape[0] == 4
         assert num_points.tolist() == [1, 1, 1, 1]
-        # First four voxels' ix should be 0..3 (input order preserved).
         assert coords[:, 2].tolist() == [0, 1, 2, 3]
 
     def test_max_voxels_none_means_no_cap(self, device: torch.device) -> None:
-        # 50 unique-cell points, no cap: every cell is kept.
         points = torch.stack(
             [torch.tensor([i + 0.5, 0.5, 0.5, 0.0]) for i in range(50)]
         ).to(device)
@@ -165,8 +170,8 @@ class TestVoxelize:
     def test_max_voxels_keeps_in_voxel_points_after_cap(
         self, device: torch.device
     ) -> None:
-        # Pattern: voxels A, B, A, B, A, B, C, D. Cap=2 keeps {A, B} and
-        # both A's later points go into A; C and D are dropped entirely.
+        # Cells A=ix0, B=ix1, C=ix2, D=ix3. Cap=2 keeps the lowest two cell
+        # ids (A and B). A has 3 points and B has 2. C and D are dropped.
         points = torch.tensor(
             [
                 [0.5, 0.5, 0.5, 0.0],  # A
@@ -174,8 +179,8 @@ class TestVoxelize:
                 [0.5, 0.5, 0.5, 0.0],  # A again
                 [1.5, 0.5, 0.5, 0.0],  # B again
                 [0.5, 0.5, 0.5, 0.0],  # A third time
-                [2.5, 0.5, 0.5, 0.0],  # C - dropped (cap hit)
-                [3.5, 0.5, 0.5, 0.0],  # D - dropped (cap hit)
+                [2.5, 0.5, 0.5, 0.0],  # C - dropped
+                [3.5, 0.5, 0.5, 0.0],  # D - dropped
             ],
             device=device,
         )
@@ -187,11 +192,9 @@ class TestVoxelize:
             max_voxels=2,
         )
         assert voxels.shape[0] == 2
-        assert num_points.tolist() == [3, 2]  # A got 3, B got 2
+        assert num_points.tolist() == [3, 2]
 
     def test_extra_feature_channels_preserved(self, device: torch.device) -> None:
-        # 6-channel points: xyz + 3 extra. The op must echo the extras
-        # into voxels[:, :, 3:6] unchanged.
         points = torch.tensor(
             [[0.1, 0.1, 0.1, 7.0, 8.0, 9.0]], device=device, dtype=torch.float32
         )
@@ -201,3 +204,21 @@ class TestVoxelize:
         assert voxels.shape == (1, 4, 6)
         assert num_points.item() == 1
         torch.testing.assert_close(voxels[0, 0], points[0])
+
+    @pytest.mark.skip_device("cpu")
+    def test_cpu_cuda_parity(self) -> None:
+        # Stress test on a larger, more realistic input. CPU and CUDA must
+        # produce bit-identical outputs (same row order, same per-voxel
+        # point order).
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        torch.manual_seed(42)
+        # Construct on CPU explicitly: the conftest device fixture sets a
+        # default-device context, but here we want both backends.
+        points_cpu = torch.rand(20_000, 4, device="cpu") * 100 - 30
+        args = ((0.0, -40.0, -3.0, 70.0, 40.0, 1.0), (0.5, 0.5, 4.0), 32)
+        v_cpu, c_cpu, n_cpu = voxelize(points_cpu, *args)
+        v_gpu, c_gpu, n_gpu = voxelize(points_cpu.cuda(), *args)
+        torch.testing.assert_close(c_cpu, c_gpu.cpu())
+        torch.testing.assert_close(n_cpu, n_gpu.cpu())
+        torch.testing.assert_close(v_cpu, v_gpu.cpu())
