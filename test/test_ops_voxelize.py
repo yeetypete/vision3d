@@ -205,6 +205,28 @@ class TestVoxelize:
         assert num_points.item() == 1
         torch.testing.assert_close(voxels[0, 0], points[0])
 
+    def test_rejects_non_float32_points(self, device: torch.device) -> None:
+        points = torch.zeros(4, 4, device=device, dtype=torch.float64)
+        points[:, :3] = 0.5
+        with pytest.raises(RuntimeError, match="float32"):
+            voxelize(points, (0.0, 0.0, 0.0, 1.0, 1.0, 1.0), (1.0, 1.0, 1.0), 4)
+
+    def test_rejects_non_positive_voxel_size(self, device: torch.device) -> None:
+        points = torch.zeros(4, 4, device=device)
+        points[:, :3] = 0.5
+        with pytest.raises(RuntimeError, match="voxel_size must be positive"):
+            voxelize(points, (0.0, 0.0, 0.0, 1.0, 1.0, 1.0), (0.0, 1.0, 1.0), 4)
+        with pytest.raises(RuntimeError, match="voxel_size must be positive"):
+            voxelize(points, (0.0, 0.0, 0.0, 1.0, 1.0, 1.0), (1.0, -0.5, 1.0), 4)
+
+    def test_rejects_degenerate_range(self, device: torch.device) -> None:
+        points = torch.zeros(4, 4, device=device)
+        points[:, :3] = 0.5
+        with pytest.raises(RuntimeError, match="max > min"):
+            voxelize(points, (0.0, 0.0, 0.0, 1.0, 1.0, 0.0), (1.0, 1.0, 1.0), 4)
+        with pytest.raises(RuntimeError, match="max > min"):
+            voxelize(points, (0.0, 0.0, 0.0, 1.0, -1.0, 1.0), (1.0, 1.0, 1.0), 4)
+
     @pytest.mark.skip_device("cpu")
     def test_cpu_cuda_parity(self) -> None:
         # Stress test on a larger, more realistic input. CPU and CUDA must
