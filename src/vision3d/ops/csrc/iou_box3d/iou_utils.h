@@ -6,42 +6,39 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <assert.h>
-#include <algorithm>
-#include <list>
-#include <numeric>
-#include <queue>
+#include <array>
+#include <cmath>
 #include <tuple>
-#include <type_traits>
+#include <vector>
 #include "utils/vec3.h"
 
 // dEpsilon: Used in dot products and is used to assess whether two unit vectors
 // are orthogonal (or coplanar). It's an epsilon on cos(θ).
 // With dEpsilon = 0.001, two unit vectors are considered co-planar
 // if their θ = 2.5 deg.
-const auto dEpsilon = 1e-3;
+constexpr float dEpsilon = 1e-3f;
 // aEpsilon: Used once in main function to check for small face areas
-const auto aEpsilon = 1e-4;
+constexpr float aEpsilon = 1e-4f;
 // kEpsilon: Used only for norm(u) = u/max(||u||, kEpsilon)
-const auto kEpsilon = 1e-8;
+constexpr float kEpsilon = 1e-8f;
 
 /*
-_PLANES and _TRIS define the 4- and 3-connectivity
+PLANES and TRIS define the 4- and 3-connectivity
 of the 8 box corners.
-_PLANES gives the quad faces of the 3D box
-_TRIS gives the triangle faces of the 3D box
+PLANES gives the quad faces of the 3D box
+TRIS gives the triangle faces of the 3D box
 */
-const int NUM_PLANES = 6;
-const int NUM_TRIS = 12;
-const int _PLANES[6][4] = {
+constexpr int NUM_PLANES = 6;
+constexpr int NUM_TRIS = 12;
+constexpr std::array<std::array<int, 4>, NUM_PLANES> PLANES = {{
     {0, 1, 2, 3},
     {3, 2, 6, 7},
     {0, 1, 5, 4},
     {0, 3, 7, 4},
     {1, 5, 6, 2},
     {4, 5, 6, 7},
-};
-const int _TRIS[12][3] = {
+}};
+constexpr std::array<std::array<int, 3>, NUM_TRIS> TRIS = {{
     {0, 1, 2},
     {0, 3, 2},
     {4, 5, 6},
@@ -54,7 +51,7 @@ const int _TRIS[12][3] = {
     {3, 6, 7},
     {0, 1, 5},
     {0, 4, 5},
-};
+}};
 
 // Create a new data type for representing the
 // verts for each face which can be triangle or plane.
@@ -74,10 +71,8 @@ inline vec3<float> ExtractVertsPlane(
     const Box& box,
     const int plane_idx,
     const int vert_idx) {
-  return vec3<float>(
-      box[_PLANES[plane_idx][vert_idx]][0],
-      box[_PLANES[plane_idx][vert_idx]][1],
-      box[_PLANES[plane_idx][vert_idx]][2]);
+  const int corner = PLANES.at(plane_idx).at(vert_idx);
+  return vec3<float>(box[corner][0], box[corner][1], box[corner][2]);
 }
 
 // Args
@@ -93,10 +88,8 @@ inline vec3<float> ExtractVertsTri(
     const Box& box,
     const int tri_idx,
     const int vert_idx) {
-  return vec3<float>(
-      box[_TRIS[tri_idx][vert_idx]][0],
-      box[_TRIS[tri_idx][vert_idx]][1],
-      box[_TRIS[tri_idx][vert_idx]][2]);
+  const int corner = TRIS.at(tri_idx).at(vert_idx);
+  return vec3<float>(box[corner][0], box[corner][1], box[corner][2]);
 }
 
 // Args
@@ -260,7 +253,7 @@ inline float FaceArea(const std::vector<vec3<float>>& tri) {
   const vec3<float> v1 = tri[1];
   const vec3<float> v2 = tri[2];
   const vec3<float> n = cross(v1 - v0, v2 - v0);
-  return norm(n) / 2.0;
+  return norm(n) / 2.0f;
 }
 
 // The normal of a box plane defined by the verts in `plane` such that it
@@ -315,18 +308,18 @@ inline vec3<float> PlaneNormalDirection(
 inline float BoxVolume(
     const face_verts& box_tris,
     const vec3<float>& box_center) {
-  float box_vol = 0.0;
+  float box_vol = 0.0f;
   // Iterate through each triange, calculate the area of the
   // tetrahedron formed with the box_center and sum them
-  for (size_t t = 0; t < box_tris.size(); ++t) {
+  for (const auto& tri : box_tris) {
     // Subtract the center:
-    const vec3<float> v0 = box_tris[t][0] - box_center;
-    const vec3<float> v1 = box_tris[t][1] - box_center;
-    const vec3<float> v2 = box_tris[t][2] - box_center;
+    const vec3<float> v0 = tri[0] - box_center;
+    const vec3<float> v1 = tri[1] - box_center;
+    const vec3<float> v2 = tri[2] - box_center;
 
     // Compute the area
     const float area = dot(v0, cross(v1, v2));
-    const float vol = std::abs(area) / 6.0;
+    const float vol = std::abs(area) / 6.0f;
     box_vol = box_vol + vol;
   }
   return box_vol;
@@ -351,7 +344,7 @@ inline vec3<float> BoxCenter(const Box& box) {
     cz += box[i][2];
   }
   constexpr float k = 1.0f / 8.0f;
-  return vec3<float>(cx * k, cy * k, cz * k);
+  return {cx * k, cy * k, cz * k};
 }
 
 // Compute the polyhedron center as the mean of the face centers
@@ -365,19 +358,19 @@ inline vec3<float> BoxCenter(const Box& box) {
 //    vec3: coordinates of the center of the polyhedron
 //
 inline vec3<float> PolyhedronCenter(const face_verts& tris) {
-  float x = 0.0;
-  float y = 0.0;
-  float z = 0.0;
-  const int num_tris = tris.size();
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  const auto num_tris = static_cast<float>(tris.size());
 
   // Find the center point of each face
-  for (int t = 0; t < num_tris; ++t) {
-    const vec3<float> v0 = tris[t][0];
-    const vec3<float> v1 = tris[t][1];
-    const vec3<float> v2 = tris[t][2];
-    const float x_face = (v0.x + v1.x + v2.x) / 3.0;
-    const float y_face = (v0.y + v1.y + v2.y) / 3.0;
-    const float z_face = (v0.z + v1.z + v2.z) / 3.0;
+  for (const auto& tri : tris) {
+    const vec3<float> v0 = tri[0];
+    const vec3<float> v1 = tri[1];
+    const vec3<float> v2 = tri[2];
+    const float x_face = (v0.x + v1.x + v2.x) / 3.0f;
+    const float y_face = (v0.y + v1.y + v2.y) / 3.0f;
+    const float z_face = (v0.z + v1.z + v2.z) / 3.0f;
     x = x + x_face;
     y = y + y_face;
     z = z + z_face;
@@ -724,12 +717,12 @@ inline face_verts BoxIntersections(
     // Iterate through triangles in tris
     // Create intermediate vector to store the updated tris
     face_verts tri_verts_updated;
-    for (size_t t = 0; t < out_tris.size(); ++t) {
+    for (const auto& tri : out_tris) {
       // Clip tri by plane
-      const face_verts tri_updated = ClipTriByPlane(planes[p], out_tris[t], n2);
+      const face_verts tri_updated = ClipTriByPlane(planes[p], tri, n2);
       // Add to the tri_verts_updated output if not empty
-      for (size_t v = 0; v < tri_updated.size(); ++v) {
-        tri_verts_updated.push_back(tri_updated[v]);
+      for (const auto& v : tri_updated) {
+        tri_verts_updated.push_back(v);
       }
     }
     // Update the tris
