@@ -34,3 +34,13 @@ jobs:
         run: uv run ruff format --check
       - name: Pyrefly typecheck
         run: uv run pyrefly check
+      - name: Install clang-tidy 22
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key \
+            | sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/noble/ llvm-toolchain-noble-22 main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-tidy-22 clang-tools-22
+      - name: clang-tidy
+        run: make tidy
