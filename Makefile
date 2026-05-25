@@ -9,6 +9,8 @@ help:
 	@echo "Targets:"
 	@echo "  tidy         Run clang-tidy on C++ sources (CUDA via clangd in IDE)"
 	@echo "  clean-build  Remove $(BUILD)/"
+	@echo ""
+	@echo "Requires clang-tidy >= 22 (override with CLANG_TIDY=<binary>)."
 
 $(BUILD)/compile_commands.json: CMakeLists.txt
 	cmake -B $(BUILD)

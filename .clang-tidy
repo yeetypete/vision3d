@@ -1,4 +1,4 @@
-# Strict check set adapted from pytorch's .clang-tidy. Run via ``make tidy``.
+# Strict check set for vision3d C++ sources. Run via ``make tidy``.
 # Note: .cu files are not linted by clang-tidy here (nvcc command lines confuse
 # clang)
 Checks: >
@@ -28,5 +28,5 @@ WarningsAsErrors: '*'
 HeaderFilterRegex: 'src/vision3d/ops/csrc/.*'
 CheckOptions:
   # Torch's stable headers re-export from internal *_struct.h / headeronly/* headers.
-  # Ignore so the cleaner only reasons about the top-level torch includes.
+  # Ignore so the cleaner only checks the top-level torch includes.
   misc-include-cleaner.IgnoreHeaders: 'torch/csrc/stable/.*_struct\.h;torch/headeronly/.*'
