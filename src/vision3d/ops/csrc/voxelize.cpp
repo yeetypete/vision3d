@@ -6,5 +6,5 @@
 
 STABLE_TORCH_LIBRARY_FRAGMENT(vision3d, m) {
   m.def(
-      "voxelize(Tensor points, Tensor point_cloud_range, Tensor voxel_size, int max_points_per_voxel, int? max_voxels) -> (Tensor, Tensor, Tensor)");
+      "voxelize(Tensor points, float[] point_cloud_range, float[] voxel_size, int max_points_per_voxel, int? max_voxels) -> (Tensor, Tensor, Tensor)");
 }

@@ -57,12 +57,10 @@ def voxelize(
         inside ``point_cloud_range``, all three tensors have a leading
         dimension of zero.
     """
-    range_t = torch.as_tensor(point_cloud_range, dtype=torch.float32, device="cpu")
-    size_t = torch.as_tensor(voxel_size, dtype=torch.float32, device="cpu")
     return torch.ops.vision3d.voxelize(
         points,
-        range_t,
-        size_t,
+        point_cloud_range,
+        voxel_size,
         max_points_per_voxel,
         max_voxels,
     )

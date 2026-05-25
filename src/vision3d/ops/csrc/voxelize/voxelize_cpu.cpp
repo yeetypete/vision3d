@@ -23,27 +23,24 @@
 std::tuple<torch::stable::Tensor, torch::stable::Tensor, torch::stable::Tensor>
 VoxelizeCpu(
     torch::stable::Tensor points,
-    torch::stable::Tensor point_cloud_range,
-    torch::stable::Tensor voxel_size,
+    std::vector<double> point_cloud_range,
+    std::vector<double> voxel_size,
     int64_t max_points_per_voxel,
     std::optional<int64_t> max_voxels) {
   CHECK_CPU(points);
-  CHECK_CPU(point_cloud_range);
-  CHECK_CPU(voxel_size);
   STD_TORCH_CHECK(
       points.scalar_type() == torch::headeronly::ScalarType::Float,
       "points must be float32");
   STD_TORCH_CHECK(
-      point_cloud_range.scalar_type() == torch::headeronly::ScalarType::Float,
-      "point_cloud_range must be float32");
-  STD_TORCH_CHECK(
-      voxel_size.scalar_type() == torch::headeronly::ScalarType::Float,
-      "voxel_size must be float32");
-  STD_TORCH_CHECK(
       points.dim() == 2, "points must be 2D [N, C], got ", points.dim(), "D");
   STD_TORCH_CHECK(
-      point_cloud_range.numel() == 6, "point_cloud_range must have 6 elements");
-  STD_TORCH_CHECK(voxel_size.numel() == 3, "voxel_size must have 3 elements");
+      point_cloud_range.size() == 6,
+      "point_cloud_range must have 6 elements, got ",
+      point_cloud_range.size());
+  STD_TORCH_CHECK(
+      voxel_size.size() == 3,
+      "voxel_size must have 3 elements, got ",
+      voxel_size.size());
   STD_TORCH_CHECK(
       max_points_per_voxel > 0, "max_points_per_voxel must be positive");
   STD_TORCH_CHECK(
@@ -51,8 +48,6 @@ VoxelizeCpu(
       "max_voxels must be positive or unset");
 
   points = torch::stable::contiguous(points);
-  point_cloud_range = torch::stable::contiguous(point_cloud_range);
-  voxel_size = torch::stable::contiguous(voxel_size);
 
   const int64_t N = points.size(0);
   const int64_t C = points.size(1);
@@ -64,11 +59,15 @@ VoxelizeCpu(
       N,
       ")");
 
-  const float* pcr = point_cloud_range.const_data_ptr<float>();
-  const float* vs = voxel_size.const_data_ptr<float>();
-  const float x_min = pcr[0], y_min = pcr[1], z_min = pcr[2];
-  const float x_max = pcr[3], y_max = pcr[4], z_max = pcr[5];
-  const float dx = vs[0], dy = vs[1], dz = vs[2];
+  const auto x_min = static_cast<float>(point_cloud_range[0]);
+  const auto y_min = static_cast<float>(point_cloud_range[1]);
+  const auto z_min = static_cast<float>(point_cloud_range[2]);
+  const auto x_max = static_cast<float>(point_cloud_range[3]);
+  const auto y_max = static_cast<float>(point_cloud_range[4]);
+  const auto z_max = static_cast<float>(point_cloud_range[5]);
+  const auto dx = static_cast<float>(voxel_size[0]);
+  const auto dy = static_cast<float>(voxel_size[1]);
+  const auto dz = static_cast<float>(voxel_size[2]);
   STD_TORCH_CHECK(
       dx > 0.0f && dy > 0.0f && dz > 0.0f,
       "voxel_size must be positive on every axis, got (",

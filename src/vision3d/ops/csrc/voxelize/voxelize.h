@@ -18,9 +18,8 @@
 //     points: [N, C] float32 point cloud. The first three columns must be
 //         (x, y, z). Remaining columns may be arbitrary per-point features.
 //         Points outside point_cloud_range along any axis are discarded.
-//     point_cloud_range: [6] float32 (x_min, y_min, z_min, x_max, y_max,
-//         z_max).
-//     voxel_size: [3] float32 (dx, dy, dz) voxel size.
+//     point_cloud_range: (x_min, y_min, z_min, x_max, y_max, z_max).
+//     voxel_size: (dx, dy, dz) voxel size.
 //     max_points_per_voxel: Cap on points stored per voxel. Surplus points
 //         are dropped in input order.
 //     max_voxels: Optional cap on the number of output voxels. std::nullopt
@@ -43,19 +42,20 @@
 #include <cstdint>
 #include <optional>
 #include <tuple>
+#include <vector>
 
 std::tuple<torch::stable::Tensor, torch::stable::Tensor, torch::stable::Tensor>
 VoxelizeCpu(
     torch::stable::Tensor points,
-    torch::stable::Tensor point_cloud_range,
-    torch::stable::Tensor voxel_size,
+    std::vector<double> point_cloud_range,
+    std::vector<double> voxel_size,
     int64_t max_points_per_voxel,
     std::optional<int64_t> max_voxels);
 
 std::tuple<torch::stable::Tensor, torch::stable::Tensor, torch::stable::Tensor>
 VoxelizeCuda(
     torch::stable::Tensor points,
-    torch::stable::Tensor point_cloud_range,
-    torch::stable::Tensor voxel_size,
+    std::vector<double> point_cloud_range,
+    std::vector<double> voxel_size,
     int64_t max_points_per_voxel,
     std::optional<int64_t> max_voxels);
