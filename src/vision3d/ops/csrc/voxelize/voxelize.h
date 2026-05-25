@@ -11,7 +11,7 @@
 //         input order).
 //     max_voxels: cap on the number of output voxels, or -1 for no cap.
 //         When the cap bites, points that would have created a new voxel
-//         beyond ``max_voxels`` are silently dropped; points landing in
+//         beyond ``max_voxels`` are silently dropped. Points landing in
 //         already-allocated voxels still get written.
 //
 // Outputs:

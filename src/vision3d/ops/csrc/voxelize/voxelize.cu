@@ -237,7 +237,7 @@ VoxelizeCuda(
 
   // Run-length encode the sorted keys -> (unique_cells, counts, num_runs).
   // The output includes a final UINT64_MAX run for out-of-range points if
-  // any were present; trimmed on host below.
+  // any were present. Trimmed on host below.
   auto unique_cells = torch::stable::new_empty(
       points, {N}, torch::headeronly::ScalarType::UInt64);
   auto counts =

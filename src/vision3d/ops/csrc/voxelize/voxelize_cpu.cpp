@@ -13,7 +13,7 @@ namespace {
 
 // Sort-based CPU voxelize. Matches the CUDA implementation's output
 // ordering (voxel rows sorted by ascending flat cell id).
-//   1. Compute flat cell id per point; drop out-of-range points.
+//   1. Compute flat cell id per point. Drop out-of-range points.
 //   2. Sort the kept (cell_id, point_idx) pairs by cell_id (stable).
 //   3. Walk the sorted pairs to dedup into voxels, capped by max_voxels
 //      and max_points_per_voxel.
