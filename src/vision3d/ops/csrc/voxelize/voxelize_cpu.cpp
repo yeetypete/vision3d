@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -25,7 +26,7 @@ VoxelizeCpu(
     torch::stable::Tensor point_cloud_range,
     torch::stable::Tensor voxel_size,
     int64_t max_points_per_voxel,
-    int64_t max_voxels) {
+    std::optional<int64_t> max_voxels) {
   CHECK_CPU(points);
   CHECK_CPU(point_cloud_range);
   CHECK_CPU(voxel_size);
@@ -46,8 +47,8 @@ VoxelizeCpu(
   STD_TORCH_CHECK(
       max_points_per_voxel > 0, "max_points_per_voxel must be positive");
   STD_TORCH_CHECK(
-      max_voxels == -1 || max_voxels > 0,
-      "max_voxels must be -1 (no cap) or positive");
+      !max_voxels.has_value() || *max_voxels > 0,
+      "max_voxels must be positive or unset");
 
   points = torch::stable::contiguous(points);
   point_cloud_range = torch::stable::contiguous(point_cloud_range);
@@ -106,7 +107,10 @@ VoxelizeCpu(
     const float x = pts[i * C + 0];
     const float y = pts[i * C + 1];
     const float z = pts[i * C + 2];
-    if (x < x_min || x >= x_max || y < y_min || y >= y_max || z < z_min ||
+    // !isfinite catches NaN (where every comparison would be false) and
+    // +/-Inf (which would otherwise blow up the integer cast below).
+    if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z) ||
+        x < x_min || x >= x_max || y < y_min || y >= y_max || z < z_min ||
         z >= z_max) {
       continue;
     }
@@ -134,8 +138,8 @@ VoxelizeCpu(
   int64_t prev_cell = -1;
   for (const auto& [cell, pt] : sorted) {
     if (cell != prev_cell) {
-      if (max_voxels >= 0 &&
-          std::cmp_greater_equal(unique_cells.size(), max_voxels)) {
+      if (max_voxels.has_value() &&
+          std::cmp_greater_equal(unique_cells.size(), *max_voxels)) {
         break;
       }
       unique_cells.push_back(cell);

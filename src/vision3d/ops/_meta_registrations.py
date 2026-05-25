@@ -28,7 +28,7 @@ def _meta_voxelize(
     point_cloud_range: Tensor,
     voxel_size: Tensor,
     max_points_per_voxel: int,
-    max_voxels: int,
+    max_voxels: int | None,
 ) -> tuple[Tensor, Tensor, Tensor]:
     torch._check(
         points.dim() == 2,

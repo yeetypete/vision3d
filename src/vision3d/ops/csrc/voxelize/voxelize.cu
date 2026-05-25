@@ -15,6 +15,7 @@
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_run_length_encode.cuh>
 #include <cub/device/device_scan.cuh>
+#include <optional>
 #include <tuple>
 #include <utility>
 #include "utils/pytorch3d_cutils.h"
@@ -50,8 +51,9 @@ __global__ void compute_cell_ids_kernel(
     const float x = points[i * C + 0];
     const float y = points[i * C + 1];
     const float z = points[i * C + 2];
-    if (x < x_min || x >= x_max || y < y_min || y >= y_max || z < z_min ||
-        z >= z_max) {
+
+    if (!isfinite(x) || !isfinite(y) || !isfinite(z) || x < x_min ||
+        x >= x_max || y < y_min || y >= y_max || z < z_min || z >= z_max) {
       keys[i] = OUT_OF_RANGE;
       continue;
     }
@@ -122,7 +124,7 @@ VoxelizeCuda(
     torch::stable::Tensor point_cloud_range,
     torch::stable::Tensor voxel_size,
     int64_t max_points_per_voxel,
-    int64_t max_voxels) {
+    std::optional<int64_t> max_voxels) {
   CHECK_CUDA(points);
   CHECK_CPU(point_cloud_range);
   CHECK_CPU(voxel_size);
@@ -143,8 +145,8 @@ VoxelizeCuda(
   STD_TORCH_CHECK(
       max_points_per_voxel > 0, "max_points_per_voxel must be positive");
   STD_TORCH_CHECK(
-      max_voxels == -1 || max_voxels > 0,
-      "max_voxels must be -1 (no cap) or positive");
+      !max_voxels.has_value() || *max_voxels > 0,
+      "max_voxels must be positive or unset");
 
   points = torch::stable::contiguous(points);
   point_cloud_range = torch::stable::contiguous(point_cloud_range);
@@ -313,41 +315,42 @@ VoxelizeCuda(
       static_cast<int>(N),
       stream);
 
-  // Sync to read num_runs and the trailing unique key (to detect OOR run).
-  int32_t num_runs_host = 0;
-  uint64_t last_unique = 0;
+  // One round-trip to the host: num_runs (the RLE result) plus the largest
+  // sorted key. Since OUT_OF_RANGE = UINT64_MAX sorts to the very end,
+  // ``keys_out[N - 1]`` tells us whether the final RLE run is the OOR
+  // sentinel without a second sync.
+  struct alignas(8) HostState {
+    int32_t num_runs;
+    uint64_t last_sorted_key;
+  };
+  HostState host{};
   STD_TORCH_CHECK(
       cudaMemcpyAsync(
-          &num_runs_host,
+          &host.num_runs,
           num_runs.const_data_ptr<int32_t>(),
           sizeof(int32_t),
           cudaMemcpyDeviceToHost,
           stream) == cudaSuccess,
       "cudaMemcpyAsync(num_runs) failed");
   STD_TORCH_CHECK(
+      cudaMemcpyAsync(
+          &host.last_sorted_key,
+          keys_out.const_data_ptr<uint64_t>() + (N - 1),
+          sizeof(uint64_t),
+          cudaMemcpyDeviceToHost,
+          stream) == cudaSuccess,
+      "cudaMemcpyAsync(last_sorted_key) failed");
+  STD_TORCH_CHECK(
       cudaStreamSynchronize(stream) == cudaSuccess,
-      "cudaStreamSynchronize(num_runs) failed");
+      "cudaStreamSynchronize failed");
 
-  int64_t voxel_count = num_runs_host;
-  if (voxel_count > 0) {
-    STD_TORCH_CHECK(
-        cudaMemcpyAsync(
-            &last_unique,
-            unique_cells.const_data_ptr<uint64_t>() + (voxel_count - 1),
-            sizeof(uint64_t),
-            cudaMemcpyDeviceToHost,
-            stream) == cudaSuccess,
-        "cudaMemcpyAsync(last_unique) failed");
-    STD_TORCH_CHECK(
-        cudaStreamSynchronize(stream) == cudaSuccess,
-        "cudaStreamSynchronize(last_unique) failed");
-    if (last_unique == OUT_OF_RANGE) {
-      --voxel_count; // drop the out-of-range bucket
-    }
+  int64_t voxel_count = host.num_runs;
+  if (host.last_sorted_key == OUT_OF_RANGE) {
+    --voxel_count; // drop the out-of-range bucket
   }
 
-  if (max_voxels >= 0 && voxel_count > max_voxels) {
-    voxel_count = max_voxels;
+  if (max_voxels.has_value() && voxel_count > *max_voxels) {
+    voxel_count = *max_voxels;
   }
 
   auto voxels_out =

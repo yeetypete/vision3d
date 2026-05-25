@@ -24,6 +24,13 @@ def voxelize(
 
     The op is not differentiable.
 
+    Grid dimensions are computed as ``round((max - min) / voxel_size)`` with
+    ties going away from zero. Ranges that are not an exact multiple of
+    ``voxel_size`` round to the nearest integer cell count. Points landing
+    in the partial trailing cell are clamped to the final grid index.
+    Points with non-finite coordinates (NaN, +/-Inf) are treated as
+    out-of-range and dropped.
+
     Args:
         points: ``[N, C]`` float32 point cloud. The first three columns
             must be ``(x, y, z)``. Remaining columns may be arbitrary
@@ -57,5 +64,5 @@ def voxelize(
         range_t,
         size_t,
         max_points_per_voxel,
-        -1 if max_voxels is None else max_voxels,
+        max_voxels,
     )
