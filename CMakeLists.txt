@@ -9,9 +9,6 @@ project(vision3d_ops LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-# Inline include paths so clangd (which doesn't follow nvcc's
-# ``--options-file``) picks them up.
-set(CMAKE_CUDA_USE_RESPONSE_FILE_FOR_INCLUDES OFF)
 
 find_package(CUDAToolkit QUIET)
 if(CUDAToolkit_FOUND)
@@ -19,8 +16,13 @@ if(CUDAToolkit_FOUND)
     NAMES clang++ clang++-22 clang++-21 clang++-20)
   enable_language(CUDA)
   set(CMAKE_CUDA_STANDARD 20)
+  # Clang reports its own version as the CUDA compiler version, which makes
+  # Torch's cuda.cmake error with "two conflicting CUDA versions". Override
+  # with the actual toolkit version so Torch's check passes.
   set(CMAKE_CUDA_COMPILER_VERSION "${CUDAToolkit_VERSION}")
-  add_definitions(-DUSE_CUDA)
+  # USE_CUDA + TORCH_TARGET_VERSION must match setup.py so the compile DB
+  # reflects the same preprocessor state as the real nvcc build.
+  add_definitions(-DUSE_CUDA -DTORCH_TARGET_VERSION=0x020a000000000000)
 endif()
 
 set(Python3_ROOT_DIR "${CMAKE_SOURCE_DIR}/.venv" CACHE PATH "")

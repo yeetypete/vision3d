@@ -28,7 +28,6 @@ WarningsAsErrors: '*'
 HeaderFilterRegex: 'src/vision3d/ops/csrc/.*'
 CheckOptions:
   # Torch's stable headers re-export from internal *_struct.h / headeronly/* headers.
-  # CUDA's <cuda_runtime.h> umbrella forwards to vector_types.h etc. for
-  # float3, cudaStream_t, cudaGetLastError, cudaSuccess and friends. Ignore the
-  # inner headers so include-cleaner accepts the umbrellas.
+  # CUDA's <cuda_runtime.h> umbrella forwards to inner headers. Ignore the
+  # inner headers so include-cleaner accepts the umbrella.
   misc-include-cleaner.IgnoreHeaders: 'torch/csrc/stable/.*_struct\.h;torch/headeronly/.*;cuda_runtime\.h;cuda_runtime_api\.h;vector_types\.h;vector_functions\.h;driver_types\.h;builtin_types\.h;crt/.*'
