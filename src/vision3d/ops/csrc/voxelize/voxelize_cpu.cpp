@@ -2,21 +2,22 @@
 #include <torch/csrc/stable/ops.h>
 #include <torch/csrc/stable/tensor.h>
 #include <torch/headeronly/core/ScalarType.h>
+#include <algorithm>
 #include <cmath>
 #include <tuple>
-#include <unordered_map>
 #include <vector>
 #include "utils/pytorch3d_cutils.h"
 #include "voxelize/voxelize.h"
 
 namespace {
 
-// Two-pass CPU voxelize:
-//   Pass 1 walks every point, computes its (iz, iy, ix) bucket if in range,
-//          and assigns it a voxel index via a flat-cell -> voxel-idx hashmap.
-//   Pass 2 allocates the output tensors at the now-known P size and writes
-//          each point to its voxel slot (capped at max_points_per_voxel,
-//          surplus dropped in input order).
+// Sort-based CPU voxelize. Matches the CUDA implementation's output
+// ordering (voxel rows sorted by ascending flat cell id).
+//   1. Compute flat cell id per point; drop out-of-range points.
+//   2. Sort the kept (cell_id, point_idx) pairs by cell_id (stable).
+//   3. Walk the sorted pairs to dedup into voxels, capped by max_voxels
+//      and max_points_per_voxel.
+//   4. Allocate outputs and write.
 std::tuple<torch::stable::Tensor, torch::stable::Tensor, torch::stable::Tensor>
 voxelize_cpu_impl(
     const torch::stable::Tensor& points,
@@ -57,13 +58,9 @@ voxelize_cpu_impl(
 
   const float* pts = points_c.const_data_ptr<float>();
 
-  // Pass 1: classify each input point.
-  std::vector<int32_t> point_to_voxel(N, -1);
-  std::unordered_map<int64_t, int32_t> cell_to_voxel;
-  std::vector<int64_t> ordered_cells;
-  cell_to_voxel.reserve(N / 2);
-  ordered_cells.reserve(N / 2);
-
+  // (cell_id, point_idx) pairs for in-range points.
+  std::vector<std::pair<int64_t, int32_t>> sorted;
+  sorted.reserve(N);
   for (int64_t i = 0; i < N; ++i) {
     const float x = pts[i * C + 0];
     const float y = pts[i * C + 1];
@@ -81,31 +78,37 @@ voxelize_cpu_impl(
       iy = ny - 1;
     if (iz >= nz)
       iz = nz - 1;
-    const int64_t cell = iz * cells_per_z + iy * nx + ix;
-    auto it = cell_to_voxel.find(cell);
-    int32_t voxel_idx;
-    if (it == cell_to_voxel.end()) {
-      // Cap on the number of voxels: drop any point that would create a new
-      // voxel beyond ``max_voxels``. Points landing in already-claimed cells
-      // still flow through pass 2.
-      if (max_voxels != -1 &&
-          static_cast<int64_t>(ordered_cells.size()) >= max_voxels) {
-        continue;
+    sorted.emplace_back(
+        iz * cells_per_z + iy * nx + ix, static_cast<int32_t>(i));
+  }
+  std::stable_sort(sorted.begin(), sorted.end(), [](auto& a, auto& b) {
+    return a.first < b.first;
+  });
+
+  // Dedup walk: build per-voxel point index lists, capped by max_voxels.
+  std::vector<int64_t> unique_cells;
+  std::vector<std::vector<int32_t>> voxel_points;
+  int64_t prev_cell = -1;
+  for (const auto& [cell, pt] : sorted) {
+    if (cell != prev_cell) {
+      if (max_voxels >= 0 &&
+          static_cast<int64_t>(unique_cells.size()) >= max_voxels) {
+        break;
       }
-      voxel_idx = static_cast<int32_t>(ordered_cells.size());
-      cell_to_voxel.emplace(cell, voxel_idx);
-      ordered_cells.push_back(cell);
-    } else {
-      voxel_idx = it->second;
+      unique_cells.push_back(cell);
+      voxel_points.emplace_back();
+      prev_cell = cell;
     }
-    point_to_voxel[i] = voxel_idx;
+    auto& bucket = voxel_points.back();
+    if (static_cast<int64_t>(bucket.size()) < max_points_per_voxel) {
+      bucket.push_back(pt);
+    }
   }
 
-  const int64_t P = static_cast<int64_t>(ordered_cells.size());
-
+  const int64_t P = static_cast<int64_t>(unique_cells.size());
   auto voxels =
       torch::stable::new_zeros(points_c, {P, max_points_per_voxel, C});
-  auto coords = torch::stable::new_empty(
+  auto coords = torch::stable::new_zeros(
       points_c, {P, 3}, torch::headeronly::ScalarType::Long);
   auto num_points = torch::stable::new_zeros(
       points_c, {P}, torch::headeronly::ScalarType::Long);
@@ -120,28 +123,19 @@ voxelize_cpu_impl(
   int64_t* num_points_data = num_points.mutable_data_ptr<int64_t>();
 
   for (int64_t v = 0; v < P; ++v) {
-    const int64_t cell = ordered_cells[v];
+    const int64_t cell = unique_cells[v];
     coords_data[v * 3 + 0] = cell / cells_per_z;
     coords_data[v * 3 + 1] = (cell / nx) % ny;
     coords_data[v * 3 + 2] = cell % nx;
-  }
-
-  // Pass 2: scatter points into voxel slots.
-  for (int64_t i = 0; i < N; ++i) {
-    const int32_t v = point_to_voxel[i];
-    if (v < 0) {
-      continue;
+    const auto& bucket = voxel_points[v];
+    num_points_data[v] = static_cast<int64_t>(bucket.size());
+    for (int64_t slot = 0; slot < static_cast<int64_t>(bucket.size()); ++slot) {
+      const float* src = pts + static_cast<int64_t>(bucket[slot]) * C;
+      float* dst = voxels_data + (v * max_points_per_voxel + slot) * C;
+      for (int64_t c = 0; c < C; ++c) {
+        dst[c] = src[c];
+      }
     }
-    const int64_t slot = num_points_data[v];
-    if (slot >= max_points_per_voxel) {
-      continue;
-    }
-    float* dst = voxels_data + (v * max_points_per_voxel + slot) * C;
-    const float* src = pts + i * C;
-    for (int64_t c = 0; c < C; ++c) {
-      dst[c] = src[c];
-    }
-    num_points_data[v] = slot + 1;
   }
 
   return std::make_tuple(
