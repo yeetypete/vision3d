@@ -6,6 +6,8 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#pragma once
+
 #include <array>
 #include <cmath>
 #include "utils/float_math.cuh"
