@@ -1,16 +1,16 @@
 #include <torch/csrc/stable/library.h>
 #include <torch/csrc/stable/ops.h>
-#include <torch/csrc/stable/tensor.h>
+#include <torch/csrc/stable/tensor.h> // NOLINT(misc-include-cleaner)
 #include <torch/headeronly/core/ScalarType.h>
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <tuple>
+#include <utility>
 #include <vector>
 #include "utils/pytorch3d_cutils.h"
 #include "voxelize/voxelize.h"
-
-namespace {
 
 // Sort-based CPU voxelize. Matches the CUDA implementation's output
 // ordering (voxel rows sorted by ascending flat cell id).
@@ -20,10 +20,10 @@ namespace {
 //      and max_points_per_voxel.
 //   4. Allocate outputs and write.
 std::tuple<torch::stable::Tensor, torch::stable::Tensor, torch::stable::Tensor>
-voxelize_cpu_impl(
-    const torch::stable::Tensor& points,
-    const torch::stable::Tensor& point_cloud_range,
-    const torch::stable::Tensor& voxel_size,
+VoxelizeCpu(
+    torch::stable::Tensor points,
+    torch::stable::Tensor point_cloud_range,
+    torch::stable::Tensor voxel_size,
     int64_t max_points_per_voxel,
     int64_t max_voxels) {
   CHECK_CPU(points);
@@ -49,12 +49,12 @@ voxelize_cpu_impl(
       max_voxels == -1 || max_voxels > 0,
       "max_voxels must be -1 (no cap) or positive");
 
-  auto points_c = torch::stable::contiguous(points);
-  auto range_c = torch::stable::contiguous(point_cloud_range);
-  auto size_c = torch::stable::contiguous(voxel_size);
+  points = torch::stable::contiguous(points);
+  point_cloud_range = torch::stable::contiguous(point_cloud_range);
+  voxel_size = torch::stable::contiguous(voxel_size);
 
-  const int64_t N = points_c.size(0);
-  const int64_t C = points_c.size(1);
+  const int64_t N = points.size(0);
+  const int64_t C = points.size(1);
   // The dedup walk stores per-point indices as int32_t to keep memory low and
   // match the CUDA backend. Cap N accordingly.
   STD_TORCH_CHECK(
@@ -63,8 +63,8 @@ voxelize_cpu_impl(
       N,
       ")");
 
-  const float* pcr = range_c.const_data_ptr<float>();
-  const float* vs = size_c.const_data_ptr<float>();
+  const float* pcr = point_cloud_range.const_data_ptr<float>();
+  const float* vs = voxel_size.const_data_ptr<float>();
   const float x_min = pcr[0], y_min = pcr[1], z_min = pcr[2];
   const float x_max = pcr[3], y_max = pcr[4], z_max = pcr[5];
   const float dx = vs[0], dy = vs[1], dz = vs[2];
@@ -92,12 +92,12 @@ voxelize_cpu_impl(
       ", ",
       z_max,
       ")");
-  const int64_t nx = static_cast<int64_t>(std::lround((x_max - x_min) / dx));
-  const int64_t ny = static_cast<int64_t>(std::lround((y_max - y_min) / dy));
-  const int64_t nz = static_cast<int64_t>(std::lround((z_max - z_min) / dz));
+  const auto nx = static_cast<int64_t>(std::lround((x_max - x_min) / dx));
+  const auto ny = static_cast<int64_t>(std::lround((y_max - y_min) / dy));
+  const auto nz = static_cast<int64_t>(std::lround((z_max - z_min) / dz));
   const int64_t cells_per_z = ny * nx;
 
-  const float* pts = points_c.const_data_ptr<float>();
+  const float* pts = points.const_data_ptr<float>();
 
   // (cell_id, point_idx) pairs for in-range points.
   std::vector<std::pair<int64_t, int32_t>> sorted;
@@ -110,21 +110,23 @@ voxelize_cpu_impl(
         z >= z_max) {
       continue;
     }
-    int64_t ix = static_cast<int64_t>((x - x_min) / dx);
-    int64_t iy = static_cast<int64_t>((y - y_min) / dy);
-    int64_t iz = static_cast<int64_t>((z - z_min) / dz);
-    if (ix >= nx)
+    auto ix = static_cast<int64_t>((x - x_min) / dx);
+    auto iy = static_cast<int64_t>((y - y_min) / dy);
+    auto iz = static_cast<int64_t>((z - z_min) / dz);
+    if (ix >= nx) {
       ix = nx - 1;
-    if (iy >= ny)
+    }
+    if (iy >= ny) {
       iy = ny - 1;
-    if (iz >= nz)
+    }
+    if (iz >= nz) {
       iz = nz - 1;
+    }
     sorted.emplace_back(
         iz * cells_per_z + iy * nx + ix, static_cast<int32_t>(i));
   }
-  std::stable_sort(sorted.begin(), sorted.end(), [](auto& a, auto& b) {
-    return a.first < b.first;
-  });
+  std::ranges::stable_sort(
+      sorted, [](const auto& a, const auto& b) { return a.first < b.first; });
 
   // Dedup walk: build per-voxel point index lists, capped by max_voxels.
   std::vector<int64_t> unique_cells;
@@ -133,7 +135,7 @@ voxelize_cpu_impl(
   for (const auto& [cell, pt] : sorted) {
     if (cell != prev_cell) {
       if (max_voxels >= 0 &&
-          static_cast<int64_t>(unique_cells.size()) >= max_voxels) {
+          std::cmp_greater_equal(unique_cells.size(), max_voxels)) {
         break;
       }
       unique_cells.push_back(cell);
@@ -141,18 +143,17 @@ voxelize_cpu_impl(
       prev_cell = cell;
     }
     auto& bucket = voxel_points.back();
-    if (static_cast<int64_t>(bucket.size()) < max_points_per_voxel) {
+    if (std::cmp_less(bucket.size(), max_points_per_voxel)) {
       bucket.push_back(pt);
     }
   }
 
-  const int64_t P = static_cast<int64_t>(unique_cells.size());
-  auto voxels =
-      torch::stable::new_zeros(points_c, {P, max_points_per_voxel, C});
+  const auto P = static_cast<int64_t>(unique_cells.size());
+  auto voxels = torch::stable::new_zeros(points, {P, max_points_per_voxel, C});
   auto coords = torch::stable::new_zeros(
-      points_c, {P, 3}, torch::headeronly::ScalarType::Long);
+      points, {P, 3}, torch::headeronly::ScalarType::Long);
   auto num_points = torch::stable::new_zeros(
-      points_c, {P}, torch::headeronly::ScalarType::Long);
+      points, {P}, torch::headeronly::ScalarType::Long);
 
   if (P == 0) {
     return std::make_tuple(
@@ -170,9 +171,10 @@ voxelize_cpu_impl(
     coords_data[v * 3 + 2] = cell % nx;
     const auto& bucket = voxel_points[v];
     num_points_data[v] = static_cast<int64_t>(bucket.size());
-    for (int64_t slot = 0; slot < static_cast<int64_t>(bucket.size()); ++slot) {
+    for (size_t slot = 0; slot < bucket.size(); ++slot) {
       const float* src = pts + static_cast<int64_t>(bucket[slot]) * C;
-      float* dst = voxels_data + (v * max_points_per_voxel + slot) * C;
+      float* dst = voxels_data +
+          (v * max_points_per_voxel + static_cast<int64_t>(slot)) * C;
       for (int64_t c = 0; c < C; ++c) {
         dst[c] = src[c];
       }
@@ -181,19 +183,6 @@ voxelize_cpu_impl(
 
   return std::make_tuple(
       std::move(voxels), std::move(coords), std::move(num_points));
-}
-
-} // namespace
-
-std::tuple<torch::stable::Tensor, torch::stable::Tensor, torch::stable::Tensor>
-VoxelizeCpu(
-    torch::stable::Tensor points,
-    torch::stable::Tensor point_cloud_range,
-    torch::stable::Tensor voxel_size,
-    int64_t max_points_per_voxel,
-    int64_t max_voxels) {
-  return voxelize_cpu_impl(
-      points, point_cloud_range, voxel_size, max_points_per_voxel, max_voxels);
 }
 
 STABLE_TORCH_LIBRARY_IMPL(vision3d, CPU, m) {

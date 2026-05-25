@@ -8,6 +8,7 @@
 #include <torch/csrc/stable/tensor.h>
 #include <torch/headeronly/core/ScalarType.h>
 #include <torch/headeronly/util/Exception.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cub/cub.cuh>
@@ -39,8 +40,8 @@ __global__ void compute_cell_ids_kernel(
     uint64_t* __restrict__ keys,
     int32_t* __restrict__ indices) {
   const int64_t cells_per_z = ny * nx;
-  for (int64_t i = blockIdx.x * blockDim.x + threadIdx.x; i < N;
-       i += gridDim.x * blockDim.x) {
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
+  for (int64_t i = blockIdx.x * blockDim.x + threadIdx.x; i < N; i += stride) {
     indices[i] = static_cast<int32_t>(i);
     const float x = points[i * C + 0];
     const float y = points[i * C + 1];
@@ -50,15 +51,18 @@ __global__ void compute_cell_ids_kernel(
       keys[i] = OUT_OF_RANGE;
       continue;
     }
-    int64_t ix = static_cast<int64_t>((x - x_min) / dx);
-    int64_t iy = static_cast<int64_t>((y - y_min) / dy);
-    int64_t iz = static_cast<int64_t>((z - z_min) / dz);
-    if (ix >= nx)
+    auto ix = static_cast<int64_t>((x - x_min) / dx);
+    auto iy = static_cast<int64_t>((y - y_min) / dy);
+    auto iz = static_cast<int64_t>((z - z_min) / dz);
+    if (ix >= nx) {
       ix = nx - 1;
-    if (iy >= ny)
+    }
+    if (iy >= ny) {
       iy = ny - 1;
-    if (iz >= nz)
+    }
+    if (iz >= nz) {
       iz = nz - 1;
+    }
     keys[i] = static_cast<uint64_t>(iz * cells_per_z + iy * nx + ix);
   }
 }
@@ -78,8 +82,9 @@ __global__ void scatter_voxels_kernel(
     int64_t* __restrict__ coords,
     int64_t* __restrict__ num_points) {
   const int64_t cells_per_z = ny * nx;
+  const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
   for (int64_t v = blockIdx.x * blockDim.x + threadIdx.x; v < actual_voxels;
-       v += gridDim.x * blockDim.x) {
+       v += stride) {
     const uint64_t cell = unique_cells[v];
     coords[v * 3 + 0] = static_cast<int64_t>(cell / cells_per_z);
     coords[v * 3 + 1] = static_cast<int64_t>((cell / nx) % ny);
@@ -101,11 +106,7 @@ __global__ void scatter_voxels_kernel(
 }
 
 int blocks_for(int64_t n) {
-  int64_t b = (n + THREADS - 1) / THREADS;
-  if (b > 4096)
-    b = 4096;
-  if (b < 1)
-    b = 1;
+  const int64_t b = std::clamp<int64_t>((n + THREADS - 1) / THREADS, 1, 4096);
   return static_cast<int>(b);
 }
 
@@ -186,9 +187,9 @@ VoxelizeCuda(
   // Match CPU's rounding (round-half-away-from-zero) so both backends
   // agree on grid dims even when (max - min) is not an exact multiple of
   // voxel_size.
-  const int64_t nx = static_cast<int64_t>(std::lround((x_max - x_min) / dx));
-  const int64_t ny = static_cast<int64_t>(std::lround((y_max - y_min) / dy));
-  const int64_t nz = static_cast<int64_t>(std::lround((z_max - z_min) / dz));
+  const auto nx = static_cast<int64_t>(std::lround((x_max - x_min) / dx));
+  const auto ny = static_cast<int64_t>(std::lround((y_max - y_min) / dy));
+  const auto nz = static_cast<int64_t>(std::lround((z_max - z_min) / dz));
 
   if (N == 0) {
     auto voxels_empty =
@@ -208,7 +209,7 @@ VoxelizeCuda(
   void* raw_stream = nullptr;
   TORCH_ERROR_CODE_CHECK(
       aoti_torch_get_current_cuda_stream(device_index, &raw_stream));
-  auto stream = static_cast<cudaStream_t>(raw_stream);
+  auto* stream = static_cast<cudaStream_t>(raw_stream);
 
   // Scratch tensors. Going through torch's allocator (via stable's
   // ``new_empty``) means CUB temp storage benefits from caching reuse.
