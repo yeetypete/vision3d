@@ -6,15 +6,6 @@ import torch
 from torch import Tensor
 from torch.utils._pytree import tree_flatten
 from torchvision import tv_tensors
-from torchvision.transforms.v2 import functional as _F
-from torchvision.transforms.v2.functional import (
-    register_kernel as _register_kernel,
-)
-from torchvision.transforms.v2.functional._geometry import (
-    _center_crop_parse_output_size,
-    _compute_resized_output_size,
-    _parse_pad_padding,
-)
 from torchvision.tv_tensors import TVTensor
 
 
@@ -172,6 +163,10 @@ class CameraIntrinsics(TVTensor):
         intrinsics.image_size = image_size
         return intrinsics
 
+    @classmethod
+    def wrap(cls, tensor: Tensor, like: "CameraIntrinsics", **kwargs: Any) -> Self:
+        return cls._wrap(tensor, image_size=kwargs.get("image_size", like.image_size))
+
     def __new__(
         cls,
         data: Any,
@@ -214,113 +209,3 @@ class CameraIntrinsics(TVTensor):
     @override
     def __repr__(self, *, tensor_contents: Any = None) -> str:
         return self._make_repr(image_size=self.image_size)
-
-
-@_register_kernel(_F.resize, CameraIntrinsics)
-def _resize_intrinsics(
-    inpt: CameraIntrinsics,
-    size: list[int] | None,
-    max_size: int | None = None,
-    **kwargs: Any,
-) -> CameraIntrinsics:
-    old_h, old_w = inpt.image_size
-    new_h, new_w = _compute_resized_output_size(
-        (old_h, old_w), size=size, max_size=max_size
-    )
-    K = inpt.as_subclass(Tensor).clone()
-    K[..., 0, :] *= new_w / old_w  # fx, skew, cx
-    K[..., 1, :] *= new_h / old_h  # fy, cy
-    return CameraIntrinsics._wrap(K, image_size=(new_h, new_w))
-
-
-@_register_kernel(_F.crop, CameraIntrinsics)
-def _crop_intrinsics(
-    inpt: CameraIntrinsics, top: int, left: int, height: int, width: int
-) -> CameraIntrinsics:
-    K = inpt.as_subclass(Tensor).clone()
-    K[..., 0, 2] -= left  # cx
-    K[..., 1, 2] -= top  # cy
-    return CameraIntrinsics._wrap(K, image_size=(height, width))
-
-
-@_register_kernel(_F.center_crop, CameraIntrinsics)
-def _center_crop_intrinsics(
-    inpt: CameraIntrinsics, output_size: list[int]
-) -> CameraIntrinsics:
-    crop_h, crop_w = _center_crop_parse_output_size(output_size)
-    old_h, old_w = inpt.image_size
-    top = (old_h - crop_h) // 2
-    left = (old_w - crop_w) // 2
-    return _crop_intrinsics(inpt, top=top, left=left, height=crop_h, width=crop_w)
-
-
-@_register_kernel(_F.pad, CameraIntrinsics)
-def _pad_intrinsics(
-    inpt: CameraIntrinsics, padding: int | list[int], **kwargs: Any
-) -> CameraIntrinsics:
-    left, right, top, bottom = _parse_pad_padding(padding)
-    K = inpt.as_subclass(Tensor).clone()
-    K[..., 0, 2] += left  # cx
-    K[..., 1, 2] += top  # cy
-    old_h, old_w = inpt.image_size
-    new_h = old_h + top + bottom
-    new_w = old_w + left + right
-    return CameraIntrinsics._wrap(K, image_size=(new_h, new_w))
-
-
-@_register_kernel(_F.resized_crop, CameraIntrinsics)
-def _resized_crop_intrinsics(
-    inpt: CameraIntrinsics,
-    top: int,
-    left: int,
-    height: int,
-    width: int,
-    size: list[int],
-    **kwargs: Any,
-) -> CameraIntrinsics:
-    cropped = _crop_intrinsics(inpt, top=top, left=left, height=height, width=width)
-    return _resize_intrinsics(cropped, size=size)
-
-
-@_register_kernel(_F.horizontal_flip, CameraIntrinsics)
-def _horizontal_flip_intrinsics(inpt: CameraIntrinsics) -> CameraIntrinsics:
-    _, w = inpt.image_size
-    K = inpt.as_subclass(Tensor).clone()
-    K[..., 0, 1] = -K[..., 0, 1]
-    K[..., 0, 2] = w - K[..., 0, 2]
-    return CameraIntrinsics._wrap(K, image_size=inpt.image_size)
-
-
-@_register_kernel(_F.vertical_flip, CameraIntrinsics)
-def _vertical_flip_intrinsics(inpt: CameraIntrinsics) -> CameraIntrinsics:
-    h, _ = inpt.image_size
-    K = inpt.as_subclass(Tensor).clone()
-    K[..., 0, 1] = -K[..., 0, 1]
-    K[..., 1, 2] = h - K[..., 1, 2]
-    return CameraIntrinsics._wrap(K, image_size=inpt.image_size)
-
-
-def _flip_extrinsics(E: Tensor, *, world_axis: int, image_axis: int) -> Tensor:
-    """Build ``M_img · E · M_world`` for a world-axis reflection paired with a camera-frame reflection.
-
-    Returns:
-        New extrinsics ``[..., 4, 4]`` whose rotation has det +1 and whose
-        projection of any 3D point matches the flipped pixel coordinate.
-    """
-    M_world = torch.eye(4, dtype=E.dtype, device=E.device)
-    M_world[world_axis, world_axis] = -1.0
-    M_img = torch.eye(4, dtype=E.dtype, device=E.device)
-    M_img[image_axis, image_axis] = -1.0
-    return M_img @ E @ M_world
-
-
-@_register_kernel(_F.horizontal_flip, CameraExtrinsics)
-def _horizontal_flip_extrinsics(inpt: CameraExtrinsics) -> CameraExtrinsics:
-    out = _flip_extrinsics(inpt.as_subclass(Tensor), world_axis=1, image_axis=0)
-    return out.as_subclass(CameraExtrinsics)
-
-
-@_register_kernel(_F.vertical_flip, CameraExtrinsics)
-def _vertical_flip_extrinsics(inpt: CameraExtrinsics) -> CameraExtrinsics:
-    out = _flip_extrinsics(inpt.as_subclass(Tensor), world_axis=2, image_axis=1)
-    return out.as_subclass(CameraExtrinsics)

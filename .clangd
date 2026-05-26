@@ -1,2 +1,8 @@
 CompileFlags:
   CompilationDatabase: build
+
+# libstdc++'s deduction guides aren't annotated __host__ __device__, which
+# clang flags when parsing .cu files. Harmless in practice, so silence it.
+Diagnostics:
+  Suppress:
+    - deduction_guide_target_attr

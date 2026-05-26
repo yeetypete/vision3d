@@ -56,24 +56,9 @@ source = ["vision3d"]
 branch = true
 
 [tool.pyrefly]
+preset = "strict"
 min-severity = "ignore"
-search-path = ["examples", "test", "gallery", "docs/source/_ext"]
-
-[tool.pyrefly.errors]
-# Pyrefly does not yet have a strict mode, so we manually set all diagnostics
-# with "ignore" severity levels to "warn".
-implicit-abstract-class = "warn"
-implicit-any = "warn"
-implicitly-defined-attribute = "warn"
-missing-override-decorator = "warn"
-missing-source = "warn"
-not-required-key-access = "warn"
-open-unpacking = "warn"
-unannotated-attribute = "warn"
-unannotated-parameter = "warn"
-unannotated-return = "warn"
-untyped-import = "warn"
-unused-ignore = "warn"
+search-path = ["test", "gallery", "docs/source/_ext"]
 
 [tool.pytest.ini_options]
 addopts = "--cov --cov-report=term-missing --strict-markers"
@@ -91,7 +76,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "test/**" = ["D"]
-"examples/**" = ["D"]
 "gallery/**" = ["D", "E402"]
 
 [tool.ruff.lint.pydocstyle]

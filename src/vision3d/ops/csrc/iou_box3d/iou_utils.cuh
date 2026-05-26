@@ -6,9 +6,10 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-#include <float.h>
-#include <math.h>
-#include <cstdio>
+#pragma once
+
+#include <array>
+#include <cmath>
 #include "utils/float_math.cuh"
 
 // dEpsilon: Used in dot products and is used to assess whether two unit vectors
@@ -58,28 +59,28 @@ struct Keep {
   bool keep;
 };
 
-__device__ FaceVertsIdx _PLANES[] = {
-    {0, 1, 2, 3},
-    {3, 2, 6, 7},
-    {0, 1, 5, 4},
-    {0, 3, 7, 4},
-    {1, 5, 6, 2},
-    {4, 5, 6, 7},
-};
-__device__ FaceVertsIdx _TRIS[] = {
-    {0, 1, 2},
-    {0, 3, 2},
-    {4, 5, 6},
-    {4, 6, 7},
-    {1, 5, 6},
-    {1, 6, 2},
-    {0, 4, 7},
-    {0, 7, 3},
-    {3, 2, 6},
-    {3, 6, 7},
-    {0, 1, 5},
-    {0, 4, 5},
-};
+__device__ const std::array<FaceVertsIdx, NUM_PLANES> kPlanes = {{
+    {.v0 = 0, .v1 = 1, .v2 = 2, .v3 = 3},
+    {.v0 = 3, .v1 = 2, .v2 = 6, .v3 = 7},
+    {.v0 = 0, .v1 = 1, .v2 = 5, .v3 = 4},
+    {.v0 = 0, .v1 = 3, .v2 = 7, .v3 = 4},
+    {.v0 = 1, .v1 = 5, .v2 = 6, .v3 = 2},
+    {.v0 = 4, .v1 = 5, .v2 = 6, .v3 = 7},
+}};
+__device__ const std::array<FaceVertsIdx, NUM_TRIS> kTris = {{
+    {.v0 = 0, .v1 = 1, .v2 = 2},
+    {.v0 = 0, .v1 = 3, .v2 = 2},
+    {.v0 = 4, .v1 = 5, .v2 = 6},
+    {.v0 = 4, .v1 = 6, .v2 = 7},
+    {.v0 = 1, .v1 = 5, .v2 = 6},
+    {.v0 = 1, .v1 = 6, .v2 = 2},
+    {.v0 = 0, .v1 = 4, .v2 = 7},
+    {.v0 = 0, .v1 = 7, .v2 = 3},
+    {.v0 = 3, .v1 = 2, .v2 = 6},
+    {.v0 = 3, .v1 = 6, .v2 = 7},
+    {.v0 = 0, .v1 = 1, .v2 = 5},
+    {.v0 = 0, .v1 = 4, .v2 = 5},
+}};
 
 // Args
 //    box: (8, 3) tensor accessor for the box vertices
@@ -93,11 +94,11 @@ template <typename Box, typename BoxTris>
 __device__ inline void GetBoxTris(const Box& box, BoxTris& box_tris) {
   for (int t = 0; t < NUM_TRIS; ++t) {
     const float3 v0 = make_float3(
-        box[_TRIS[t].v0][0], box[_TRIS[t].v0][1], box[_TRIS[t].v0][2]);
+        box[kTris[t].v0][0], box[kTris[t].v0][1], box[kTris[t].v0][2]);
     const float3 v1 = make_float3(
-        box[_TRIS[t].v1][0], box[_TRIS[t].v1][1], box[_TRIS[t].v1][2]);
+        box[kTris[t].v1][0], box[kTris[t].v1][1], box[kTris[t].v1][2]);
     const float3 v2 = make_float3(
-        box[_TRIS[t].v2][0], box[_TRIS[t].v2][1], box[_TRIS[t].v2][2]);
+        box[kTris[t].v2][0], box[kTris[t].v2][1], box[kTris[t].v2][2]);
     box_tris[t] = {v0, v1, v2};
   }
 }
@@ -116,13 +117,13 @@ __device__ inline void GetBoxPlanes(
     FaceVertsBoxPlanes& box_planes) {
   for (int t = 0; t < NUM_PLANES; ++t) {
     const float3 v0 = make_float3(
-        box[_PLANES[t].v0][0], box[_PLANES[t].v0][1], box[_PLANES[t].v0][2]);
+        box[kPlanes[t].v0][0], box[kPlanes[t].v0][1], box[kPlanes[t].v0][2]);
     const float3 v1 = make_float3(
-        box[_PLANES[t].v1][0], box[_PLANES[t].v1][1], box[_PLANES[t].v1][2]);
+        box[kPlanes[t].v1][0], box[kPlanes[t].v1][1], box[kPlanes[t].v1][2]);
     const float3 v2 = make_float3(
-        box[_PLANES[t].v2][0], box[_PLANES[t].v2][1], box[_PLANES[t].v2][2]);
+        box[kPlanes[t].v2][0], box[kPlanes[t].v2][1], box[kPlanes[t].v2][2]);
     const float3 v3 = make_float3(
-        box[_PLANES[t].v3][0], box[_PLANES[t].v3][1], box[_PLANES[t].v3][2]);
+        box[kPlanes[t].v3][0], box[kPlanes[t].v3][1], box[kPlanes[t].v3][2]);
     box_planes[t] = {v0, v1, v2, v3};
   }
 }
@@ -141,7 +142,7 @@ __device__ inline float3 FaceCenter(
   for (const auto& vertex : vertices) {
     sumVertices = sumVertices + vertex;
   }
-  return sumVertices / vertices.size();
+  return sumVertices / static_cast<float>(vertices.size());
 }
 
 // The normal of a plane spanned by vectors e0 and e1
@@ -172,9 +173,9 @@ __device__ inline float3 FaceNormal(
     std::initializer_list<const float3> vertices) {
   const auto faceCenter = FaceCenter(vertices);
   auto normal = float3();
-  auto maxDist = -1;
-  for (auto v1 = vertices.begin(); v1 != vertices.end() - 1; ++v1) {
-    for (auto v2 = v1 + 1; v2 != vertices.end(); ++v2) {
+  auto maxDist = -1.0f;
+  for (const auto* v1 = vertices.begin(); v1 != vertices.end() - 1; ++v1) {
+    for (const auto* v2 = v1 + 1; v2 != vertices.end(); ++v2) {
       const auto v1ToCenter = *v1 - faceCenter;
       const auto v2ToCenter = *v2 - faceCenter;
       const auto dist = norm(cross(v1ToCenter, v2ToCenter));
@@ -201,7 +202,7 @@ __device__ inline float3 FaceNormal(
 __device__ inline float FaceArea(const FaceVerts& tri) {
   // Get verts for face 1
   const float3 n = cross(tri.v1 - tri.v0, tri.v2 - tri.v0);
-  return norm(n) / 2.0;
+  return norm(n) / 2.0f;
 }
 
 // The normal of a box plane defined by the verts in `plane` such that it
@@ -277,7 +278,7 @@ __device__ inline float BoxVolume(
 
     // Compute the area
     const float area = dot(v0, cross(v1, v2));
-    const float vol = abs(area) / 6.0;
+    const float vol = abs(area) / 6.0f;
     box_vol = box_vol + vol;
   }
   return box_vol;
@@ -334,18 +335,19 @@ __device__ inline float3 PolyhedronCenter(
     const float3 v0 = tris[t].v0;
     const float3 v1 = tris[t].v1;
     const float3 v2 = tris[t].v2;
-    const float x_face = (v0.x + v1.x + v2.x) / 3.0;
-    const float y_face = (v0.y + v1.y + v2.y) / 3.0;
-    const float z_face = (v0.z + v1.z + v2.z) / 3.0;
+    const float x_face = (v0.x + v1.x + v2.x) / 3.0f;
+    const float y_face = (v0.y + v1.y + v2.y) / 3.0f;
+    const float z_face = (v0.z + v1.z + v2.z) / 3.0f;
     x = x + x_face;
     y = y + y_face;
     z = z + z_face;
   }
 
   // Take the mean of the centers of all faces
-  x = x / num_tris;
-  y = y / num_tris;
-  z = z / num_tris;
+  const auto inv_n = 1.0f / static_cast<float>(num_tris);
+  x = x * inv_n;
+  y = y * inv_n;
+  z = z * inv_n;
 
   const float3 center = make_float3(x, y, z);
   return center;
@@ -710,14 +712,14 @@ __device__ inline int BoxIntersections(
     // Get plane normal direction
     const float3 n2 = PlaneNormalDirection(planes[p], center);
     // Create intermediate vector to store the updated tris
-    FaceVerts tri_verts_updated[MAX_TRIS];
+    std::array<FaceVerts, MAX_TRIS> tri_verts_updated{};
     int offset = 0;
 
     // Iterate through triangles in face_verts_out
     // for the valid tris given by num_tris
     for (int t = 0; t < num_tris; ++t) {
       // Clip tri by plane, can max be split into 2 triangles
-      FaceVerts tri_updated[2];
+      std::array<FaceVerts, 2> tri_updated{};
       const int count =
           ClipTriByPlane(planes[p], face_verts_out[t], n2, tri_updated);
       // Add to the tri_verts_updated output if not empty

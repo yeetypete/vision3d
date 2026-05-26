@@ -97,7 +97,11 @@ _ext = Extension(
     sources=_SOURCES,
     include_dirs=[str(_CSRC)],
     define_macros=_DEFINE_MACROS,
-    extra_compile_args={"nvcc": ["--cudart=static"]} if _HAS_CUDA else {},
+    extra_compile_args=(
+        {"cxx": ["-std=c++20"], "nvcc": ["-std=c++20", "--cudart=static"]}
+        if _HAS_CUDA
+        else {"cxx": ["-std=c++20"]}
+    ),
     py_limited_api=True,
 )
 if _HAS_CUDA:

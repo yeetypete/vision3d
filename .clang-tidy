@@ -1,0 +1,33 @@
+# Strict check set for vision3d C++/CUDA sources. Run via ``make tidy``.
+Checks: >
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -clang-diagnostic-unknown-cuda-version,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -cppcoreguidelines-init-variables,
+  -cppcoreguidelines-macro-usage,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  misc-include-cleaner,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  performance-*,
+  readability-*,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -readability-isolate-declaration,
+  -readability-magic-numbers,
+  -readability-math-missing-parentheses,
+  -readability-uppercase-literal-suffix,
+WarningsAsErrors: '*'
+HeaderFilterRegex: 'src/vision3d/ops/csrc/.*'
+CheckOptions:
+  # Torch's stable headers re-export from internal *_struct.h / headeronly/* headers.
+  # CUDA's <cuda_runtime.h> umbrella forwards to inner headers. Ignore the
+  # inner headers so include-cleaner accepts the umbrella.
+  misc-include-cleaner.IgnoreHeaders: 'torch/csrc/stable/.*_struct\.h;torch/headeronly/.*;cuda_runtime\.h;cuda_runtime_api\.h;vector_types\.h;vector_functions\.h;driver_types\.h;builtin_types\.h;crt/.*'
