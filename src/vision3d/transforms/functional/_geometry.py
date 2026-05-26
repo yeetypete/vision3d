@@ -119,8 +119,10 @@ def _flip_3d_bounding_boxes_dispatch(inpt: BoundingBoxes3D, *, axis: str) -> TVT
 def horizontal_flip_point_cloud_3d(inpt: PointCloud3D) -> PointCloud3D:
     """Flip a :class:`~vision3d.tensors.PointCloud3D` to match a horizontal image flip.
 
-    For an upright camera rig this is a reflection of the source frame's
-    **Y** axis.
+    Reflects the source frame's **Y** axis. The fixed world-axis
+    convention for a horizontal flip. Projection stays consistent for any
+    camera pose; the paired extrinsics kernel absorbs the camera-frame
+    discrepancy.
 
     Args:
         inpt: The point cloud to flip.
@@ -136,8 +138,10 @@ def horizontal_flip_point_cloud_3d(inpt: PointCloud3D) -> PointCloud3D:
 def vertical_flip_point_cloud_3d(inpt: PointCloud3D) -> PointCloud3D:
     """Flip a :class:`~vision3d.tensors.PointCloud3D` to match a vertical image flip.
 
-    For an upright camera rig this is a reflection of the source frame's
-    **Z** axis.
+    Reflects the source frame's **Z** axis. The fixed world-axis
+    convention for a vertical flip. Projection stays consistent for any
+    camera pose; the paired extrinsics kernel absorbs the camera-frame
+    discrepancy.
 
     Args:
         inpt: The point cloud to flip.
@@ -153,8 +157,10 @@ def vertical_flip_point_cloud_3d(inpt: PointCloud3D) -> PointCloud3D:
 def horizontal_flip_bounding_boxes_3d(inpt: BoundingBoxes3D) -> BoundingBoxes3D:
     """Flip :class:`~vision3d.tensors.BoundingBoxes3D` to match a horizontal image flip.
 
-    For an upright camera rig this is a reflection of the source frame's
-    **Y** axis.
+    Reflects the source frame's **Y** axis. The fixed world-axis
+    convention for a horizontal flip. Projection stays consistent for any
+    camera pose; the paired extrinsics kernel absorbs the camera-frame
+    discrepancy.
 
     Args:
         inpt: The boxes to flip.
@@ -170,8 +176,10 @@ def horizontal_flip_bounding_boxes_3d(inpt: BoundingBoxes3D) -> BoundingBoxes3D:
 def vertical_flip_bounding_boxes_3d(inpt: BoundingBoxes3D) -> BoundingBoxes3D:
     """Flip :class:`~vision3d.tensors.BoundingBoxes3D` to match a vertical image flip.
 
-    For an upright camera rig this is a reflection of the source frame's
-    **Z** axis.
+    Reflects the source frame's **Z** axis. The fixed world-axis
+    convention for a vertical flip. Projection stays consistent for any
+    camera pose; the paired extrinsics kernel absorbs the camera-frame
+    discrepancy.
 
     Args:
         inpt: The boxes to flip.

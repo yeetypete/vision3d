@@ -35,11 +35,16 @@ necessary kernels), delete the entry from ``_REFUSED``.
 Flip-axis convention
 --------------------
 
-For an upright camera rig (image_y aligned with -world_Z) the registered
-kernels map image-space flips to world-space reflections:
+The registered kernels map each image-space flip to a fixed world-axis
+reflection:
 
 * ``RandomHorizontalFlip`` → world **Y** reflection
 * ``RandomVerticalFlip`` → world **Z** reflection
+
+These choices match the intuition of an upright rig (image_y aligned with
+-world_Z), but projection stays consistent for any camera orientation: the
+extrinsics kernel reflects the matching camera-frame axis to absorb the
+discrepancy.
 
 World X-flip has no torchvision equivalent and stays in
 :class:`vision3d.transforms.RandomFlip3D` (achievable via Y-flip + a
