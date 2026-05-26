@@ -126,6 +126,27 @@ except TypeError as e:
     print(e)
 
 # %%
+# Camera-coordinated flips
+# ------------------------
+# Flipping a fusion sample *is* well defined when the flip is expressed in
+# image space rather than world space. vision3d registers
+# ``horizontal_flip`` / ``vertical_flip`` kernels for every camera tensor,
+# so torchvision's
+# :class:`~torchvision.transforms.v2.RandomHorizontalFlip` and
+# :class:`~torchvision.transforms.v2.RandomVerticalFlip` update the images,
+# intrinsics, and extrinsics together with the points and boxes — no
+# ``TypeError``. For an upright camera rig a horizontal image flip maps to
+# a world **Y** reflection and a vertical flip to a world **Z** reflection.
+# These two transforms appear in the showcase below; the remaining
+# ``RandomFlip3D`` world **X** flip has no image-space equivalent and stays
+# lidar-only.
+
+from torchvision.transforms import v2
+
+hflip_inputs, hflip_targets = v2.RandomHorizontalFlip(p=1.0)(inputs, targets)
+print(f"image-flipped boxes shape: {tuple(hflip_targets['boxes'].shape)}")
+
+# %%
 # Composing transforms
 # --------------------
 # vision3d transforms are designed to be chained together to build
@@ -243,6 +264,8 @@ transforms = [
         "RandomScale3D(0.25, 4.0)",
         RandomScale3D(scale_range=(0.25, 4.0), p=1.0),
     ),
+    ("hflip", "RandomHorizontalFlip", v2.RandomHorizontalFlip(p=1.0)),
+    ("vflip", "RandomVerticalFlip", v2.RandomVerticalFlip(p=1.0)),
     (
         "color_jitter",
         "ColorJitter",
