@@ -10,7 +10,7 @@ from common_utils import (
 )
 from torchvision import tv_tensors
 
-from vision3d.tensors import CameraExtrinsics, CameraImages, CameraIntrinsics
+from vision3d.tensors import CameraExtrinsics, CameraImages, CameraIntrinsics, wrap
 
 
 class TestCameraImagesConstruction:
@@ -179,3 +179,36 @@ class TestCameraIntrinsicsTorchFunction:
         assert copy is not intr
         assert type(copy) is CameraIntrinsics
         assert torch.equal(copy, intr)
+
+
+class TestWrap:
+    def test_preserves_type_and_image_size(self) -> None:
+        intr = make_camera_intrinsics()
+        output = intr * 2
+        wrapped = wrap(output, like=intr)
+        assert type(wrapped) is CameraIntrinsics
+        assert wrapped.data_ptr() == output.data_ptr()
+        assert wrapped.image_size == intr.image_size
+
+    def test_override_image_size(self) -> None:
+        intr = make_camera_intrinsics()
+        new_data = torch.eye(3).unsqueeze(0)
+        wrapped = wrap(new_data, like=intr, image_size=(120, 160))
+        assert isinstance(wrapped, CameraIntrinsics)
+        assert wrapped.image_size == (120, 160)
+
+    def test_shares_memory(self) -> None:
+        intr = make_camera_intrinsics()
+        new_data = torch.eye(3).unsqueeze(0)
+        wrapped = wrap(new_data, like=intr)
+        assert wrapped.data_ptr() == new_data.data_ptr()
+
+    def test_preserves_subclass(self) -> None:
+        class MyCameraIntrinsics(CameraIntrinsics):
+            pass
+
+        intr = MyCameraIntrinsics(torch.eye(3).unsqueeze(0), image_size=(480, 640))
+        output = intr * 2
+        wrapped = wrap(output, like=intr)
+        assert type(wrapped) is MyCameraIntrinsics
+        assert wrapped.image_size == (480, 640)
