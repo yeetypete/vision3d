@@ -1,0 +1,33 @@
+{
+  "name": "vision3d (CUDA 13)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".",
+  },
+  "hostRequirements": {
+    "gpu": "optional",
+  },
+  "remoteUser": "ubuntu",
+  "mounts": [
+    {
+      "type": "volume",
+      "source": "vision3d-uv-cache",
+      "target": "/home/ubuntu/.cache/uv",
+    },
+    {
+      "type": "volume",
+      "source": "vision3d-uv-python",
+      "target": "/home/ubuntu/.local/share/uv/python",
+    },
+  ],
+  "postCreateCommand": "uv sync --all-extras --all-groups",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "charliermarsh.ruff",
+        "meta.pyrefly",
+        "llvm-vs-code-extensions.vscode-clangd",
+      ],
+    },
+  },
+}
