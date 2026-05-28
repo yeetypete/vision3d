@@ -24,7 +24,19 @@ from vision3d.datasets import NuScenes3D
 
 NUSCENES_ROOT = Path("~/.cache/vision3d/nuscenes-mini").expanduser()
 
-dataset = NuScenes3D(NUSCENES_ROOT, version="v1.0-mini", split="train", download=True)
+# ``target_type`` selects the annotation geometry. ``"boxes"`` (default) yields
+# :class:`~vision3d.tensors.BoundingBoxes3D`; ``"cylinders"`` yields
+# :class:`~vision3d.tensors.Cylinders3D`, each cylinder circumscribing the box
+# footprint. Set this to ``"boxes"`` to use oriented 3D bounding boxes instead.
+TARGET_TYPE = "cylinders"
+
+dataset = NuScenes3D(
+    NUSCENES_ROOT,
+    version="v1.0-mini",
+    split="train",
+    target_type=TARGET_TYPE,
+    download=True,
+)
 print(f"len(dataset) = {len(dataset)}")
 print(f"classes ({len(dataset.classes)}): {dataset.classes}")
 
@@ -61,11 +73,14 @@ print(
     f"shape={tuple(inputs['extrinsics'].shape)} dtype={inputs['extrinsics'].dtype}"
 )
 
+geometry_key = "cylinders" if TARGET_TYPE == "cylinders" else "boxes"
+
 print("targets:")
 print(
-    f"  boxes: type={type(targets['boxes']).__name__} "
-    f"shape={tuple(targets['boxes'].shape)} dtype={targets['boxes'].dtype} "
-    f"format={targets['boxes'].format.name}"
+    f"  {geometry_key}: type={type(targets[geometry_key]).__name__} "
+    f"shape={tuple(targets[geometry_key].shape)} "
+    f"dtype={targets[geometry_key].dtype} "
+    f"format={targets[geometry_key].format.name}"
 )
 print(
     f"  labels: type={type(targets['labels']).__name__} "
@@ -93,7 +108,7 @@ for i, (inp, tgt) in enumerate(zip(batch_inputs, batch_targets)):
     print(
         f"  sample {i}: "
         f"points={tuple(inp['points'].shape)} "
-        f"boxes={tuple(tgt['boxes'].shape)}"
+        f"{geometry_key}={tuple(tgt[geometry_key].shape)}"
     )
 
 # %%
