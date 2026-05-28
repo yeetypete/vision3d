@@ -6,6 +6,7 @@ import torch
 from torch import Tensor
 
 from vision3d.datasets import SampleInputs, SampleTargets
+from vision3d.ops._project import project_to_image
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -190,6 +191,122 @@ def log_cylinders_3d(
     )
 
 
+def log_cylinders_on_cameras(
+    entity_prefix: str,
+    cylinders: Cylinders3D,
+    extrinsics: CameraExtrinsics | Tensor,
+    intrinsics: CameraIntrinsics | Tensor,
+    *,
+    class_ids: list[int] | None = None,
+    label_to_id: dict[str, int] | None = None,
+    num_circle_segments: int = 24,
+    num_verticals: int = 6,
+    line_radius: float = -0.5,
+) -> None:
+    """Project upright 3D cylinders into each camera and log 2D wireframes.
+
+    Rerun's viewer reprojects ``rr.Boxes3D`` into 2D pinhole views but not
+    ``rr.Cylinders3D``, so cylinders are projected here explicitly and logged
+    as :class:`~rerun.LineStrips2D` (two circles plus vertical edges) under
+    each camera entity. Cylinders whose center falls behind or far outside a
+    camera's frustum are skipped for that camera.
+
+    Args:
+        entity_prefix: Camera entity prefix (e.g. ``"world/cam"``); strips are
+            logged to ``{entity_prefix}_{i}/cylinders`` to match
+            :func:`log_cameras`.
+        cylinders: Cylinders in the lidar frame.
+        extrinsics: Lidar-to-camera transforms ``[N_cams, 4, 4]``.
+        intrinsics: Per-camera intrinsic matrices ``[N_cams, 3, 3]``.
+        class_ids: Per-cylinder class IDs for coloring via AnnotationContext.
+        label_to_id: Mapping from class name to class ID. When provided, an
+            ``rr.AnnotationContext`` is logged statically on each camera's
+            cylinder entity so ``class_ids`` resolve to consistent colors.
+        num_circle_segments: Number of segments approximating each circle.
+        num_verticals: Number of vertical edges connecting the two circles.
+        line_radius: Wireframe line radius. Negative values are interpreted in
+            UI points (constant on-screen thickness); positive values are in
+            image pixels.
+    """
+    raw = cylinders.as_subclass(Tensor).detach().cpu()
+    fmt = cylinders.format
+    ext = extrinsics.as_subclass(Tensor).detach().cpu()
+    intr = intrinsics.as_subclass(Tensor).detach().cpu()
+    n_cams = ext.shape[0]
+    n = raw.shape[0]
+
+    centers, radii, heights = (
+        _extract_centers_radii_heights(raw, fmt)
+        if n > 0
+        else (raw[:, :3], raw[:, 0], raw[:, 0])
+    )
+
+    # Circle angles (closed loop) and the subset used for vertical edges.
+    ring = torch.linspace(0, 2 * math.pi, num_circle_segments + 1)
+    ring_cos, ring_sin = torch.cos(ring), torch.sin(ring)
+    vert = torch.linspace(0, 2 * math.pi, num_verticals + 1)[:-1]
+    vert_cos, vert_sin = torch.cos(vert), torch.sin(vert)
+
+    for cam in range(n_cams):
+        entity = f"{entity_prefix}_{cam}/cylinders"
+
+        if label_to_id is not None:
+            rr.log(
+                entity,
+                rr.AnnotationContext([(i, name) for name, i in label_to_id.items()]),
+                static=True,
+            )
+
+        E, K = ext[cam], intr[cam]
+        w, h_img = float(2 * K[0, 2]), float(2 * K[1, 2])
+        strips: list[Tensor] = []
+        strip_class_ids: list[int] = []
+
+        for j in range(n):
+            cx, cy, cz = centers[j].tolist()
+            r, h = float(radii[j]), float(heights[j])
+            top_z, bot_z = cz + h / 2, cz - h / 2
+
+            # Skip cylinders whose center is behind or far outside this camera.
+            center_uv, _ = project_to_image(torch.tensor([[cx, cy, cz]]), E, K)
+            if torch.isnan(center_uv).any():
+                continue
+            u, v = center_uv[0].tolist()
+            margin = 0.5 * max(w, h_img)
+            if not (-margin <= u <= w + margin and -margin <= v <= h_img + margin):
+                continue
+
+            ring_x = cx + r * ring_cos
+            ring_y = cy + r * ring_sin
+            polylines = [
+                torch.stack([ring_x, ring_y, torch.full_like(ring_cos, top_z)], dim=1),
+                torch.stack([ring_x, ring_y, torch.full_like(ring_cos, bot_z)], dim=1),
+            ]
+            for k in range(num_verticals):
+                px = cx + r * float(vert_cos[k])
+                py = cy + r * float(vert_sin[k])
+                polylines.append(torch.tensor([[px, py, top_z], [px, py, bot_z]]))
+
+            for poly in polylines:
+                uv, _ = project_to_image(poly, E, K)
+                if torch.isnan(uv).any():
+                    continue
+                strips.append(uv)
+                strip_class_ids.append(class_ids[j] if class_ids is not None else 0)
+
+        if strips:
+            rr.log(
+                entity,
+                rr.LineStrips2D(
+                    strips,
+                    radii=line_radius,
+                    class_ids=strip_class_ids if class_ids is not None else None,
+                ),
+            )
+        else:
+            rr.log(entity, rr.Clear(recursive=True))
+
+
 def log_cameras(
     entity_prefix: str,
     images: CameraImages | Tensor,
@@ -319,6 +436,17 @@ def log_sample(
             class_ids=class_ids,
             label_to_id=label_to_id,
         )
+        # Cylinders don't reproject into 2D camera views, so project them
+        # explicitly onto each camera as 2D wireframes.
+        if "extrinsics" in inputs and "intrinsics" in inputs:
+            log_cylinders_on_cameras(
+                f"{entity_prefix}/cam",
+                targets["cylinders"],
+                inputs["extrinsics"],
+                inputs["intrinsics"],
+                class_ids=class_ids,
+                label_to_id=label_to_id,
+            )
 
 
 def _extract_centers_sizes_yaws(

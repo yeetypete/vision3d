@@ -10,6 +10,7 @@ from ._logging import (
     log_boxes_3d,
     log_cameras,
     log_cylinders_3d,
+    log_cylinders_on_cameras,
     log_point_cloud,
     log_sample,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "log_boxes_3d",
     "log_cameras",
     "log_cylinders_3d",
+    "log_cylinders_on_cameras",
     "log_point_cloud",
     "log_sample",
 ]
