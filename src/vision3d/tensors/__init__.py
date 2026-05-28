@@ -5,6 +5,7 @@ from ._bounding_boxes_3d import (
     BoundingBoxes3D,
 )
 from ._camera import CameraExtrinsics, CameraImages, CameraIntrinsics
+from ._cylinders_3d import Cylinder3DFormat, Cylinders3D
 from ._point_cloud_3d import PointCloud3D
 from ._wrap import wrap
 
@@ -14,6 +15,8 @@ __all__ = [
     "CameraExtrinsics",
     "CameraImages",
     "CameraIntrinsics",
+    "Cylinder3DFormat",
+    "Cylinders3D",
     "PointCloud3D",
     "wrap",
 ]
