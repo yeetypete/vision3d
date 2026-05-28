@@ -15,6 +15,7 @@ from vision3d.tensors import (
     CameraExtrinsics,
     CameraImages,
     CameraIntrinsics,
+    Cylinders3D,
     PointCloud3D,
 )
 
@@ -64,10 +65,15 @@ class FusionInputs(SampleInputs):
 class SampleTargets(TypedDict):
     """Per-frame ground-truth annotations.
 
+    Either ``boxes`` or ``cylinders`` carries the per-object geometry; both
+    are keyed alike so visualization and collation handle them uniformly.
+
     Attributes:
         boxes: 3D bounding boxes in the lidar frame.
-        labels: Integer class labels, one per box.
+        cylinders: Upright 3D cylinders in the lidar frame.
+        labels: Integer class labels, one per object.
     """
 
-    boxes: BoundingBoxes3D
+    boxes: NotRequired[BoundingBoxes3D]
+    cylinders: NotRequired[Cylinders3D]
     labels: Tensor

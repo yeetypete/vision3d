@@ -25,6 +25,8 @@ from vision3d.tensors import (
     CameraExtrinsics,
     CameraImages,
     CameraIntrinsics,
+    Cylinder3DFormat,
+    Cylinders3D,
     PointCloud3D,
 )
 
@@ -1311,6 +1313,11 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         split (str): One of ``"train"`` or ``"val"``. Default: ``"train"``.
         transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
+        target_type (str): Geometry to emit for annotations. ``"boxes"``
+            (default) returns :class:`~vision3d.tensors.BoundingBoxes3D` under
+            the ``"boxes"`` key. ``"cylinders"`` returns
+            :class:`~vision3d.tensors.Cylinders3D` under the ``"cylinders"``
+            key, each cylinder circumscribing the box footprint.
         download (bool, optional): If true, downloads the dataset from the
             internet and puts it in root directory. If dataset is already
             downloaded, it is not downloaded again. Only the publicly
@@ -1347,12 +1354,17 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         version: str = "v1.0-mini",
         split: str = "train",
         transforms: Any | None = None,
+        target_type: Literal["boxes", "cylinders"] = "boxes",
         download: bool = False,
     ) -> None:
+        if target_type not in ("boxes", "cylinders"):
+            msg = f"Unsupported target_type: {target_type!r}"
+            raise ValueError(msg)
         self.root = Path(root)
         self.version = version
         self.split = split
         self.transforms = transforms
+        self.target_type = target_type
 
         if download:
             self.download()
@@ -1518,14 +1530,17 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         """Load annotations and convert from global to lidar frame.
 
         Returns:
-            Dict with ``"boxes"`` (:class:`BoundingBoxes3D`, XYZLWHY format),
-            ``"labels"`` (int tensor).
+            Dict with ``"labels"`` (int tensor) and either ``"boxes"``
+            (:class:`BoundingBoxes3D`, XYZLWHY format) or ``"cylinders"``
+            (:class:`Cylinders3D`, XYZRH format) depending on
+            ``self.target_type``.
         """
         global_to_lidar = torch.linalg.inv(lidar_to_global)
         global_to_lidar_rot = global_to_lidar[:3, :3].numpy()
 
         label_ids: list[int] = []
         boxes: list[list[float]] = []
+        cylinders: list[list[float]] = []
 
         for ann_token in sample["anns"]:
             ann = self._nusc.get("sample_annotation", ann_token)
@@ -1539,39 +1554,41 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
                 [*ann["translation"], 1.0], dtype=torch.float32
             )
             center_lidar = (global_to_lidar @ center_global)[:3]
+            cx, cy, cz = (
+                center_lidar[0].item(),
+                center_lidar[1].item(),
+                center_lidar[2].item(),
+            )
 
             # Dimensions: nuScenes stores (w, l, h), we want (l, w, h)
             w, l, h = ann["size"]
 
-            # Rotation: quaternion -> yaw
-            yaw = _quaternion_to_yaw(ann["rotation"], global_to_lidar_rot)
+            if self.target_type == "cylinders":
+                # Radius of the circle circumscribing the box footprint.
+                radius = 0.5 * float(np.hypot(l, w))
+                cylinders.append([cx, cy, cz, radius, h])
+            else:
+                # Rotation: quaternion -> yaw
+                yaw = _quaternion_to_yaw(ann["rotation"], global_to_lidar_rot)
+                boxes.append([cx, cy, cz, l, w, h, yaw])
 
-            boxes.append(
-                [
-                    center_lidar[0].item(),
-                    center_lidar[1].item(),
-                    center_lidar[2].item(),
-                    l,
-                    w,
-                    h,
-                    yaw,
-                ]
+        labels = torch.tensor(label_ids, dtype=torch.int64)
+
+        if self.target_type == "cylinders":
+            data = (
+                torch.tensor(cylinders, dtype=torch.float32)
+                if cylinders
+                else torch.zeros(0, 5)
             )
-
-        if not boxes:
             return {
-                "boxes": BoundingBoxes3D(
-                    torch.zeros(0, 7), format=BoundingBox3DFormat.XYZLWHY
-                ),
-                "labels": torch.zeros(0, dtype=torch.int64),
+                "cylinders": Cylinders3D(data, format=Cylinder3DFormat.XYZRH),
+                "labels": labels,
             }
 
+        data = torch.tensor(boxes, dtype=torch.float32) if boxes else torch.zeros(0, 7)
         return {
-            "boxes": BoundingBoxes3D(
-                torch.tensor(boxes, dtype=torch.float32),
-                format=BoundingBox3DFormat.XYZLWHY,
-            ),
-            "labels": torch.tensor(label_ids, dtype=torch.int64),
+            "boxes": BoundingBoxes3D(data, format=BoundingBox3DFormat.XYZLWHY),
+            "labels": labels,
         }
 
 
