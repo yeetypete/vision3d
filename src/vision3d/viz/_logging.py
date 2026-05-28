@@ -12,6 +12,8 @@ from vision3d.tensors import (
     CameraExtrinsics,
     CameraImages,
     CameraIntrinsics,
+    Cylinder3DFormat,
+    Cylinders3D,
     PointCloud3D,
 )
 
@@ -137,6 +139,57 @@ def log_boxes_3d(
         )
 
 
+def log_cylinders_3d(
+    entity: str,
+    cylinders: Cylinders3D,
+    *,
+    labels: list[str] | None = None,
+    class_ids: list[int] | None = None,
+    label_to_id: dict[str, int] | None = None,
+) -> None:
+    """Log upright 3D cylinders to Rerun.
+
+    Logs cylinders as ``rr.Cylinders3D`` aligned with the Z axis.
+
+    Args:
+        entity: Rerun entity path (e.g. ``"world/cylinders"``).
+        cylinders: Cylinders in any supported format.
+        labels: Per-cylinder label strings for display.
+        class_ids: Per-cylinder class IDs for coloring via AnnotationContext.
+        label_to_id: Mapping from class name to class ID. When provided,
+            an ``rr.AnnotationContext`` is logged statically on the
+            entity so ``class_ids`` resolve to consistent colors and
+            display names across frames.
+    """
+    if label_to_id is not None:
+        rr.log(
+            entity,
+            rr.AnnotationContext([(i, name) for name, i in label_to_id.items()]),
+            static=True,
+        )
+
+    raw = cylinders.as_subclass(Tensor).detach().cpu()
+    fmt = cylinders.format
+    n = raw.shape[0]
+
+    if n == 0:
+        rr.log(entity, rr.Clear(recursive=True))
+        return
+
+    centers, radii, heights = _extract_centers_radii_heights(raw, fmt)
+
+    rr.log(
+        entity,
+        rr.Cylinders3D(
+            centers=centers,
+            radii=radii,
+            lengths=heights,
+            class_ids=class_ids,
+            labels=labels,
+        ),
+    )
+
+
 def log_cameras(
     entity_prefix: str,
     images: CameraImages | Tensor,
@@ -258,6 +311,15 @@ def log_sample(
             label_to_id=label_to_id,
         )
 
+    if targets and "cylinders" in targets:
+        class_ids = targets["labels"].tolist() if "labels" in targets else None
+        log_cylinders_3d(
+            f"{entity_prefix}/cylinders",
+            targets["cylinders"],
+            class_ids=class_ids,
+            label_to_id=label_to_id,
+        )
+
 
 def _extract_centers_sizes_yaws(
     raw: Tensor, fmt: BoundingBox3DFormat
@@ -290,3 +352,25 @@ def _extract_centers_sizes_yaws(
         raise ValueError(msg)
 
     return centers, sizes, yaws
+
+
+def _extract_centers_radii_heights(
+    raw: Tensor, fmt: Cylinder3DFormat
+) -> tuple[Tensor, Tensor, Tensor]:
+    """Extract centers, radii, and heights from a raw cylinder tensor.
+
+    Returns:
+        Tuple of (centers ``[N, 3]``, radii ``[N]``, heights ``[N]``).
+
+    Raises:
+        ValueError: If ``fmt`` is not a supported format.
+    """
+    if fmt is Cylinder3DFormat.XYZRH:
+        centers = raw[:, :3]
+        radii = raw[:, 3]
+        heights = raw[:, 4]
+    else:
+        msg = f"Unsupported format: {fmt}"
+        raise ValueError(msg)
+
+    return centers, radii, heights
