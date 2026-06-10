@@ -134,10 +134,10 @@ except TypeError as e:
 # so torchvision's
 # :class:`~torchvision.transforms.v2.RandomHorizontalFlip` and
 # :class:`~torchvision.transforms.v2.RandomVerticalFlip` update the images,
-# intrinsics, and extrinsics together with the points and boxes — no
-# ``TypeError``. For an upright camera rig a horizontal image flip maps to
+# intrinsics, and extrinsics together with the points and boxes.
+# For an upright camera rig a horizontal image flip maps to
 # a world **Y** reflection and a vertical flip to a world **Z** reflection.
-# These two transforms appear in the showcase below; the remaining
+# These two transforms appear in the showcase below. The remaining
 # ``RandomFlip3D`` world **X** flip has no image-space equivalent and stays
 # lidar-only.
 

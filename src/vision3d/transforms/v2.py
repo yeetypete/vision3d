@@ -38,8 +38,8 @@ Flip-axis convention
 The registered kernels map each image-space flip to a fixed world-axis
 reflection:
 
-* ``RandomHorizontalFlip`` → world **Y** reflection
-* ``RandomVerticalFlip`` → world **Z** reflection
+* ``RandomHorizontalFlip``: world **Y** reflection
+* ``RandomVerticalFlip``: world **Z** reflection
 
 These choices match the intuition of an upright rig (image_y aligned with
 -world_Z), but projection stays consistent for any camera orientation: the
@@ -48,7 +48,7 @@ discrepancy.
 
 World X-flip has no torchvision equivalent and stays in
 :class:`vision3d.transforms.RandomFlip3D` (achievable via Y-flip + a
-180° yaw rotation).
+180 degree yaw rotation).
 """
 
 from typing import TYPE_CHECKING, Any, override

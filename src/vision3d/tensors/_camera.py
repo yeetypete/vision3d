@@ -15,8 +15,9 @@ class CameraImages(tv_tensors.Image):
     Inherits from :class:`torchvision.tv_tensors.Image` so every
     torchvision v2 image transform dispatches automatically.
 
-    For 3D spatial transforms (flip, rotate, etc.) this type passes through
-    unchanged.
+    Image-space transforms (e.g. horizontal/vertical flips) operate on the
+    images directly. Transforms that do not act on images leave this type
+    untouched.
 
     Args:
         data: Any data that can be turned into a tensor with :func:`torch.as_tensor`.

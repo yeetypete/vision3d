@@ -204,7 +204,7 @@ class TestFlipDispatchOnFusion:
     ) -> None:
         """Project every lidar point through every camera, before and
         after the flip. After H-flip, every pixel mirrors as
-        ``u → W - u``; after V-flip, ``v → H - v``.
+        ``u --> W - u``; after V-flip, ``v --> H - v``.
         """
         from vision3d.ops import project_to_image
 
@@ -251,10 +251,10 @@ class TestFlipDispatchOnFusion:
             torch.testing.assert_close(
                 depth_new[in_front], depth_orig[in_front], rtol=1e-5, atol=1e-4
             )
-            if world_axis == 1:  # H-flip → u mirrors, v unchanged
+            if world_axis == 1:  # H-flip --> u mirrors, v unchanged
                 expected_u = w - uv_orig[in_front, 0]
                 expected_v = uv_orig[in_front, 1]
-            else:  # V-flip → u unchanged, v mirrors
+            else:  # V-flip --> u unchanged, v mirrors
                 expected_u = uv_orig[in_front, 0]
                 expected_v = h - uv_orig[in_front, 1]
             torch.testing.assert_close(
