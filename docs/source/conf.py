@@ -26,10 +26,11 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx_gallery.gen_gallery",
-    "gfm_admonitions",
     "rerun_embed",
     "rerun_scraper",
 ]
+
+myst_enable_extensions = ["alert"]
 
 autosummary_ignore_module_all = False
 
