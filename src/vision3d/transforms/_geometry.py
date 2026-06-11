@@ -29,9 +29,15 @@ class RandomFlip3D(_RandomApplyTransform):
 
     Operates on :class:`~vision3d.tensors.PointCloud3D` and
     :class:`~vision3d.tensors.BoundingBoxes3D`. Camera inputs (images,
-    extrinsics, intrinsics) are rejected: flipping the 3D scene without
-    coordinated changes to the camera side would break geometric
-    consistency.
+    extrinsics, intrinsics) are rejected, since this transform flips only the
+    3D geometry and leaves the camera side untouched. To flip a scene that
+    contains cameras, use :class:`torchvision.transforms.v2.RandomHorizontalFlip`
+    (world Y) or :class:`torchvision.transforms.v2.RandomVerticalFlip` (world Z),
+    which apply the matching image-space flip and update the camera tensors so
+    projection stays consistent.
+
+    The world X-axis flip has no image-space equivalent, so ``RandomFlip3D``
+    remains the way to apply it (on camera-free samples).
 
     Args:
         axis: Axis to flip along. One of ``"x"``, ``"y"``, ``"z"``.
@@ -57,8 +63,12 @@ class RandomFlip3D(_RandomApplyTransform):
         if has_any(flat_inputs, CameraImages, CameraExtrinsics, CameraIntrinsics):
             msg = (
                 f"{type(self).__name__} cannot operate on samples that contain "
-                f"camera tensors: flipping the 3D scene without coordinated "
-                f"changes to the cameras would break geometric consistency."
+                f"camera tensors, since it flips only the 3D geometry. For "
+                f"samples that mix camera and point-cloud tensors, use "
+                f"torchvision's RandomHorizontalFlip (world Y) or "
+                f"RandomVerticalFlip (world Z): these flip the point clouds, "
+                f"boxes, and images together and update the camera tensors so "
+                f"projection stays consistent."
             )
             raise TypeError(msg)
 

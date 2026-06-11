@@ -3,14 +3,20 @@
 from ._camera import (
     center_crop_camera_intrinsics,
     crop_camera_intrinsics,
+    horizontal_flip_camera_extrinsics,
+    horizontal_flip_camera_intrinsics,
     pad_camera_intrinsics,
     resize_camera_intrinsics,
     resized_crop_camera_intrinsics,
+    vertical_flip_camera_extrinsics,
+    vertical_flip_camera_intrinsics,
 )
 from ._geometry import (
     flip_3d,
     flip_3d_bounding_boxes,
     flip_3d_point_cloud,
+    horizontal_flip_bounding_boxes_3d,
+    horizontal_flip_point_cloud_3d,
     rotate_3d,
     rotate_3d_bounding_boxes,
     rotate_3d_camera_extrinsics,
@@ -23,6 +29,8 @@ from ._geometry import (
     translate_3d_bounding_boxes,
     translate_3d_camera_extrinsics,
     translate_3d_point_cloud,
+    vertical_flip_bounding_boxes_3d,
+    vertical_flip_point_cloud_3d,
 )
 from ._point_cloud import (
     jitter_points,
@@ -40,6 +48,10 @@ __all__ = [
     "flip_3d",
     "flip_3d_bounding_boxes",
     "flip_3d_point_cloud",
+    "horizontal_flip_bounding_boxes_3d",
+    "horizontal_flip_camera_extrinsics",
+    "horizontal_flip_camera_intrinsics",
+    "horizontal_flip_point_cloud_3d",
     "jitter_points",
     "jitter_points_point_cloud",
     "pad_camera_intrinsics",
@@ -62,4 +74,8 @@ __all__ = [
     "translate_3d_bounding_boxes",
     "translate_3d_camera_extrinsics",
     "translate_3d_point_cloud",
+    "vertical_flip_bounding_boxes_3d",
+    "vertical_flip_camera_extrinsics",
+    "vertical_flip_camera_intrinsics",
+    "vertical_flip_point_cloud_3d",
 ]

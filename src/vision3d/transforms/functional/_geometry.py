@@ -4,6 +4,8 @@ import math
 
 import torch
 from torch import Tensor
+from torchvision.transforms.v2 import functional as _F
+from torchvision.transforms.v2.functional import register_kernel as _register_kernel
 from torchvision.tv_tensors import TVTensor
 
 from vision3d.tensors import (
@@ -11,6 +13,7 @@ from vision3d.tensors import (
     BoundingBoxes3D,
     CameraExtrinsics,
     PointCloud3D,
+    wrap,
 )
 
 from ._registry import register_kernel
@@ -19,8 +22,9 @@ from ._registry import register_kernel
 AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
 
 # Which rotation angles to negate for each flip axis.
-# Convention: yaw=around Z (idx 6), pitch=around Y (idx 7), roll=around X (idx 8).
-# A flip negates angles that rotate around axes OTHER than the flip axis.
+# Convention: yaw=around Z (idx 6), pitch=around Y (idx 7), roll=around X
+# (idx 8). A flip negates angles that rotate around axes *other* than the
+# flip axis.
 _FLIP_NEGATE_YPR: dict[str, list[int]] = {
     "x": [6, 7],  # negate yaw (Z) and pitch (Y)
     "y": [6, 8],  # negate yaw (Z) and roll (X)
@@ -105,12 +109,86 @@ def flip_3d_bounding_boxes(
 
 @register_kernel(flip_3d, BoundingBoxes3D, tv_tensor_wrapper=False)
 def _flip_3d_bounding_boxes_dispatch(inpt: BoundingBoxes3D, *, axis: str) -> TVTensor:
-    from vision3d.tensors import wrap
-
     output = flip_3d_bounding_boxes(
         inpt.as_subclass(Tensor), format=inpt.format, axis=axis
     )
     return wrap(output, like=inpt)
+
+
+@_register_kernel(_F.horizontal_flip, PointCloud3D)
+def horizontal_flip_point_cloud_3d(inpt: PointCloud3D) -> PointCloud3D:
+    """Flip a :class:`~vision3d.tensors.PointCloud3D` to match a horizontal image flip.
+
+    Reflects the source frame's **Y** axis following the fixed world-axis
+    convention for a horizontal flip. The paired extrinsics kernel applies the
+    matching camera-frame reflection, so projection stays consistent for any
+    camera pose.
+
+    Args:
+        inpt: The point cloud to flip.
+
+    Returns:
+        The flipped point cloud.
+    """
+    out = flip_3d_point_cloud(inpt.as_subclass(Tensor), axis="y")
+    return wrap(out, like=inpt)
+
+
+@_register_kernel(_F.vertical_flip, PointCloud3D)
+def vertical_flip_point_cloud_3d(inpt: PointCloud3D) -> PointCloud3D:
+    """Flip a :class:`~vision3d.tensors.PointCloud3D` to match a vertical image flip.
+
+    Reflects the source frame's **Z** axis following the fixed world-axis
+    convention for a vertical flip. The paired extrinsics kernel applies the
+    matching camera-frame reflection, so projection stays consistent for any
+    camera pose.
+
+    Args:
+        inpt: The point cloud to flip.
+
+    Returns:
+        The flipped point cloud.
+    """
+    out = flip_3d_point_cloud(inpt.as_subclass(Tensor), axis="z")
+    return wrap(out, like=inpt)
+
+
+@_register_kernel(_F.horizontal_flip, BoundingBoxes3D)
+def horizontal_flip_bounding_boxes_3d(inpt: BoundingBoxes3D) -> BoundingBoxes3D:
+    """Flip :class:`~vision3d.tensors.BoundingBoxes3D` to match a horizontal image flip.
+
+    Reflects the source frame's **Y** axis following the fixed world-axis
+    convention for a horizontal flip. The paired extrinsics kernel applies the
+    matching camera-frame reflection, so projection stays consistent for any
+    camera pose.
+
+    Args:
+        inpt: The boxes to flip.
+
+    Returns:
+        The flipped boxes with the same format.
+    """
+    out = flip_3d_bounding_boxes(inpt.as_subclass(Tensor), format=inpt.format, axis="y")
+    return wrap(out, like=inpt)
+
+
+@_register_kernel(_F.vertical_flip, BoundingBoxes3D)
+def vertical_flip_bounding_boxes_3d(inpt: BoundingBoxes3D) -> BoundingBoxes3D:
+    """Flip :class:`~vision3d.tensors.BoundingBoxes3D` to match a vertical image flip.
+
+    Reflects the source frame's **Z** axis following the fixed world-axis
+    convention for a vertical flip. The paired extrinsics kernel applies the
+    matching camera-frame reflection, so projection stays consistent for any
+    camera pose.
+
+    Args:
+        inpt: The boxes to flip.
+
+    Returns:
+        The flipped boxes with the same format.
+    """
+    out = flip_3d_bounding_boxes(inpt.as_subclass(Tensor), format=inpt.format, axis="z")
+    return wrap(out, like=inpt)
 
 
 def translate_3d(inpt: Tensor, *, offset: Tensor) -> Tensor:
@@ -177,8 +255,6 @@ def translate_3d_bounding_boxes(
 def _translate_3d_bounding_boxes_dispatch(
     inpt: BoundingBoxes3D, *, offset: Tensor
 ) -> TVTensor:
-    from vision3d.tensors import wrap
-
     output = translate_3d_bounding_boxes(
         inpt.as_subclass(Tensor), format=inpt.format, offset=offset
     )
@@ -337,8 +413,6 @@ def rotate_3d_bounding_boxes(
 def _rotate_3d_bounding_boxes_dispatch(
     inpt: BoundingBoxes3D, *, rotation_matrix: Tensor
 ) -> TVTensor:
-    from vision3d.tensors import wrap
-
     output = rotate_3d_bounding_boxes(
         inpt.as_subclass(Tensor),
         format=inpt.format,
@@ -459,8 +533,6 @@ def _scale_3d_point_cloud_kernel(points: Tensor, *, factor: float) -> Tensor:
 def _scale_3d_bounding_boxes_dispatch(
     inpt: BoundingBoxes3D, *, factor: float
 ) -> TVTensor:
-    from vision3d.tensors import wrap
-
     output = scale_3d_bounding_boxes(
         inpt.as_subclass(Tensor), format=inpt.format, factor=factor
     )
