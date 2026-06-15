@@ -97,7 +97,8 @@ def log_boxes_3d(
 
     Raises:
         ValueError: If ``score_threshold`` is set without ``scores``, or if
-            ``scores`` length does not match the number of boxes.
+            ``scores`` or ``labels`` length does not match the number of
+            boxes.
     """
     if label_to_id is not None:
         rr.log(
@@ -114,6 +115,9 @@ def log_boxes_3d(
     )
     if score_list is not None and len(score_list) != raw.shape[0]:
         msg = f"scores has length {len(score_list)} but there are {raw.shape[0]} boxes"
+        raise ValueError(msg)
+    if labels is not None and len(labels) != raw.shape[0]:
+        msg = f"labels has length {len(labels)} but there are {raw.shape[0]} boxes"
         raise ValueError(msg)
     if score_threshold is not None:
         if score_list is None:
