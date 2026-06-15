@@ -60,7 +60,6 @@ def log_boxes_3d(
     label_to_id: dict[str, int] | None = None,
     scores: list[float] | Tensor | None = None,
     score_threshold: float | None = None,
-    radii: float | None = None,
     fill_mode: rr.components.FillModeLike | None = None,
     show_labels: bool | None = None,
     log_heading: bool = True,
@@ -71,7 +70,7 @@ def log_boxes_3d(
     ``rr.Arrows3D`` on a ``/heading`` sub-entity. Designed to serve both
     ground-truth and prediction boxes: route each to its own entity (e.g.
     ``"world/gt/boxes"`` vs ``"world/pred/boxes"``) and distinguish them
-    visually with ``radii`` / ``fill_mode`` while keeping per-class colors.
+    visually with ``fill_mode`` while keeping per-class colors.
 
     Args:
         entity: Rerun entity path (e.g. ``"world/gt/boxes"``).
@@ -87,7 +86,6 @@ def log_boxes_3d(
             shows its score (e.g. ``"car 0.87"``).
         score_threshold: If set, boxes with ``scores`` below this value are
             dropped before logging. Requires ``scores``.
-        radii: Line thickness for the box wireframe.
         fill_mode: Box fill mode (e.g. ``"majorwireframe"``,
             ``"densewireframe"``, ``"solid"``).
         show_labels: Force per-box labels on (``True``) or off (``False``)
@@ -153,7 +151,6 @@ def log_boxes_3d(
             quaternions=quaternions,
             class_ids=class_ids,
             labels=display_labels,
-            radii=radii,
             fill_mode=fill_mode,
             show_labels=show_labels,
         ),
@@ -176,14 +173,14 @@ def log_boxes_3d(
         vectors[:, 0] = arrow_len * cos_y
         vectors[:, 1] = arrow_len * sin_y
 
-        arrow_radii = face_scale * 0.06
+        radii = face_scale * 0.06
 
         rr.log(
             f"{entity}/heading",
             rr.Arrows3D(
                 origins=origins,
                 vectors=vectors,
-                radii=arrow_radii,
+                radii=radii,
                 colors=[(255, 255, 255)] * n,
             ),
         )
