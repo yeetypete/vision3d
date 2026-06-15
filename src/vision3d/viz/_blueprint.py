@@ -53,12 +53,8 @@ def camera_grid(
     overlays = list(overlay_entities or ())
 
     # Box overlays are rendered as wireframes so filled faces don't occlude
-    # the image. Contents and overrides are the same for every panel.
+    # the image. Contents are the same for every panel.
     contents = ["+ $origin/**", *(f"+ /{entity}/**" for entity in overlays)]
-    overrides = {
-        f"/{entity}": rr.Boxes3D.from_fields(fill_mode="majorwireframe")
-        for entity in overlays
-    }
 
     panels = []
     for row in grid:
@@ -71,7 +67,13 @@ def camera_grid(
                     name=camera_names[idx],
                     origin=f"/{entity_prefix}_{idx}",
                     contents=contents,
-                    overrides=overrides or None,
+                    overrides={
+                        f"/{entity}": rr.Boxes3D.from_fields(
+                            fill_mode="majorwireframe"
+                        )
+                        for entity in overlays
+                    }
+                    or None,
                 )
             )
     return rrb.Grid(*panels, grid_columns=cols)
