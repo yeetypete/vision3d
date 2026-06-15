@@ -61,7 +61,7 @@ def log_boxes_3d(
     scores: list[float] | Tensor | None = None,
     score_threshold: float | None = None,
     radii: float | None = None,
-    fill_mode: str | None = None,
+    fill_mode: rr.components.FillModeLike | None = None,
     show_labels: bool | None = None,
     log_heading: bool = True,
 ) -> None:
