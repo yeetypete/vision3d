@@ -16,10 +16,10 @@ attribute/velocity/orientation skips for ``barrier`` and ``traffic_cone``).
 """
 
 import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypedDict
 
-import numpy as np
 import torch
 from torch import Tensor
 
@@ -78,7 +78,7 @@ class NuScenesDetectionScoreResult(TypedDict):
 
 @dataclass
 class _BoxData:
-    """Per-frame box attributes as numpy arrays.
+    """Per-frame box attributes as CPU float64 / int64 tensors.
 
     Attributes:
         center: ``[N, 2]`` bird's-eye-view (xy) centers.
@@ -90,13 +90,13 @@ class _BoxData:
         score: ``[N]`` confidence scores (empty for ground truth).
     """
 
-    center: np.ndarray
-    size: np.ndarray
-    yaw: np.ndarray
-    velocity: np.ndarray
-    attribute: np.ndarray
-    label: np.ndarray
-    score: np.ndarray
+    center: Tensor
+    size: Tensor
+    yaw: Tensor
+    velocity: Tensor
+    attribute: Tensor
+    label: Tensor
+    score: Tensor
 
 
 class NuScenesDetectionScore:
@@ -260,20 +260,23 @@ class NuScenesDetectionScore:
             raise ValueError(msg)
         for pred, target in zip(preds, targets):
             self._check_required_fields(pred, target)
-            pred_data = _to_box_data(
-                pred["boxes"],
-                pred["labels"],
-                pred.get("velocities"),
-                pred.get("attributes"),
-                pred["scores"],
-            )
-            gt_data = _to_box_data(
-                target["boxes"],
-                target["labels"],
-                target.get("velocities"),
-                target.get("attributes"),
-                None,
-            )
+            # Pin internal tensors to CPU (the matching loop is sequential
+            # Python) regardless of any ambient default-device context.
+            with torch.device("cpu"):
+                pred_data = _to_box_data(
+                    pred["boxes"],
+                    pred["labels"],
+                    pred.get("velocities"),
+                    pred.get("attributes"),
+                    pred["scores"],
+                )
+                gt_data = _to_box_data(
+                    target["boxes"],
+                    target["labels"],
+                    target.get("velocities"),
+                    target.get("attributes"),
+                    None,
+                )
             self._frames.append((pred_data, gt_data))
 
     def _check_required_fields(self, pred: Prediction3D, target: Target3D) -> None:
@@ -305,15 +308,17 @@ class NuScenesDetectionScore:
         """
         label_aps: dict[tuple[int, float], float] = {}
         # ``_MetricData`` per (class, dist_th); reused for AP and TP metrics.
+        # Pin to CPU regardless of any ambient default-device context.
         md_by_key: dict[tuple[int, float], _MetricData] = {}
-        for cls in self.class_ids:
-            period = self.orientation_periods.get(cls, 2.0 * math.pi)
-            for dist_th in self.dist_thresholds:
-                md = _accumulate(self._frames, cls, dist_th, period)
-                md_by_key[(cls, dist_th)] = md
-                label_aps[(cls, dist_th)] = _calc_ap(
-                    md, self.min_recall, self.min_precision
-                )
+        with torch.device("cpu"):
+            for cls in self.class_ids:
+                period = self.orientation_periods.get(cls, 2.0 * math.pi)
+                for dist_th in self.dist_thresholds:
+                    md = _accumulate(self._frames, cls, dist_th, period)
+                    md_by_key[(cls, dist_th)] = md
+                    label_aps[(cls, dist_th)] = _calc_ap(
+                        md, self.min_recall, self.min_precision
+                    )
 
         label_tp_errors: dict[tuple[int, str], float] = {}
         for cls in self.class_ids:
@@ -328,16 +333,16 @@ class NuScenesDetectionScore:
                     )
 
         mean_dist_aps = {
-            cls: float(np.mean([label_aps[(cls, t)] for t in self.dist_thresholds]))
+            cls: _mean(label_aps[(cls, t)] for t in self.dist_thresholds)
             for cls in self.class_ids
         }
-        mean_ap = float(np.mean(list(mean_dist_aps.values())))
+        mean_ap = _mean(mean_dist_aps.values())
 
         tp_errors: dict[str, float] = {}
         tp_scores: dict[str, float] = {}
         for metric in self.tp_metrics:
             errs = [label_tp_errors[(cls, metric)] for cls in self.class_ids]
-            mean_err = float(np.nanmean(errs))
+            mean_err = _nanmean(errs)
             tp_errors[metric] = mean_err
             tp_scores[metric] = max(0.0, 1.0 - mean_err)
 
@@ -364,7 +369,7 @@ class NuScenesDetectionScore:
 class _MetricData:
     """Interpolated per-(class, threshold) curve, mirroring the devkit.
 
-    Each array has length :data:`_NELEM`. ``confidence`` is descending and
+    Each tensor has length :data:`_NELEM`. ``confidence`` is descending and
     ``recall`` ascending.
 
     Attributes:
@@ -378,20 +383,20 @@ class _MetricData:
         attr_err: Interpolated attribute error.
     """
 
-    recall: np.ndarray
-    precision: np.ndarray
-    confidence: np.ndarray
-    trans_err: np.ndarray
-    scale_err: np.ndarray
-    orient_err: np.ndarray
-    vel_err: np.ndarray
-    attr_err: np.ndarray
+    recall: Tensor
+    precision: Tensor
+    confidence: Tensor
+    trans_err: Tensor
+    scale_err: Tensor
+    orient_err: Tensor
+    vel_err: Tensor
+    attr_err: Tensor
 
     @property
     def max_recall_ind(self) -> int:
         """Index of the maximum achieved recall (last nonzero confidence)."""
-        nonzero = np.nonzero(self.confidence)[0]
-        return int(nonzero[-1]) if len(nonzero) else 0
+        nonzero = torch.nonzero(self.confidence, as_tuple=False)
+        return int(nonzero[-1].item()) if nonzero.numel() else 0
 
 
 def _no_predictions_md() -> _MetricData:
@@ -402,14 +407,14 @@ def _no_predictions_md() -> _MetricData:
         (worst-case) TP errors.
     """
     return _MetricData(
-        recall=np.linspace(0.0, 1.0, _NELEM),
-        precision=np.zeros(_NELEM),
-        confidence=np.zeros(_NELEM),
-        trans_err=np.ones(_NELEM),
-        scale_err=np.ones(_NELEM),
-        orient_err=np.ones(_NELEM),
-        vel_err=np.ones(_NELEM),
-        attr_err=np.ones(_NELEM),
+        recall=torch.linspace(0.0, 1.0, _NELEM, dtype=torch.float64),
+        precision=torch.zeros(_NELEM, dtype=torch.float64),
+        confidence=torch.zeros(_NELEM, dtype=torch.float64),
+        trans_err=torch.ones(_NELEM, dtype=torch.float64),
+        scale_err=torch.ones(_NELEM, dtype=torch.float64),
+        orient_err=torch.ones(_NELEM, dtype=torch.float64),
+        vel_err=torch.ones(_NELEM, dtype=torch.float64),
+        attr_err=torch.ones(_NELEM, dtype=torch.float64),
     )
 
 
@@ -433,67 +438,81 @@ def _accumulate(
     Returns:
         The interpolated :class:`_MetricData` for this class/threshold.
     """
-    npos = sum(int(np.count_nonzero(gt.label == class_id)) for _, gt in frames)
+    npos = sum(int((gt.label == class_id).sum()) for _, gt in frames)
     if npos == 0:
         return _no_predictions_md()
 
-    # Pool predictions across frames, remembering their originating frame.
+    # Greedy matching by descending score decomposes into independent per-frame
+    # matching: a prediction only ever matches ground truth in its own frame.
+    # Precompute each frame's prediction-vs-GT distance matrix once; the greedy
+    # loop then indexes rows. ``donot_use_mm_for_euclid_dist`` forces the direct
+    # formula so distances match the devkit's ``np.linalg.norm``.
+    gt_local: list[Tensor] = []
+    pred_local: list[Tensor] = []
+    dist_mats: list[Tensor | None] = []
+    taken: list[Tensor] = []
+    for pred, gt in frames:
+        g_idx = torch.nonzero(gt.label == class_id, as_tuple=False).flatten()
+        p_idx = torch.nonzero(pred.label == class_id, as_tuple=False).flatten()
+        gt_local.append(g_idx)
+        pred_local.append(p_idx)
+        taken.append(torch.zeros(g_idx.numel(), dtype=torch.bool))
+        if p_idx.numel() and g_idx.numel():
+            dist_mats.append(
+                torch.cdist(
+                    pred.center[p_idx],
+                    gt.center[g_idx],
+                    compute_mode="donot_use_mm_for_euclid_dist",
+                )
+            )
+        else:
+            dist_mats.append(None)
+
     confs: list[float] = []
     frame_of: list[int] = []
-    idx_of: list[int] = []
+    row_of: list[int] = []
     for f_idx, (pred, _) in enumerate(frames):
-        for i in np.nonzero(pred.label == class_id)[0]:
+        for row, i in enumerate(pred_local[f_idx].tolist()):
             confs.append(float(pred.score[i]))
             frame_of.append(f_idx)
-            idx_of.append(int(i))
+            row_of.append(row)
 
-    # Sort by ascending (conf, position) then reverse -> descending order,
-    # matching the devkit's tie-breaking exactly.
+    # Descending score, tie-broken by position, matching the devkit exactly.
     sortind = sorted(range(len(confs)), key=lambda k: (confs[k], k))[::-1]
 
     tp: list[int] = []
     fp: list[int] = []
     conf: list[float] = []
-    match_data: dict[str, list[float]] = {m: [] for m in TP_METRICS}
     match_conf: list[float] = []
+    # Translation error is the match distance; the other TP errors are
+    # vectorized below from the matched index triples.
+    trans_errs: list[float] = []
+    match_frame: list[int] = []
+    match_pred: list[int] = []
+    match_gt_idx: list[int] = []
 
-    taken: set[tuple[int, int]] = set()
     for k in sortind:
         f_idx = frame_of[k]
-        p_i = idx_of[k]
-        pred, gt = frames[f_idx]
+        dmat = dist_mats[f_idx]
 
-        gt_idxs = np.nonzero(gt.label == class_id)[0]
-        min_dist = np.inf
-        match_gt = -1
-        for g_i in gt_idxs:
-            g_i = int(g_i)
-            if (f_idx, g_i) in taken:
-                continue
-            dist = float(np.linalg.norm(pred.center[p_i] - gt.center[g_i]))
-            if dist < min_dist:
-                min_dist = dist
-                match_gt = g_i
+        min_dist = math.inf
+        match_rel = -1
+        if dmat is not None:
+            # ``argmin`` over untaken GTs reproduces the loop's earliest-of-ties pick.
+            dists = dmat[row_of[k]].masked_fill(taken[f_idx], math.inf)
+            best_dist, best_rel = torch.min(dists, dim=0)
+            min_dist = float(best_dist)
+            match_rel = int(best_rel)
 
         if min_dist < dist_th:
-            taken.add((f_idx, match_gt))
+            taken[f_idx][match_rel] = True
             tp.append(1)
             fp.append(0)
             conf.append(confs[k])
-
-            match_data["trans_err"].append(min_dist)
-            match_data["vel_err"].append(
-                float(np.linalg.norm(pred.velocity[p_i] - gt.velocity[match_gt]))
-            )
-            match_data["scale_err"].append(
-                1.0 - _scale_iou(gt.size[match_gt], pred.size[p_i])
-            )
-            match_data["orient_err"].append(
-                _yaw_diff(gt.yaw[match_gt], pred.yaw[p_i], orientation_period)
-            )
-            match_data["attr_err"].append(
-                1.0 - _attr_acc(gt.attribute[match_gt], pred.attribute[p_i])
-            )
+            trans_errs.append(min_dist)
+            match_frame.append(f_idx)
+            match_pred.append(int(pred_local[f_idx][row_of[k]]))
+            match_gt_idx.append(int(gt_local[f_idx][match_rel]))
             match_conf.append(confs[k])
         else:
             tp.append(0)
@@ -503,30 +522,39 @@ def _accumulate(
     if len(match_conf) == 0:
         return _no_predictions_md()
 
-    tp_arr = np.cumsum(tp).astype(float)
-    fp_arr = np.cumsum(fp).astype(float)
-    conf_arr = np.array(conf)
+    tp_cum = torch.tensor(tp, dtype=torch.float64).cumsum(0)
+    fp_cum = torch.tensor(fp, dtype=torch.float64).cumsum(0)
+    conf_t = torch.tensor(conf, dtype=torch.float64)
 
-    prec = tp_arr / (fp_arr + tp_arr)
-    rec = tp_arr / float(npos)
+    prec = tp_cum / (fp_cum + tp_cum)
+    rec = tp_cum / float(npos)
 
-    rec_interp = np.linspace(0.0, 1.0, _NELEM)
-    prec = np.interp(rec_interp, rec, prec, right=0)
-    conf_interp = np.interp(rec_interp, rec, conf_arr, right=0)
+    rec_interp = torch.linspace(0.0, 1.0, _NELEM, dtype=torch.float64)
+    prec_i = _interp(rec_interp, rec, prec, right=0.0)
+    conf_i = _interp(rec_interp, rec, conf_t, right=0.0)
 
-    resampled: dict[str, np.ndarray] = {}
-    match_conf_arr = np.array(match_conf)
+    match_errors = _match_errors(
+        frames,
+        trans_errs,
+        match_frame,
+        match_pred,
+        match_gt_idx,
+        orientation_period,
+    )
+
+    resampled: dict[str, Tensor] = {}
+    match_conf_t = torch.tensor(match_conf, dtype=torch.float64)
     for metric in TP_METRICS:
-        tmp = _cummean(np.array(match_data[metric]))
-        # ``np.interp`` needs ascending sample points; confidences descend.
-        resampled[metric] = np.interp(
-            conf_interp[::-1], match_conf_arr[::-1], tmp[::-1]
-        )[::-1]
+        tmp = _cummean(match_errors[metric])
+        # ``_interp`` needs ascending sample points; confidences descend.
+        resampled[metric] = _interp(
+            conf_i.flip(0), match_conf_t.flip(0), tmp.flip(0)
+        ).flip(0)
 
     return _MetricData(
         recall=rec_interp,
-        precision=prec,
-        confidence=conf_interp,
+        precision=prec_i,
+        confidence=conf_i,
         trans_err=resampled["trans_err"],
         scale_err=resampled["scale_err"],
         orient_err=resampled["orient_err"],
@@ -543,11 +571,9 @@ def _calc_ap(md: _MetricData, min_recall: float, min_precision: float) -> float:
     Returns:
         The clipped, normalized average precision in ``[0, 1]``.
     """
-    prec = np.copy(md.precision)
-    prec = prec[round(100 * min_recall) + 1 :]
-    prec -= min_precision
-    prec[prec < 0] = 0
-    return float(np.mean(prec)) / (1.0 - min_precision)
+    prec = md.precision[round(100 * min_recall) + 1 :]
+    prec = (prec - min_precision).clamp_min(0.0)
+    return float(prec.mean()) / (1.0 - min_precision)
 
 
 def _calc_tp(md: _MetricData, min_recall: float, metric_name: str) -> float:
@@ -562,60 +588,144 @@ def _calc_tp(md: _MetricData, min_recall: float, metric_name: str) -> float:
     last_ind = md.max_recall_ind
     if last_ind < first_ind:
         return 1.0
-    return float(np.mean(getattr(md, metric_name)[first_ind : last_ind + 1]))
+    errors: Tensor = getattr(md, metric_name)
+    return float(errors[first_ind : last_ind + 1].mean())
 
 
-def _scale_iou(size_a: np.ndarray, size_b: np.ndarray) -> float:
-    """Aligned (translation/rotation-invariant) 3D scale IoU.
+def _interp(x: Tensor, xp: Tensor, fp: Tensor, right: float | None = None) -> Tensor:
+    """1-D linear interpolation matching :func:`numpy.interp`.
 
-    Returns:
-        Intersection-over-union of two boxes assumed perfectly aligned.
-    """
-    min_dims = np.minimum(size_a, size_b)
-    vol_a = float(np.prod(size_a))
-    vol_b = float(np.prod(size_b))
-    intersection = float(np.prod(min_dims))
-    union = vol_a + vol_b - intersection
-    return intersection / union
-
-
-def _yaw_diff(yaw_a: float, yaw_b: float, period: float) -> float:
-    """Smallest absolute yaw difference under the given periodicity.
+    ``xp`` must be non-decreasing (duplicates allowed). Queries below
+    ``xp[0]`` return ``fp[0]``; queries above ``xp[-1]`` return ``right`` if
+    given, else ``fp[-1]``. On a run of equal ``xp`` the value at the last
+    occurrence is used, reproducing ``numpy``'s behavior exactly.
 
     Returns:
-        Yaw difference in ``[0, period / 2]`` radians.
+        Interpolated values, shaped like ``x``.
     """
-    diff = (yaw_a - yaw_b + period / 2) % period - period / 2
-    if diff > math.pi:
-        diff -= 2 * math.pi
-    return abs(diff)
+    left_val = fp[0]
+    right_val = (
+        fp[-1]
+        if right is None
+        else torch.tensor(right, dtype=fp.dtype, device=fp.device)
+    )
+    # ``side="right"`` counts xp <= x, so hi-1 lands on the last equal node.
+    hi = torch.searchsorted(xp, x, right=True).clamp(1, xp.numel() - 1)
+    lo = hi - 1
+    x0, x1 = xp[lo], xp[hi]
+    f0, f1 = fp[lo], fp[hi]
+    denom = x1 - x0
+    safe = torch.where(denom != 0, denom, torch.ones_like(denom))
+    slope = (f1 - f0) / safe
+    # ``denom == 0`` only when the query lands on a duplicate run clamped at
+    # the top of ``xp``; numpy resolves that to the last node's value (``f1``).
+    res = torch.where(denom != 0, f0 + slope * (x - x0), f1)
+    res = torch.where(x < xp[0], left_val, res)
+    return torch.where(x > xp[-1], right_val, res)
 
 
-def _attr_acc(gt_attr: float, pred_attr: float) -> float:
-    """Attribute classification accuracy for a matched pair.
+def _match_errors(
+    frames: list[tuple[_BoxData, _BoxData]],
+    trans_errs: list[float],
+    match_frame: list[int],
+    match_pred: list[int],
+    match_gt: list[int],
+    orientation_period: float,
+) -> dict[str, Tensor]:
+    """Vectorized per-true-positive TP errors, in match order.
+
+    Translation error is the match distance, already collected. The velocity,
+    scale, orientation and attribute errors are computed here in one batched
+    pass per frame (the greedy match is sequential, but these errors are not),
+    then scattered back into the order the matches were made.
+
+    Args:
+        frames: Per-frame ``(prediction, ground_truth)`` box data.
+        trans_errs: Translation error (match distance) per true positive.
+        match_frame: Originating frame index per true positive.
+        match_pred: Matched prediction index (within its frame) per TP.
+        match_gt: Matched ground-truth index (within its frame) per TP.
+        orientation_period: Periodicity (radians) for the orientation error.
 
     Returns:
-        ``nan`` if the ground truth has no attribute (negative label),
-        otherwise ``1.0`` for a match and ``0.0`` otherwise.
+        ``{metric_name: [n_match] tensor}`` for every entry of
+        :data:`TP_METRICS`.
     """
-    if gt_attr < 0:
-        return math.nan
-    return float(gt_attr == pred_attr)
+    n = len(trans_errs)
+    out = {
+        "trans_err": torch.tensor(trans_errs, dtype=torch.float64),
+        "vel_err": torch.empty(n, dtype=torch.float64),
+        "scale_err": torch.empty(n, dtype=torch.float64),
+        "orient_err": torch.empty(n, dtype=torch.float64),
+        "attr_err": torch.empty(n, dtype=torch.float64),
+    }
+    groups: dict[int, list[int]] = {}
+    for pos, f_idx in enumerate(match_frame):
+        groups.setdefault(f_idx, []).append(pos)
+
+    half = orientation_period / 2.0
+    for f_idx, positions in groups.items():
+        pred, gt = frames[f_idx]
+        pos_t = torch.tensor(positions)
+        p_i = torch.tensor([match_pred[p] for p in positions])
+        g_i = torch.tensor([match_gt[p] for p in positions])
+
+        out["vel_err"][pos_t] = torch.linalg.norm(
+            pred.velocity[p_i] - gt.velocity[g_i], dim=1
+        )
+
+        # Aligned (translation/rotation-invariant) scale IoU.
+        sa, sb = gt.size[g_i], pred.size[p_i]
+        inter = torch.minimum(sa, sb).prod(dim=1)
+        union = sa.prod(dim=1) + sb.prod(dim=1) - inter
+        out["scale_err"][pos_t] = 1.0 - inter / union
+
+        # Smallest yaw difference under the (per-class) periodicity.
+        diff = (gt.yaw[g_i] - pred.yaw[p_i] + half) % orientation_period - half
+        diff = torch.where(diff > math.pi, diff - 2.0 * math.pi, diff)
+        out["orient_err"][pos_t] = diff.abs()
+
+        # Attribute error: 1 - accuracy, or NaN where GT has no attribute.
+        gt_attr, pred_attr = gt.attribute[g_i], pred.attribute[p_i]
+        attr_err = 1.0 - (gt_attr == pred_attr).to(torch.float64)
+        out["attr_err"][pos_t] = attr_err.masked_fill(gt_attr < 0, math.nan)
+
+    return out
 
 
-def _cummean(x: np.ndarray) -> np.ndarray:
+def _cummean(x: Tensor) -> Tensor:
     """NaN-aware cumulative mean.
 
     Returns:
         Cumulative mean ignoring NaNs, or all-ones if every value is NaN.
     """
-    if np.all(np.isnan(x)):
-        return np.ones(len(x))
-    sum_vals = np.nancumsum(x.astype(float))
-    count_vals = np.cumsum(~np.isnan(x))
-    return np.divide(
-        sum_vals, count_vals, out=np.zeros_like(sum_vals), where=count_vals != 0
-    )
+    is_nan = torch.isnan(x)
+    if bool(is_nan.all()):
+        return torch.ones_like(x)
+    sum_vals = torch.nan_to_num(x, nan=0.0).cumsum(0)
+    count = (~is_nan).cumsum(0).to(x.dtype)
+    safe = torch.where(count != 0, count, torch.ones_like(count))
+    return torch.where(count != 0, sum_vals / safe, torch.zeros_like(sum_vals))
+
+
+def _mean(values: Iterable[float]) -> float:
+    """Arithmetic mean of a finite, non-empty iterable of floats.
+
+    Returns:
+        The mean.
+    """
+    vals = list(values)
+    return sum(vals) / len(vals)
+
+
+def _nanmean(values: Iterable[float]) -> float:
+    """Mean over the non-NaN entries.
+
+    Returns:
+        The mean of the non-NaN values, or ``nan`` if all are NaN.
+    """
+    vals = [v for v in values if not math.isnan(v)]
+    return sum(vals) / len(vals) if vals else math.nan
 
 
 def _to_box_data(
@@ -625,7 +735,7 @@ def _to_box_data(
     attributes: Tensor | None,
     scores: Tensor | None,
 ) -> _BoxData:
-    """Convert a frame's boxes/labels/etc. to numpy ``_BoxData``.
+    """Convert a frame's boxes/labels/etc. to CPU float64 ``_BoxData`` tensors.
 
     Centers (xy), sizes and yaw are derived from the box parameters via
     :func:`_extract_box_params`, so every supported box format is handled.
@@ -638,28 +748,29 @@ def _to_box_data(
     # Accumulate in float64 regardless of the input dtype: detection outputs
     # are typically float32, but cumulative sums, recall interpolation and
     # near-threshold distance comparisons are sensitive to rounding, so we
-    # upcast (the metric is not on any hot path).
-    boxes_t = boxes.as_subclass(Tensor).detach().double()
+    # upcast (the metric is not on any hot path). Everything is moved to CPU
+    # since the matching loop is sequential Python.
+    boxes_t = boxes.as_subclass(Tensor).detach().double().cpu()
     centers, half_dims, rot = _extract_box_params(boxes_t, fmt)
-    center_xy = centers[:, :2].cpu().numpy()
-    size = (2.0 * half_dims).cpu().numpy()
+    center_xy = centers[:, :2]
+    size = 2.0 * half_dims
     # Yaw of the box's local x-axis projected into the xy plane, matching the
     # devkit's ``quaternion_yaw``.
-    yaw = torch.atan2(rot[:, 1, 0], rot[:, 0, 0]).cpu().numpy()
+    yaw = torch.atan2(rot[:, 1, 0], rot[:, 0, 0])
 
-    label = labels.detach().cpu().numpy()
+    label = labels.detach().cpu()
     if velocities is not None:
-        velocity = velocities[:, :2].detach().double().cpu().numpy()
+        velocity = velocities[:, :2].detach().double().cpu()
     else:
-        velocity = np.zeros((n, 2), dtype=np.float64)
+        velocity = torch.zeros((n, 2), dtype=torch.float64)
     if attributes is not None:
-        attribute = attributes.detach().cpu().numpy()
+        attribute = attributes.detach().cpu()
     else:
-        attribute = np.full(n, -1)
+        attribute = torch.full((n,), -1)
     score = (
-        scores.detach().double().cpu().numpy()
+        scores.detach().double().cpu()
         if scores is not None
-        else np.empty(0, dtype=np.float64)
+        else torch.empty(0, dtype=torch.float64)
     )
     return _BoxData(
         center=center_xy,

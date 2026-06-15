@@ -11,6 +11,7 @@ import math
 import numpy as np
 import pytest
 import torch
+from common_utils import box_at
 from nuscenes.eval.common.config import config_factory
 from nuscenes.eval.common.data_classes import EvalBoxes
 from nuscenes.eval.detection.algo import accumulate, calc_ap, calc_tp
@@ -23,7 +24,12 @@ from nuscenes.eval.detection.data_classes import DetectionBox, DetectionMetrics
 from pyquaternion import Quaternion
 
 from vision3d.metrics import NuScenesDetectionScore
+from vision3d.metrics._nuscenes_detection_score import _interp
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
+
+# The devkit reference and the matching loop are CPU-only; the dedicated GPU
+# regression below exercises the CUDA path explicitly.
+pytestmark = pytest.mark.skip_device("cuda")
 
 _TOL = 1e-6
 
@@ -264,7 +270,6 @@ def _our_metric() -> NuScenesDetectionScore:
     return NuScenesDetectionScore.from_class_names(list(DETECTION_NAMES))
 
 
-@pytest.mark.skip_device("cuda")
 @pytest.mark.parametrize("seed", [0, 1, 2, 7, 42])
 def test_matches_devkit(seed: int) -> None:
     frames = _random_frames(np.random.default_rng(seed), num_frames=8)
@@ -294,7 +299,6 @@ def test_matches_devkit(seed: int) -> None:
             assert ours == pytest.approx(tp, abs=_TOL), key
 
 
-@pytest.mark.skip_device("cuda")
 def test_perfect_prediction_scores_one() -> None:
     rng = np.random.default_rng(123)
     # Predictions identical to GT -> NDS should be 1.0.
@@ -319,7 +323,6 @@ def test_perfect_prediction_scores_one() -> None:
     assert out["nd_score"] == pytest.approx(ref["nd_score"], abs=_TOL)
 
 
-@pytest.mark.skip_device("cuda")
 @pytest.mark.parametrize(
     "active",
     [
@@ -354,7 +357,6 @@ def test_reduced_tp_metrics_renormalize_like_devkit(active: tuple[str, ...]) -> 
     assert out["mean_ap"] == pytest.approx(ref["mean_ap"], abs=_TOL)
 
 
-@pytest.mark.skip_device("cuda")
 def test_velocity_affects_score() -> None:
     # Two identical scenes except predicted velocity; the velocity error (and
     # thus NDS) must change, proving velocities flow into the score.
@@ -377,18 +379,25 @@ def test_velocity_affects_score() -> None:
     assert bad_out["nd_score"] < good_out["nd_score"]
 
 
-@pytest.mark.skip_device("cuda")
-def test_geometry_only_ignores_missing_velocity_and_attribute() -> None:
-    # The base case: no velocity/attribute annotations at all. With a
-    # geometry-only config this must work and not be polluted by a free
-    # perfect velocity score or a worst-case attribute score.
+def _perfect_car_frame() -> tuple[dict, dict]:
+    """A single class-0 box predicted exactly, with geometry fields only.
+
+    Returns:
+        A ``(prediction, target)`` pair.
+    """
     box = BoundingBoxes3D(
-        torch.tensor([[1.0, 2.0, 0.0, 4.0, 2.0, 1.5, 0.3]]),
+        torch.tensor([box_at(1.0, 2.0, fmt=BoundingBox3DFormat.XYZLWHY)]),
         format=BoundingBox3DFormat.XYZLWHY,
     )
     pred = {"boxes": box, "scores": torch.tensor([0.9]), "labels": torch.tensor([0])}
     tgt = {"boxes": box, "labels": torch.tensor([0])}
+    return pred, tgt
 
+
+def test_geometry_only_ignores_missing_velocity_and_attribute() -> None:
+    # The base case: no velocity/attribute annotations. A geometry-only config
+    # must not be polluted by a free perfect velocity or worst-case attribute.
+    pred, tgt = _perfect_car_frame()
     metric = NuScenesDetectionScore(
         class_ids=[0], tp_metrics=("trans_err", "scale_err", "orient_err")
     )
@@ -396,19 +405,27 @@ def test_geometry_only_ignores_missing_velocity_and_attribute() -> None:
     out = metric.compute()
 
     assert set(out["tp_errors"]) == {"trans_err", "scale_err", "orient_err"}
-    # Perfect box, single class -> mAP 1, all active TP errors 0 -> NDS 1.
     assert out["nd_score"] == pytest.approx(1.0, abs=_TOL)
 
 
-@pytest.mark.skip_device("cuda")
-def test_active_metric_requires_its_annotations() -> None:
-    box = BoundingBoxes3D(
-        torch.tensor([[1.0, 2.0, 0.0, 4.0, 2.0, 1.5, 0.3]]),
-        format=BoundingBox3DFormat.XYZLWHY,
+def test_compute_under_cuda_default_device() -> None:
+    # Regression: internal tensors must be pinned to CPU even when both the
+    # inputs and the ambient default-device are CUDA, otherwise they mismatch
+    # the CPU-moved box data. Exercises the path the module-level skip excludes.
+    if not torch.cuda.is_available():
+        pytest.skip("requires CUDA")
+    metric = NuScenesDetectionScore(
+        class_ids=[0], tp_metrics=("trans_err", "scale_err", "orient_err")
     )
-    pred = {"boxes": box, "scores": torch.tensor([0.9]), "labels": torch.tensor([0])}
-    tgt = {"boxes": box, "labels": torch.tensor([0])}
+    with torch.device("cuda"):
+        pred, tgt = _perfect_car_frame()
+        metric.update([pred], [tgt])
+        out = metric.compute()
+    assert out["nd_score"] == pytest.approx(1.0, abs=_TOL)
 
+
+def test_active_metric_requires_its_annotations() -> None:
+    pred, tgt = _perfect_car_frame()
     with pytest.raises(ValueError, match="velocities"):
         NuScenesDetectionScore(class_ids=[0], tp_metrics=("vel_err",)).update(
             [pred], [tgt]
@@ -419,7 +436,29 @@ def test_active_metric_requires_its_annotations() -> None:
         )
 
 
-@pytest.mark.skip_device("cuda")
+@pytest.mark.parametrize("seed", range(20))
+def test_interp_matches_numpy(seed: int) -> None:
+    # ``_interp`` must reproduce ``np.interp`` exactly, including duplicate /
+    # flat runs in ``xp`` (every false positive creates one) and queries that
+    # land on a duplicate run clamped at the end of ``xp``.
+    rng = np.random.default_rng(seed)
+    n = int(rng.integers(2, 25))
+    # Heavy duplication: draw from a small integer set and sort.
+    xp = np.sort(rng.integers(0, 6, n).astype(np.float64))
+    if xp[0] == xp[-1]:
+        xp[-1] += 1.0
+    fp = rng.normal(size=n)
+    # Queries deliberately include the exact (possibly duplicated) nodes.
+    q = np.concatenate(
+        [rng.uniform(-1.0, 7.0, 30), xp, np.array([xp[0] - 1.0, xp[-1] + 1.0])]
+    )
+    ref = np.interp(q, xp, fp, right=0.0)
+    ours = _interp(
+        torch.from_numpy(q), torch.from_numpy(xp), torch.from_numpy(fp), right=0.0
+    ).numpy()
+    np.testing.assert_allclose(ours, ref, atol=1e-12)
+
+
 def test_tp_threshold_must_be_in_dist_thresholds() -> None:
     with pytest.raises(ValueError, match="tp_threshold"):
         NuScenesDetectionScore(
@@ -427,13 +466,11 @@ def test_tp_threshold_must_be_in_dist_thresholds() -> None:
         )
 
 
-@pytest.mark.skip_device("cuda")
 def test_unknown_tp_metric_rejected() -> None:
     with pytest.raises(ValueError, match="unknown tp_metrics"):
         NuScenesDetectionScore(class_ids=[0], tp_metrics=("trans_err", "bogus"))
 
 
-@pytest.mark.skip_device("cuda")
 def test_from_class_names_rejects_derived_kwargs() -> None:
     with pytest.raises(ValueError, match="derived"):
         NuScenesDetectionScore.from_class_names(
