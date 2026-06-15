@@ -311,37 +311,37 @@ class NuScenesDetectionScore:
         # Pin to CPU regardless of any ambient default-device context.
         md_by_key: dict[tuple[int, float], _MetricData] = {}
         with torch.device("cpu"):
-            for cls in self.class_ids:
-                period = self.orientation_periods.get(cls, 2.0 * math.pi)
+            for class_id in self.class_ids:
+                period = self.orientation_periods.get(class_id, 2.0 * math.pi)
                 for dist_th in self.dist_thresholds:
-                    md = _accumulate(self._frames, cls, dist_th, period)
-                    md_by_key[(cls, dist_th)] = md
-                    label_aps[(cls, dist_th)] = _calc_ap(
+                    md = _accumulate(self._frames, class_id, dist_th, period)
+                    md_by_key[(class_id, dist_th)] = md
+                    label_aps[(class_id, dist_th)] = _calc_ap(
                         md, self.min_recall, self.min_precision
                     )
 
         label_tp_errors: dict[tuple[int, str], float] = {}
-        for cls in self.class_ids:
-            skip = self.skip_tp_metrics.get(cls, set())
-            md = md_by_key[(cls, self.tp_threshold)]
+        for class_id in self.class_ids:
+            skip = self.skip_tp_metrics.get(class_id, set())
+            md = md_by_key[(class_id, self.tp_threshold)]
             for metric in self.tp_metrics:
                 if metric in skip:
-                    label_tp_errors[(cls, metric)] = math.nan
+                    label_tp_errors[(class_id, metric)] = math.nan
                 else:
-                    label_tp_errors[(cls, metric)] = _calc_tp(
+                    label_tp_errors[(class_id, metric)] = _calc_tp(
                         md, self.min_recall, metric
                     )
 
         mean_dist_aps = {
-            cls: _mean(label_aps[(cls, t)] for t in self.dist_thresholds)
-            for cls in self.class_ids
+            class_id: _mean(label_aps[(class_id, t)] for t in self.dist_thresholds)
+            for class_id in self.class_ids
         }
         mean_ap = _mean(mean_dist_aps.values())
 
         tp_errors: dict[str, float] = {}
         tp_scores: dict[str, float] = {}
         for metric in self.tp_metrics:
-            errs = [label_tp_errors[(cls, metric)] for cls in self.class_ids]
+            errs = [label_tp_errors[(class_id, metric)] for class_id in self.class_ids]
             mean_err = _nanmean(errs)
             tp_errors[metric] = mean_err
             tp_scores[metric] = max(0.0, 1.0 - mean_err)
