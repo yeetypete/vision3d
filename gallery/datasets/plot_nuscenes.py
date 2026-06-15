@@ -99,11 +99,9 @@ for i, (inp, tgt) in enumerate(zip(batch_inputs, batch_targets)):
 # %%
 # Fake some predictions
 # ---------------------
-# nuScenes only ships ground-truth annotations, so to demonstrate the
-# ground-truth-vs-prediction overlay we synthesize a
+# To demonstrate the ground-truth-vs-prediction overlay we synthesize a
 # :class:`~vision3d.metrics.Prediction3D` from each frame's targets:
-# jitter the boxes, drop a few, and assign random confidence scores. A
-# real detector's output would slot in here unchanged.
+# jitter the boxes, drop a few, and assign random confidence scores.
 
 import torch
 
