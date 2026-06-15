@@ -97,12 +97,63 @@ for i, (inp, tgt) in enumerate(zip(batch_inputs, batch_targets)):
     )
 
 # %%
+# Fake some predictions
+# ---------------------
+# nuScenes only ships ground-truth annotations, so to demonstrate the
+# ground-truth-vs-prediction overlay we synthesize a
+# :class:`~vision3d.metrics.Prediction3D` from each frame's targets:
+# jitter the boxes, drop a few, and assign random confidence scores. A
+# real detector's output would slot in here unchanged.
+
+import torch
+
+from vision3d.datasets import SampleTargets
+from vision3d.metrics import Prediction3D
+from vision3d.tensors import BoundingBoxes3D
+
+
+def fake_predictions(
+    targets: SampleTargets, *, generator: torch.Generator
+) -> Prediction3D:
+    """Perturb ground-truth boxes into plausible predictions.
+
+    Returns:
+        A :class:`~vision3d.metrics.Prediction3D` derived from ``targets``.
+    """
+    boxes = targets["boxes"]
+    labels = targets["labels"]
+    n = boxes.shape[0]
+
+    # Keep ~80% of the objects as detections.
+    keep = torch.rand(n, generator=generator) < 0.8
+    raw = boxes.as_subclass(torch.Tensor)[keep].clone()
+    labels = labels[keep]
+
+    # Jitter centers (+/- 0.5 m) and sizes (+/- 10%).
+    raw[:, :3] += torch.empty_like(raw[:, :3]).uniform_(-0.5, 0.5, generator=generator)
+    raw[:, 3:6] *= 1 + torch.empty_like(raw[:, 3:6]).uniform_(
+        -0.1, 0.1, generator=generator
+    )
+
+    scores = torch.empty(len(raw)).uniform_(0.3, 0.99, generator=generator)
+    return Prediction3D(
+        boxes=BoundingBoxes3D(raw, format=boxes.format),
+        scores=scores,
+        labels=labels,
+    )
+
+
+# %%
 # Visualize the dataset
 # ---------------------
 # :func:`vision3d.viz.log_sample` logs a
 # :class:`~vision3d.datasets.SampleInputs` /
 # :class:`~vision3d.datasets.SampleTargets` pair to `Rerun
-# <https://rerun.io/>`_ for interactive visualization.
+# <https://rerun.io/>`_ for interactive visualization. Passing
+# ``predictions`` overlays detections alongside the ground truth: both keep
+# per-class colors, ground truth is drawn as translucent colored boxes and
+# predictions as a wireframe with their confidence score in the label.
+# ``score_threshold`` drops low-confidence detections.
 
 import rerun as rr
 import rerun.blueprint as rrb
@@ -118,7 +169,16 @@ rr.send_blueprint(
 )
 rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 
+generator = torch.Generator().manual_seed(0)
 for frame_idx in range(10):
     f_inputs, f_targets = dataset[frame_idx]
+    f_preds = fake_predictions(f_targets, generator=generator)
     rr.set_time("frame", sequence=frame_idx)
-    log_sample(f_inputs, f_targets, label_to_id=dataset.class_to_idx, jpeg_quality=75)
+    log_sample(
+        f_inputs,
+        f_targets,
+        predictions=f_preds,
+        label_to_id=dataset.class_to_idx,
+        score_threshold=0.4,
+        jpeg_quality=75,
+    )
