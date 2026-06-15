@@ -7,6 +7,7 @@ asserts our metric agrees to floating-point tolerance.
 """
 
 import math
+from typing import Any
 
 import numpy as np
 import pytest
@@ -20,10 +21,14 @@ from nuscenes.eval.detection.constants import (
     DETECTION_NAMES,
     TP_METRICS,
 )
-from nuscenes.eval.detection.data_classes import DetectionBox, DetectionMetrics
+from nuscenes.eval.detection.data_classes import (
+    DetectionBox,
+    DetectionConfig,
+    DetectionMetrics,
+)
 from pyquaternion import Quaternion
 
-from vision3d.metrics import NuScenesDetectionScore
+from vision3d.metrics import NuScenesDetectionScore, Prediction3D, Target3D
 from vision3d.metrics._nuscenes_detection_score import _interp
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
 
@@ -36,6 +41,30 @@ _TOL = 1e-6
 # Attribute id -> nuScenes attribute name; -1 means "no attribute".
 _ATTR_BY_ID = {-1: "", **dict(enumerate(ATTRIBUTE_NAMES))}
 
+# Scenes are generated once as numpy (the shared source of truth) and then fed
+# to BOTH evaluation paths: ``_to_vision3d`` converts them to torch tensors for
+# the metric, ``_to_devkit`` converts the same values to nuscenes-devkit boxes
+# for the reference. A "scene" is a per-frame dict of heterogeneous numpy arrays
+# (box geometry, velocity, labels, ...); a frame pairs a ``gt`` and ``pred`` scene.
+_Scene = dict[str, Any]
+_Frame = dict[str, _Scene]
+
+
+def _t3(a: Any) -> tuple[float, float, float]:
+    """Return the first three entries of ``a`` as a float triple."""
+    return (float(a[0]), float(a[1]), float(a[2]))
+
+
+def _t2(a: Any) -> tuple[float, float]:
+    """Return the first two entries of ``a`` as a float pair."""
+    return (float(a[0]), float(a[1]))
+
+
+def _yaw_quat(yaw: float) -> tuple[float, float, float, float]:
+    """Return a yaw-only rotation as a ``(w, x, y, z)`` quaternion tuple."""
+    q = Quaternion(axis=(0, 0, 1), radians=yaw)
+    return (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+
 
 def _random_frames(
     rng: np.random.Generator,
@@ -44,7 +73,7 @@ def _random_frames(
     drop_pred_prob: float = 0.3,
     extra_pred_prob: float = 0.3,
     jitter: float = 0.5,
-) -> list[dict]:
+) -> list[_Frame]:
     """Generate random scenes shared by both evaluation paths.
 
     Each frame holds ground-truth boxes plus predictions derived from them
@@ -56,10 +85,10 @@ def _random_frames(
         numpy/list scene data.
     """
     n_classes = len(DETECTION_NAMES)
-    frames = []
+    frames: list[_Frame] = []
     for _ in range(num_frames):
         n_gt = int(rng.integers(0, 6))
-        gt = {
+        gt: _Scene = {
             "xyz": rng.uniform(-40, 40, size=(n_gt, 3)),
             "lwh": rng.uniform(1.0, 5.0, size=(n_gt, 3)),
             "yaw": rng.uniform(-math.pi, math.pi, size=n_gt),
@@ -68,15 +97,13 @@ def _random_frames(
             "attr": rng.integers(-1, len(ATTRIBUTE_NAMES), size=n_gt),
         }
         # Predictions: jitter each GT, randomly drop some.
-        p_xyz, p_lwh, p_yaw, p_vel, p_label, p_attr, p_score = (
-            [],
-            [],
-            [],
-            [],
-            [],
-            [],
-            [],
-        )
+        p_xyz: list[Any] = []
+        p_lwh: list[Any] = []
+        p_yaw: list[Any] = []
+        p_vel: list[Any] = []
+        p_label: list[int] = []
+        p_attr: list[int] = []
+        p_score: list[float] = []
         for i in range(n_gt):
             if rng.uniform() < drop_pred_prob:
                 continue
@@ -99,7 +126,7 @@ def _random_frames(
             p_attr.append(int(rng.integers(-1, len(ATTRIBUTE_NAMES))))
             p_score.append(rng.uniform(0.1, 1.0))
 
-        pred = {
+        pred: _Scene = {
             "xyz": np.array(p_xyz).reshape(-1, 3),
             "lwh": np.array(p_lwh).reshape(-1, 3),
             "yaw": np.array(p_yaw).reshape(-1),
@@ -120,13 +147,16 @@ def _random_frames(
     return frames
 
 
-def _to_vision3d(frames: list[dict]) -> tuple[list[dict], list[dict]]:
+def _to_vision3d(
+    frames: list[_Frame],
+) -> tuple[list[Prediction3D], list[Target3D]]:
     """Convert scenes to vision3d ``Prediction3D``/``Target3D`` dicts.
 
     Returns:
         ``(preds, targets)`` lists aligned per frame.
     """
-    preds, targets = [], []
+    preds: list[Prediction3D] = []
+    targets: list[Target3D] = []
     for frame in frames:
         gt, pred = frame["gt"], frame["pred"]
         # float32 inputs, as a detector would produce; the metric upcasts to
@@ -173,7 +203,29 @@ def _to_vision3d(frames: list[dict]) -> tuple[list[dict], list[dict]]:
     return preds, targets
 
 
-def _to_devkit(frames: list[dict]) -> tuple[EvalBoxes, EvalBoxes]:
+def _devkit_box(token: str, scene: _Scene, i: int, *, score: float) -> DetectionBox:
+    """Build one devkit ``DetectionBox`` from row ``i`` of ``scene``.
+
+    ``float(...)`` widens the float32 source values to Python float64 without
+    changing them, so the devkit accumulates on the exact same numbers the
+    metric does (which also upcasts to float64).
+
+    Returns:
+        The constructed ``DetectionBox``.
+    """
+    return DetectionBox(
+        sample_token=token,
+        translation=_t3(scene["xyz"][i]),
+        size=_t3(scene["lwh"][i]),
+        rotation=_yaw_quat(float(scene["yaw"][i])),
+        velocity=_t2(scene["vel"][i]),
+        detection_name=DETECTION_NAMES[int(scene["label"][i])],
+        detection_score=score,
+        attribute_name=_ATTR_BY_ID[int(scene["attr"][i])],
+    )
+
+
+def _to_devkit(frames: list[_Frame]) -> tuple[EvalBoxes, EvalBoxes]:
     """Convert scenes to devkit ``EvalBoxes`` of ``DetectionBox``.
 
     Returns:
@@ -183,49 +235,21 @@ def _to_devkit(frames: list[dict]) -> tuple[EvalBoxes, EvalBoxes]:
     for f_idx, frame in enumerate(frames):
         token = str(f_idx)
         gt, pred = frame["gt"], frame["pred"]
-
-        # ``float(...)`` widens the float32 source values to Python float64
-        # without changing them, so the devkit accumulates on the exact same
-        # numbers the metric does (which also upcasts to float64).
-        gt_list = []
-        for i in range(len(gt["label"])):
-            gt_list.append(
-                DetectionBox(
-                    sample_token=token,
-                    translation=tuple(float(v) for v in gt["xyz"][i]),
-                    size=tuple(float(v) for v in gt["lwh"][i]),
-                    rotation=tuple(
-                        Quaternion(axis=(0, 0, 1), radians=float(gt["yaw"][i]))
-                    ),
-                    velocity=tuple(float(v) for v in gt["vel"][i]),
-                    detection_name=DETECTION_NAMES[int(gt["label"][i])],
-                    detection_score=-1.0,
-                    attribute_name=_ATTR_BY_ID[int(gt["attr"][i])],
-                )
-            )
-        gt_eval.add_boxes(token, gt_list)
-
-        pred_list = []
-        for i in range(len(pred["label"])):
-            pred_list.append(
-                DetectionBox(
-                    sample_token=token,
-                    translation=tuple(float(v) for v in pred["xyz"][i]),
-                    size=tuple(float(v) for v in pred["lwh"][i]),
-                    rotation=tuple(
-                        Quaternion(axis=(0, 0, 1), radians=float(pred["yaw"][i]))
-                    ),
-                    velocity=tuple(float(v) for v in pred["vel"][i]),
-                    detection_name=DETECTION_NAMES[int(pred["label"][i])],
-                    detection_score=float(pred["score"][i]),
-                    attribute_name=_ATTR_BY_ID[int(pred["attr"][i])],
-                )
-            )
-        pred_eval.add_boxes(token, pred_list)
+        gt_eval.add_boxes(
+            token,
+            [_devkit_box(token, gt, i, score=-1.0) for i in range(len(gt["label"]))],
+        )
+        pred_eval.add_boxes(
+            token,
+            [
+                _devkit_box(token, pred, i, score=float(pred["score"][i]))
+                for i in range(len(pred["label"]))
+            ],
+        )
     return gt_eval, pred_eval
 
 
-def _devkit_reference(frames: list[dict]) -> dict:
+def _devkit_reference(frames: list[_Frame]) -> dict[str, Any]:
     """Run the official devkit evaluation on the scenes.
 
     Returns:
@@ -234,11 +258,14 @@ def _devkit_reference(frames: list[dict]) -> dict:
         ``(class_id, metric)``).
     """
     cfg = config_factory("detection_cvpr_2019")
+    assert isinstance(cfg, DetectionConfig)
     gt_eval, pred_eval = _to_devkit(frames)
     metrics = DetectionMetrics(cfg)
-    label_aps, label_tp = {}, {}
+    label_aps: dict[tuple[int, float], float] = {}
+    label_tp: dict[tuple[int, str], float] = {}
 
     for cls_id, class_name in enumerate(DETECTION_NAMES):
+        tp_md = None
         for dist_th in cfg.dist_ths:
             md = accumulate(
                 gt_eval, pred_eval, class_name, cfg.dist_fcn_callable, dist_th
@@ -248,6 +275,7 @@ def _devkit_reference(frames: list[dict]) -> dict:
             label_aps[(cls_id, dist_th)] = ap
             if dist_th == cfg.dist_th_tp:
                 tp_md = md
+        assert tp_md is not None
         for metric_name in TP_METRICS:
             skip = (
                 class_name == "traffic_cone"
@@ -369,8 +397,12 @@ def test_velocity_affects_score() -> None:
     good.update(preds, targets)
     good_out = good.compute()
 
-    # Corrupt only the predicted velocities.
-    bad_preds = [{**p, "velocities": p["velocities"] + 10.0} for p in preds]
+    # Corrupt only the predicted velocities, at the scene level so the inputs
+    # stay typed ``Prediction3D`` after re-conversion (``preds`` above already
+    # materialized its tensors, so it is unaffected).
+    for frame in frames:
+        frame["pred"]["vel"] = frame["pred"]["vel"] + 10.0
+    bad_preds, _ = _to_vision3d(frames)
     bad = NuScenesDetectionScore.from_class_names(list(DETECTION_NAMES))
     bad.update(bad_preds, targets)
     bad_out = bad.compute()
@@ -379,7 +411,7 @@ def test_velocity_affects_score() -> None:
     assert bad_out["nd_score"] < good_out["nd_score"]
 
 
-def _perfect_car_frame() -> tuple[dict, dict]:
+def _perfect_car_frame() -> tuple[Prediction3D, Target3D]:
     """A single class-0 box predicted exactly, with geometry fields only.
 
     Returns:
@@ -389,8 +421,12 @@ def _perfect_car_frame() -> tuple[dict, dict]:
         torch.tensor([box_at(1.0, 2.0, fmt=BoundingBox3DFormat.XYZLWHY)]),
         format=BoundingBox3DFormat.XYZLWHY,
     )
-    pred = {"boxes": box, "scores": torch.tensor([0.9]), "labels": torch.tensor([0])}
-    tgt = {"boxes": box, "labels": torch.tensor([0])}
+    pred: Prediction3D = {
+        "boxes": box,
+        "scores": torch.tensor([0.9]),
+        "labels": torch.tensor([0]),
+    }
+    tgt: Target3D = {"boxes": box, "labels": torch.tensor([0])}
     return pred, tgt
 
 
