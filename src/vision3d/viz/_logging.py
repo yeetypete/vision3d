@@ -325,7 +325,7 @@ def log_sample(
             predictions["boxes"],
             class_ids=class_ids,
             label_to_id=label_to_id,
-            scores=predictions.get("scores"),
+            scores=predictions["scores"],
             score_threshold=score_threshold,
             fill_mode="majorwireframe",
             show_labels=True,

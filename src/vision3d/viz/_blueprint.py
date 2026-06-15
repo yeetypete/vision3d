@@ -34,10 +34,10 @@ def camera_grid(
         entity_prefix: Prefix for camera entity origins (e.g. ``"world/cam"``
             -> ``/world/cam_0``, ``/world/cam_1`` ...).
         overlay_entities: Box entities to overlay on every camera panel
-            (e.g. ``("world/gt/boxes", "world/pred/boxes")``). Each keeps the
-            fill mode it was logged with, so ground truth and predictions stay
-            visually distinct in the projections. Pass ``None`` or an empty
-            sequence to skip the overlay.
+            (e.g. ``("world/gt/boxes", "world/pred/boxes")``). All overlays
+            are rendered as ``"majorwireframe"`` in the projections, since
+            filled boxes would occlude the underlying image. Pass ``None`` or
+            an empty sequence to skip the overlay.
 
     Returns:
         A :class:`~rerun.blueprint.Grid` containing one
@@ -52,18 +52,20 @@ def camera_grid(
     cols = max(len(row) for row in grid)
     overlays = list(overlay_entities or ())
 
+    # Box overlays are rendered as wireframes so filled faces don't occlude
+    # the image. Contents and overrides are the same for every panel.
+    contents = ["+ $origin/**", *(f"+ /{entity}/**" for entity in overlays)]
+    overrides = {
+        f"/{entity}": rr.Boxes3D.from_fields(fill_mode="majorwireframe")
+        for entity in overlays
+    }
+
     panels = []
     for row in grid:
         for idx in row:
             if not 0 <= idx < len(camera_names):
                 msg = f"grid index {idx} out of range for {len(camera_names)} cameras"
                 raise ValueError(msg)
-            contents = ["+ $origin/**"]
-            contents.extend(f"+ /{entity}/**" for entity in overlays)
-            overrides = {
-                f"/{entity}": rr.Boxes3D.from_fields(fill_mode="majorwireframe")
-                for entity in overlays
-            }
             panels.append(
                 rrb.Spatial2DView(
                     name=camera_names[idx],
