@@ -68,9 +68,7 @@ def camera_grid(
                     origin=f"/{entity_prefix}_{idx}",
                     contents=contents,
                     overrides={
-                        f"/{entity}": rr.Boxes3D.from_fields(
-                            fill_mode="majorwireframe"
-                        )
+                        f"/{entity}": rr.Boxes3D.from_fields(fill_mode="majorwireframe")
                         for entity in overlays
                     }
                     or None,
