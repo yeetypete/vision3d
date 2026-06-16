@@ -21,7 +21,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
         with:
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ github.workspace }}/.uv-cache
@@ -57,7 +57,7 @@ jobs:
           bash llvm.sh 22
           apt-get install -y --no-install-recommends clang-tidy-22 clang-tools-22
       - name: Set up uv
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8
+        uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
         with:
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ github.workspace }}/.uv-cache
