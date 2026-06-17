@@ -118,7 +118,9 @@ def log_boxes_3d(
         msg = f"labels has length {len(labels)} but there are {raw.shape[0]} boxes"
         raise ValueError(msg)
     if class_ids is not None and len(class_ids) != raw.shape[0]:
-        msg = f"class_ids has length {len(class_ids)} but there are {raw.shape[0]} boxes"
+        msg = (
+            f"class_ids has length {len(class_ids)} but there are {raw.shape[0]} boxes"
+        )
         raise ValueError(msg)
     if score_threshold is not None:
         if score_list is None:
