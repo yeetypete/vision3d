@@ -351,8 +351,8 @@ class CopyPaste3D(Transform):
         self.target_counts = target_counts
         self.min_points = min_points
         self.max_database_size = max_database_size
-        self.z_offset_range = (float(z_offset_range[0]), float(z_offset_range[1]))
-        self.z_offset_std = float(z_offset_std) if z_offset_std is not None else None
+        self.z_offset_range = (z_offset_range[0], z_offset_range[1])
+        self.z_offset_std = z_offset_std
         self._jitter_z = self.z_offset_range != (0.0, 0.0)
         self.p = p
 
