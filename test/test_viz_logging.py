@@ -99,3 +99,15 @@ class TestValidation:
     def test_labels_length_mismatch_raises(self, spy: _Spy) -> None:
         with pytest.raises(ValueError, match="labels has length 1 but there are 2"):
             log_boxes_3d("world/pred/boxes", _boxes(2), labels=["only-one"])
+
+    def test_scores_length_mismatch_raises(self, spy: _Spy) -> None:
+        with pytest.raises(ValueError, match="scores has length 1 but there are 2"):
+            log_boxes_3d("world/pred/boxes", _boxes(2), scores=[0.5])
+
+    def test_class_ids_length_mismatch_raises(self, spy: _Spy) -> None:
+        with pytest.raises(ValueError, match="class_ids has length 1 but there are 2"):
+            log_boxes_3d("world/pred/boxes", _boxes(2), class_ids=[10])
+
+    def test_score_threshold_without_scores_raises(self, spy: _Spy) -> None:
+        with pytest.raises(ValueError, match="score_threshold requires scores"):
+            log_boxes_3d("world/pred/boxes", _boxes(2), score_threshold=0.5)

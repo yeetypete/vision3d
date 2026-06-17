@@ -95,8 +95,8 @@ def log_boxes_3d(
 
     Raises:
         ValueError: If ``score_threshold`` is set without ``scores``, or if
-            ``scores`` or ``labels`` length does not match the number of
-            boxes.
+            ``scores``, ``labels``, or ``class_ids`` length does not match
+            the number of boxes.
     """
     if label_to_id is not None:
         rr.log(
@@ -116,6 +116,9 @@ def log_boxes_3d(
         raise ValueError(msg)
     if labels is not None and len(labels) != raw.shape[0]:
         msg = f"labels has length {len(labels)} but there are {raw.shape[0]} boxes"
+        raise ValueError(msg)
+    if class_ids is not None and len(class_ids) != raw.shape[0]:
+        msg = f"class_ids has length {len(class_ids)} but there are {raw.shape[0]} boxes"
         raise ValueError(msg)
     if score_threshold is not None:
         if score_list is None:
@@ -284,12 +287,13 @@ def log_sample(
     faces, predictions as a wireframe).
 
     Args:
-        inputs: Dict with ``"points"``, ``"images"``, ``"extrinsics"``,
-            ``"intrinsics"`` keys.
-        targets: Optional dict with ``"boxes"``, ``"labels"`` keys
-            (ground truth).
-        predictions: Optional dict with ``"boxes"``, ``"scores"``,
-            ``"labels"`` keys. Prediction labels show their score.
+        inputs: :class:`~vision3d.datasets.SampleInputs` with ``"points"``,
+            ``"images"``, ``"extrinsics"``, ``"intrinsics"`` keys.
+        targets: Optional :class:`~vision3d.datasets.SampleTargets` with
+            ``"boxes"``, ``"labels"`` keys (ground truth).
+        predictions: Optional :class:`~vision3d.metrics.Prediction3D` with
+            ``"boxes"``, ``"scores"``, ``"labels"`` keys. Prediction labels
+            show their score.
         entity_prefix: Rerun entity path prefix.
         label_to_id: Mapping from class name to class ID for consistent
             coloring. Build this across all frames before logging.
