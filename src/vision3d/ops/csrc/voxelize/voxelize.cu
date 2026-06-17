@@ -24,7 +24,8 @@
 
 namespace {
 
-constexpr uint64_t OUT_OF_RANGE = ~uint64_t{0};
+// nx*ny*nz fits in 32 bits for any realistic grid
+constexpr uint32_t OUT_OF_RANGE = UINT32_MAX;
 constexpr int THREADS = 256;
 
 __global__ void compute_cell_ids_kernel(
@@ -43,7 +44,7 @@ __global__ void compute_cell_ids_kernel(
     int64_t nx,
     int64_t ny,
     int64_t nz,
-    uint64_t* __restrict__ keys,
+    uint32_t* __restrict__ keys,
     int32_t* __restrict__ indices) {
   const int64_t cells_per_z = ny * nx;
   const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
@@ -70,7 +71,7 @@ __global__ void compute_cell_ids_kernel(
     if (iz >= nz) {
       iz = nz - 1;
     }
-    keys[i] = static_cast<uint64_t>(iz * cells_per_z + iy * nx + ix);
+    keys[i] = static_cast<uint32_t>(iz * cells_per_z + iy * nx + ix);
   }
 }
 
@@ -79,7 +80,7 @@ __global__ void scatter_voxels_kernel(
     int64_t C,
     int64_t max_points_per_voxel,
     int64_t actual_voxels,
-    const uint64_t* __restrict__ unique_cells,
+    const uint32_t* __restrict__ unique_cells,
     const int32_t* __restrict__ counts,
     const int32_t* __restrict__ offsets,
     const int32_t* __restrict__ sorted_indices,
@@ -92,7 +93,7 @@ __global__ void scatter_voxels_kernel(
   const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
   for (int64_t v = blockIdx.x * blockDim.x + threadIdx.x; v < actual_voxels;
        v += stride) {
-    const uint64_t cell = unique_cells[v];
+    const uint32_t cell = unique_cells[v];
     coords[v * 3 + 0] = static_cast<int64_t>(cell / cells_per_z);
     coords[v * 3 + 1] = static_cast<int64_t>((cell / nx) % ny);
     coords[v * 3 + 2] = static_cast<int64_t>(cell % nx);
@@ -196,6 +197,17 @@ VoxelizeCuda(
   const auto nx = static_cast<int64_t>(std::lround((x_max - x_min) / dx));
   const auto ny = static_cast<int64_t>(std::lround((y_max - y_min) / dy));
   const auto nz = static_cast<int64_t>(std::lround((z_max - z_min) / dz));
+  STD_TORCH_CHECK(
+      nx * ny * nz < static_cast<int64_t>(OUT_OF_RANGE),
+      "voxelize: grid too large, nx*ny*nz must be < UINT32_MAX, got ",
+      nx,
+      " * ",
+      ny,
+      " * ",
+      nz,
+      " (",
+      nx * ny * nz,
+      ")");
 
   if (N == 0) {
     auto voxels_empty =
@@ -222,9 +234,9 @@ VoxelizeCuda(
   // ``new_empty`` is safe here because ``compute_cell_ids_kernel`` writes
   // every element of ``keys_in`` and ``idx_in`` (one slot per input point).
   auto keys_in = torch::stable::new_empty(
-      points, {N}, torch::headeronly::ScalarType::UInt64);
+      points, {N}, torch::headeronly::ScalarType::UInt32);
   auto keys_out = torch::stable::new_empty(
-      points, {N}, torch::headeronly::ScalarType::UInt64);
+      points, {N}, torch::headeronly::ScalarType::UInt32);
   auto idx_in =
       torch::stable::new_empty(points, {N}, torch::headeronly::ScalarType::Int);
   auto idx_out =
@@ -246,7 +258,7 @@ VoxelizeCuda(
       nx,
       ny,
       nz,
-      keys_in.mutable_data_ptr<uint64_t>(),
+      keys_in.mutable_data_ptr<uint32_t>(),
       idx_in.mutable_data_ptr<int32_t>());
   STD_TORCH_CHECK(
       cudaGetLastError() == cudaSuccess,
@@ -258,13 +270,13 @@ VoxelizeCuda(
   cub::DeviceRadixSort::SortPairs(
       nullptr,
       sort_bytes,
-      keys_in.const_data_ptr<uint64_t>(),
-      keys_out.mutable_data_ptr<uint64_t>(),
+      keys_in.const_data_ptr<uint32_t>(),
+      keys_out.mutable_data_ptr<uint32_t>(),
       idx_in.const_data_ptr<int32_t>(),
       idx_out.mutable_data_ptr<int32_t>(),
       static_cast<int>(N),
       0,
-      static_cast<int>(sizeof(uint64_t) * 8),
+      static_cast<int>(sizeof(uint32_t) * 8),
       stream);
   auto sort_temp = torch::stable::new_empty(
       points,
@@ -273,20 +285,20 @@ VoxelizeCuda(
   cub::DeviceRadixSort::SortPairs(
       sort_temp.mutable_data_ptr<uint8_t>(),
       sort_bytes,
-      keys_in.const_data_ptr<uint64_t>(),
-      keys_out.mutable_data_ptr<uint64_t>(),
+      keys_in.const_data_ptr<uint32_t>(),
+      keys_out.mutable_data_ptr<uint32_t>(),
       idx_in.const_data_ptr<int32_t>(),
       idx_out.mutable_data_ptr<int32_t>(),
       static_cast<int>(N),
       0,
-      static_cast<int>(sizeof(uint64_t) * 8),
+      static_cast<int>(sizeof(uint32_t) * 8),
       stream);
 
   // Run-length encode the sorted keys -> (unique_cells, counts, num_runs).
-  // The output includes a final UINT64_MAX run for out-of-range points if
+  // The output includes a final OUT_OF_RANGE run for out-of-range points if
   // any were present. Trimmed on host below.
   auto unique_cells = torch::stable::new_empty(
-      points, {N}, torch::headeronly::ScalarType::UInt64);
+      points, {N}, torch::headeronly::ScalarType::UInt32);
   auto counts =
       torch::stable::new_empty(points, {N}, torch::headeronly::ScalarType::Int);
   auto num_runs =
@@ -295,8 +307,8 @@ VoxelizeCuda(
   cub::DeviceRunLengthEncode::Encode(
       nullptr,
       rle_bytes,
-      keys_out.const_data_ptr<uint64_t>(),
-      unique_cells.mutable_data_ptr<uint64_t>(),
+      keys_out.const_data_ptr<uint32_t>(),
+      unique_cells.mutable_data_ptr<uint32_t>(),
       counts.mutable_data_ptr<int32_t>(),
       num_runs.mutable_data_ptr<int32_t>(),
       static_cast<int>(N),
@@ -308,20 +320,20 @@ VoxelizeCuda(
   cub::DeviceRunLengthEncode::Encode(
       rle_temp.mutable_data_ptr<uint8_t>(),
       rle_bytes,
-      keys_out.const_data_ptr<uint64_t>(),
-      unique_cells.mutable_data_ptr<uint64_t>(),
+      keys_out.const_data_ptr<uint32_t>(),
+      unique_cells.mutable_data_ptr<uint32_t>(),
       counts.mutable_data_ptr<int32_t>(),
       num_runs.mutable_data_ptr<int32_t>(),
       static_cast<int>(N),
       stream);
 
   // One round-trip to the host: num_runs (the RLE result) plus the largest
-  // sorted key. Since OUT_OF_RANGE = UINT64_MAX sorts to the very end,
+  // sorted key. Since OUT_OF_RANGE = UINT32_MAX sorts to the very end,
   // ``keys_out[N - 1]`` tells us whether the final RLE run is the OOR
   // sentinel without a second sync.
-  struct alignas(8) HostState {
+  struct HostState {
     int32_t num_runs;
-    uint64_t last_sorted_key;
+    uint32_t last_sorted_key;
   };
   HostState host{};
   STD_TORCH_CHECK(
@@ -335,8 +347,8 @@ VoxelizeCuda(
   STD_TORCH_CHECK(
       cudaMemcpyAsync(
           &host.last_sorted_key,
-          keys_out.const_data_ptr<uint64_t>() + (N - 1),
-          sizeof(uint64_t),
+          keys_out.const_data_ptr<uint32_t>() + (N - 1),
+          sizeof(uint32_t),
           cudaMemcpyDeviceToHost,
           stream) == cudaSuccess,
       "cudaMemcpyAsync(last_sorted_key) failed");
@@ -395,7 +407,7 @@ VoxelizeCuda(
       C,
       max_points_per_voxel,
       voxel_count,
-      unique_cells.const_data_ptr<uint64_t>(),
+      unique_cells.const_data_ptr<uint32_t>(),
       counts.const_data_ptr<int32_t>(),
       offsets.const_data_ptr<int32_t>(),
       idx_out.const_data_ptr<int32_t>(),
