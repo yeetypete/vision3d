@@ -6,6 +6,7 @@ from ._box3d_overlap import box3d_overlap
 from ._nms_3d import batched_nms_3d, nms_3d
 from ._points_in_boxes_3d import points_in_boxes_3d, points_in_boxes_3d_indices
 from ._project import project_to_image
+from ._voxelize import voxelize
 from .boxes3d import box3d_convert
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "points_in_boxes_3d",
     "points_in_boxes_3d_indices",
     "project_to_image",
+    "voxelize",
 ]

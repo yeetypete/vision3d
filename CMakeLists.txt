@@ -44,15 +44,47 @@ if(CUDAToolkit_FOUND)
   set(CMAKE_CUDA_FLAGS "-isystem ${CUDAToolkit_TARGET_DIR}/include/cccl")
 endif()
 
+# CUDA Toolkit <= 13.2 bundles CCCL 3.2.x, whose <cuda/std/string_view>
+# declares deduction guides with __host__-only annotations. Clang-as-CUDA
+# rejects those as a hard error, breaking clang-tidy on any file that pulls
+# in <cub/*> -> <cuda/std/string_view>. Fixed on CCCL main and first tagged
+# in v3.4.0-rc0. The actual nvcc build is unaffected. Drop this block once
+# the toolkit ships a release containing the fix.
+#   - https://github.com/NVIDIA/cccl/issues/7896
+#   - https://github.com/llvm/llvm-project/pull/168711
+if(CUDAToolkit_FOUND)
+  include(FetchContent)
+  FetchContent_Declare(
+    cccl
+    GIT_REPOSITORY https://github.com/NVIDIA/cccl.git
+    GIT_TAG        v3.4.0-rc0
+    GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  cmake-skip
+  )
+  FetchContent_MakeAvailable(cccl)
+endif()
+
 set(_csrc src/vision3d/ops/csrc)
 set(_sources
   ${_csrc}/iou_box3d.cpp
   ${_csrc}/iou_box3d/iou_box3d_cpu.cpp
+  ${_csrc}/voxelize.cpp
+  ${_csrc}/voxelize/voxelize_cpu.cpp
 )
 if(CUDAToolkit_FOUND)
-  list(APPEND _sources ${_csrc}/iou_box3d/iou_box3d.cu)
+  list(APPEND _sources
+    ${_csrc}/iou_box3d/iou_box3d.cu
+    ${_csrc}/voxelize/voxelize.cu
+  )
 endif()
 add_library(vision3d_ops OBJECT ${_sources})
 target_include_directories(vision3d_ops PRIVATE ${_csrc})
+if(CUDAToolkit_FOUND)
+  target_include_directories(vision3d_ops SYSTEM BEFORE PRIVATE
+    ${cccl_SOURCE_DIR}/libcudacxx/include
+    ${cccl_SOURCE_DIR}/cub
+    ${cccl_SOURCE_DIR}/thrust
+  )
+endif()
 target_link_libraries(vision3d_ops PRIVATE ${TORCH_LIBRARIES} Python3::Module)
 target_compile_definitions(vision3d_ops PRIVATE TORCH_EXTENSION_NAME=vision3d_ops)
