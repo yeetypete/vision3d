@@ -93,10 +93,10 @@ __global__ void scatter_voxels_kernel(
   const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
   for (int64_t v = blockIdx.x * blockDim.x + threadIdx.x; v < actual_voxels;
        v += stride) {
-    const uint32_t cell = unique_cells[v];
-    coords[v * 3 + 0] = static_cast<int64_t>(cell / cells_per_z);
-    coords[v * 3 + 1] = static_cast<int64_t>((cell / nx) % ny);
-    coords[v * 3 + 2] = static_cast<int64_t>(cell % nx);
+    const int64_t cell = unique_cells[v];
+    coords[v * 3 + 0] = cell / cells_per_z;
+    coords[v * 3 + 1] = (cell / nx) % ny;
+    coords[v * 3 + 2] = cell % nx;
     const int64_t total = counts[v];
     const int64_t kept =
         total < max_points_per_voxel ? total : max_points_per_voxel;
