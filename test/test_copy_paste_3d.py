@@ -1,5 +1,6 @@
 """Tests for CopyPaste3D transform."""
 
+import math
 from typing import Any
 
 import pytest
@@ -508,6 +509,123 @@ class TestCrossModal:
         assert out_targets[0]["boxes"].shape[0] >= 1
 
 
+# Z-offset jitter
+class TestZOffset:
+    """Random z-height jitter of pasted objects."""
+
+    def test_default_disables_jitter(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10})
+        assert cp._jitter_z is False
+
+    def test_nonzero_range_enables_jitter(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, z_offset_range=(-0.5, 0.5))
+        assert cp._jitter_z is True
+
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_constant_offset_shifts_pasted_box_z(
+        self, fmt: BoundingBox3DFormat
+    ) -> None:
+        offset = 7.0
+        cp = CopyPaste3D(
+            target_counts={CAR: 10}, min_points=1, z_offset_range=(offset, offset)
+        )
+        cp(*_make_lidar_batch(batch_size=3, num_boxes=3, format=fmt))
+        n_original = 1
+        _, out_targets = cp(
+            *_make_lidar_batch(batch_size=1, num_boxes=n_original, format=fmt)
+        )
+
+        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        pasted = out_boxes[n_original:]
+        if pasted.shape[0] == 0:
+            pytest.skip("no objects pasted")
+
+        # The z of every paste source still lives unmodified in the database.
+        src_z = [round(e.box[2].item(), 3) for e in cp._database[CAR]]
+        for box in pasted:
+            unshifted = box[2].item() - offset
+            assert any(abs(unshifted - z) < 1e-2 for z in src_z)
+
+    def test_pasted_points_follow_jittered_box(self) -> None:
+        # Use a yaw-only format so the helper's axis-aligned object points stay
+        # inside their (unrotated-in-z) boxes; a large constant offset would push
+        # them outside the box if box and points were not shifted together.
+        fmt = BoundingBox3DFormat.XYZLWHY
+        offset = 7.0
+        cp = CopyPaste3D(
+            target_counts={CAR: 10}, min_points=1, z_offset_range=(offset, offset)
+        )
+        cp(*_make_lidar_batch(batch_size=3, num_boxes=3, format=fmt))
+        n_original = 1
+        out_inputs, out_targets = cp(
+            *_make_lidar_batch(batch_size=1, num_boxes=n_original, format=fmt)
+        )
+
+        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        pasted = BoundingBoxes3D(out_boxes[n_original:], format=fmt)
+        if pasted.shape[0] == 0:
+            pytest.skip("no objects pasted")
+
+        points = out_inputs[0]["points"]
+        inside = points_in_boxes_3d(points, pasted, fmt)
+        # Each pasted object's points travelled with its box, so every pasted
+        # box still contains at least its own points.
+        assert (inside.sum(dim=0) >= 1).all()
+
+    def test_uniform_sampling_when_std_none(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, z_offset_range=(-1.0, 1.0))
+        torch.manual_seed(0)
+        s = cp._sample_z_offsets(20000, torch.device("cpu"), torch.float32)
+        assert s.min().item() >= -1.0
+        assert s.max().item() <= 1.0
+        # Uniform on [-1, 1] has std = 2 / sqrt(12) ≈ 0.577.
+        assert abs(s.std().item() - (2.0 / math.sqrt(12.0))) < 0.03
+
+    def test_truncated_normal_within_bounds_and_concentrated(self) -> None:
+        cp = CopyPaste3D(
+            target_counts={CAR: 10}, z_offset_range=(-1.0, 1.0), z_offset_std=0.3
+        )
+        torch.manual_seed(0)
+        s = cp._sample_z_offsets(20000, torch.device("cpu"), torch.float32)
+        # Never escapes the interval.
+        assert s.min().item() >= -1.0 - 1e-5
+        assert s.max().item() <= 1.0 + 1e-5
+        # Centred on the midpoint.
+        assert abs(s.mean().item()) < 0.02
+        # More concentrated than the uniform baseline (~0.577).
+        assert s.std().item() < 0.4
+
+    def test_truncated_normal_paste_box_z_within_range(self) -> None:
+        cp = CopyPaste3D(
+            target_counts={CAR: 10},
+            min_points=1,
+            z_offset_range=(-1.0, 1.0),
+            z_offset_std=0.3,
+        )
+        cp(*_make_lidar_batch(batch_size=3, num_boxes=3))
+        n_original = 1
+        _, out_targets = cp(*_make_lidar_batch(batch_size=1, num_boxes=n_original))
+        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        pasted = out_boxes[n_original:]
+        if pasted.shape[0] == 0:
+            pytest.skip("no objects pasted")
+        src_z = [round(e.box[2].item(), 3) for e in cp._database[CAR]]
+        for box in pasted:
+            # The applied offset must lie within the configured interval.
+            offsets = [box[2].item() - z for z in src_z]
+            assert any(-1.0 - 1e-4 <= off <= 1.0 + 1e-4 for off in offsets)
+
+    def test_does_not_mutate_database_entries(self) -> None:
+        cp = CopyPaste3D(
+            target_counts={CAR: 10}, min_points=1, z_offset_range=(5.0, 5.0)
+        )
+        cp(*_make_lidar_batch(batch_size=3, num_boxes=3))
+        before = [e.box[2].item() for e in cp._database[CAR]]
+        cp(*_make_lidar_batch(batch_size=1, num_boxes=1))
+        after = [e.box[2].item() for e in cp._database[CAR]]
+        assert after[: len(before)] == before
+
+
 # Determinism
 class TestDeterminism:
     def test_reproducible_with_seed(self) -> None:
@@ -542,6 +660,20 @@ class TestValidation:
             ValueError, match="`max_database_size` should be a positive"
         ):
             CopyPaste3D(target_counts={CAR: 10}, max_database_size=0)
+
+    def test_z_offset_range_wrong_length_raises(self) -> None:
+        with pytest.raises(ValueError, match="`z_offset_range` should be a"):
+            CopyPaste3D(target_counts={CAR: 10}, z_offset_range=(0.0,))  # type: ignore[arg-type]
+
+    def test_z_offset_range_min_gt_max_raises(self) -> None:
+        with pytest.raises(ValueError, match="min must not exceed max"):
+            CopyPaste3D(target_counts={CAR: 10}, z_offset_range=(0.5, -0.5))
+
+    def test_z_offset_std_non_positive_raises(self) -> None:
+        with pytest.raises(ValueError, match="`z_offset_std` should be a positive"):
+            CopyPaste3D(
+                target_counts={CAR: 10}, z_offset_range=(-1.0, 1.0), z_offset_std=0.0
+            )
 
     def test_forward_empty_batch_is_noop(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10})

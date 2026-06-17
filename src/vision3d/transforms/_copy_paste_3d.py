@@ -2,7 +2,7 @@
 
 import math
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, override
 
 import numpy as np
@@ -214,6 +214,32 @@ def _hull_mask_from_projected(
     return mask, (x_min, y_min, x_max, y_max), mean_depth
 
 
+def _apply_z_offset(
+    boxes: Tensor,
+    fmt: BoundingBox3DFormat,
+    dz: Tensor,
+) -> Tensor:
+    """Return a copy of *boxes* with their z-centre shifted by *dz*.
+
+    Args:
+        boxes: ``[M, K]`` 3-D bounding boxes.
+        fmt: Box format.
+        dz: ``[M]`` per-box z offsets in scene units.
+
+    Returns:
+        A new ``[M, K]`` tensor with the z position shifted.
+    """
+    out = boxes.clone()
+    if fmt is BoundingBox3DFormat.XYZXYZ:
+        # Shift both the min-z and max-z corners to translate the box.
+        out[:, 2] += dz
+        out[:, 5] += dz
+    else:
+        # Centre-based formats store z at index 2.
+        out[:, 2] += dz
+    return out
+
+
 def _batch_hull_masks(
     boxes: Tensor,
     fmt: BoundingBox3DFormat,
@@ -273,7 +299,25 @@ class CopyPaste3D(Transform):
             have to be stored in the database. Default: ``5``.
         max_database_size: Maximum entries per class. None means
             unlimited. Default: ``None``.
+        z_offset_range: ``(min, max)`` interval, in scene units, for a random
+            z-height offset applied per pasted object (to its box and points)
+            before the overlap check, so placements stay collision-free at the
+            jittered height. ``(0.0, 0.0)`` disables jittering.
+            Default: ``(0.0, 0.0)``.
+        z_offset_std: Standard deviation, in scene units, of the offset
+            distribution. ``None`` (the default) draws offsets uniformly across
+            ``z_offset_range``; a positive value draws from a normal
+            distribution centred on the range midpoint and truncated to the
+            range. Default: ``None``.
         p: Probability of applying the augmentation. Default: ``1.0``.
+
+    Note:
+        When ``z_offset_std`` is set, the 68-95-99.7 rule applies: ~68% of
+        offsets fall within ±1 std of the midpoint, ~95% within ±2 std, and
+        ~99.7% within ±3 std. This holds only when ``z_offset_range`` is wide
+        enough not to clip the tails, so choose the range as roughly ±2 to
+        ±3 std (e.g. ``z_offset_std=0.5`` with ``z_offset_range=(-1.5, 1.5)``).
+        A range narrower than that flattens the bell back toward uniform.
     """
 
     def __init__(
@@ -281,6 +325,8 @@ class CopyPaste3D(Transform):
         target_counts: dict[int, int],
         min_points: int = 5,
         max_database_size: int | None = None,
+        z_offset_range: tuple[float, float] = (0.0, 0.0),
+        z_offset_std: float | None = None,
         p: float = 1.0,
     ) -> None:
         super().__init__()
@@ -293,9 +339,21 @@ class CopyPaste3D(Transform):
         if max_database_size is not None and max_database_size < 1:
             msg = "`max_database_size` should be a positive integer or None."
             raise ValueError(msg)
+        if len(z_offset_range) != 2:
+            msg = "`z_offset_range` should be a (min, max) tuple."
+            raise ValueError(msg)
+        if z_offset_range[0] > z_offset_range[1]:
+            msg = "`z_offset_range` min must not exceed max."
+            raise ValueError(msg)
+        if z_offset_std is not None and z_offset_std <= 0:
+            msg = "`z_offset_std` should be a positive float or None."
+            raise ValueError(msg)
         self.target_counts = target_counts
         self.min_points = min_points
         self.max_database_size = max_database_size
+        self.z_offset_range = (float(z_offset_range[0]), float(z_offset_range[1]))
+        self.z_offset_std = float(z_offset_std) if z_offset_std is not None else None
+        self._jitter_z = self.z_offset_range != (0.0, 0.0)
         self.p = p
 
         self._database: dict[int, deque[ObjectEntry]] = defaultdict(
@@ -548,6 +606,40 @@ class CopyPaste3D(Transform):
                 )
         return result
 
+    def _sample_z_offsets(
+        self, n: int, device: torch.device, dtype: torch.dtype
+    ) -> Tensor:
+        """Draw ``n`` z-height offsets from ``z_offset_range``.
+
+        Uniform across the range when ``z_offset_std`` is ``None``, otherwise a
+        normal distribution centred on the midpoint of the range and truncated
+        to it, sampled exactly via the inverse CDF (no rejection loop).
+
+        Args:
+            n: Number of offsets to sample.
+            device: Device for the output tensor.
+            dtype: Dtype for the output tensor.
+
+        Returns:
+            ``[n]`` tensor of offsets.
+        """
+        lo, hi = self.z_offset_range
+        if self.z_offset_std is None:
+            return torch.empty(n, device=device, dtype=dtype).uniform_(lo, hi)
+
+        # Truncated normal via inverse-CDF: map uniform draws through the
+        # standard-normal CDF restricted to [alpha, beta], then back.
+        mean = (lo + hi) / 2.0
+        std = self.z_offset_std
+        alpha = torch.tensor((lo - mean) / std, device=device, dtype=dtype)
+        beta = torch.tensor((hi - mean) / std, device=device, dtype=dtype)
+        lo_cdf = torch.special.ndtr(alpha)
+        hi_cdf = torch.special.ndtr(beta)
+        u = torch.rand(n, device=device, dtype=dtype)
+        p = lo_cdf + u * (hi_cdf - lo_cdf)
+        # Clamp guards against tiny inverse-CDF rounding outside the interval.
+        return (mean + std * torch.special.ndtri(p)).clamp(lo, hi)
+
     def _paste_objects(
         self,
         inputs: dict[str, Any],
@@ -587,6 +679,13 @@ class CopyPaste3D(Transform):
             candidates = [db[i] for i in perm[:n_paste]]
             cand_boxes = torch.stack([c.box for c in candidates]).to(device)
 
+            # Randomly jitter each candidate's z-height before placement so the
+            # overlap checks below run against the final (jittered) positions.
+            dz: Tensor | None = None
+            if self._jitter_z:
+                dz = self._sample_z_offsets(len(candidates), device, cand_boxes.dtype)
+                cand_boxes = _apply_z_offset(cand_boxes, fmt, dz)
+
             # Candidates vs existing scene boxes.
             if all_boxes.shape[0] > 0:
                 safe = ~box3d_overlap(cand_boxes, all_boxes, fmt).any(dim=1)
@@ -611,10 +710,19 @@ class CopyPaste3D(Transform):
                 continue
             for k in accepted_k:
                 entry = candidates[k]
+                box_k = cand_boxes[k]
+                if dz is not None:
+                    # Re-bind the entry to the jittered box so camera projection
+                    # and points stay consistent with the placed 3-D box.
+                    entry = replace(entry, box=box_k.detach().cpu())
                 pasted_entries.append(entry)
-                pasted_boxes.append(cand_boxes[k])
+                pasted_boxes.append(box_k)
                 if entry.points is not None and points is not None:
-                    pasted_points.append(entry.points.to(points.device))
+                    obj_points = entry.points.to(points.device)
+                    if dz is not None:
+                        obj_points = obj_points.clone()
+                        obj_points[:, 2] += dz[k].to(obj_points.device)
+                    pasted_points.append(obj_points)
                 pasted_labels.append(entry.label)
             all_boxes = torch.cat([all_boxes, cand_boxes[accepted_k]])
 
