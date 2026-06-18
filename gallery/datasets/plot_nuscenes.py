@@ -73,6 +73,55 @@ print(
 )
 
 # %%
+# Densify with multiple lidar sweeps
+# ----------------------------------
+# A single lidar key-frame is sparse, which limits 3D detection accuracy.
+# Multi-sweep accumulation increases point density by combining the sweeps
+# captured between key-frames into the current frame. Each sweep is
+# motion-compensated into the key-frame lidar frame, and every point is
+# annotated with its time offset relative to the key-frame. The denser point
+# cloud retains temporal information and improves model performance.
+#
+# The technique was popularized by the nuScenes dataset (Caesar et al.,
+# "nuScenes: A Multimodal Dataset for Autonomous Driving", CVPR 2020,
+# `arXiv:1903.11027 <https://arxiv.org/abs/1903.11027>`_), which accumulates
+# 10 sweeps, roughly 0.5 seconds at the 2 Hz key-frame rate.
+#
+# In vision3d, set ``num_sweeps`` on :class:`~vision3d.datasets.NuScenes3D`.
+# Each point gains a trailing time-offset column, so the point cloud grows from
+# ``[N, 5]`` to ``[N, 6]`` channels (x, y, z, intensity, ring number, time).
+
+dense = NuScenes3D(NUSCENES_ROOT, version="v1.0-mini", split="train", num_sweeps=10)
+
+# A mid-scene frame. The first frames of a scene have fewer prior sweeps to
+# fold in, so aggregation falls back to whatever is available.
+frame = 10
+single_points = dataset[frame][0]["points"]
+dense_points = dense[frame][0]["points"]
+
+print(f"single sweep: {tuple(single_points.shape)} (x,y,z,intensity,ring)")
+print(f"10 sweeps:    {tuple(dense_points.shape)} (x,y,z,intensity,ring,time)")
+time = dense_points[:, -1]
+print(f"time column:  {time.min():.3f} to {time.max():.3f} s before key-frame")
+
+import rerun as rr
+import rerun.blueprint as rrb
+
+from vision3d.viz import fusion_layout, log_sample
+
+dense_inputs, dense_targets = dense[frame]
+
+rr.init("vision3d_nuscenes_sweeps", spawn=True)
+rr.send_blueprint(
+    rrb.Blueprint(
+        fusion_layout(NuScenes3D.camera_names, NuScenes3D.camera_grid),
+        rrb.TimePanel(state="collapsed"),
+    )
+)
+rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+log_sample(dense_inputs, dense_targets, label_to_id=dense.class_to_idx, jpeg_quality=75)
+
+# %%
 # Batch with :func:`vision3d.datasets.collate_fn`
 # -----------------------------------------------
 # Variable-size tensors (point clouds, per-frame box counts) cannot be stacked
