@@ -230,13 +230,9 @@ def _apply_z_offset(
         A new ``[M, K]`` tensor with the z position shifted.
     """
     out = boxes.clone()
+    out[:, 2] += dz
     if fmt is BoundingBox3DFormat.XYZXYZ:
-        # Shift both the min-z and max-z corners to translate the box.
-        out[:, 2] += dz
-        out[:, 5] += dz
-    else:
-        # Centre-based formats store z at index 2.
-        out[:, 2] += dz
+        out[:, 5] += dz  # also shift the max-z corner
     return out
 
 
@@ -347,6 +343,13 @@ class CopyPaste3D(Transform):
             raise ValueError(msg)
         if z_offset_std is not None and z_offset_std <= 0:
             msg = "`z_offset_std` should be a positive float or None."
+            raise ValueError(msg)
+        if z_offset_std is not None and z_offset_range[0] == z_offset_range[1]:
+            msg = (
+                "`z_offset_std` has no effect when `z_offset_range` is "
+                "degenerate (min == max); widen the range or set "
+                "`z_offset_std=None`."
+            )
             raise ValueError(msg)
         self.target_counts = target_counts
         self.min_points = min_points

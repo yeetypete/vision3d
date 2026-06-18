@@ -675,6 +675,16 @@ class TestValidation:
                 target_counts={CAR: 10}, z_offset_range=(-1.0, 1.0), z_offset_std=0.0
             )
 
+    def test_z_offset_std_with_degenerate_range_raises(self) -> None:
+        with pytest.raises(ValueError, match="`z_offset_std` has no effect"):
+            CopyPaste3D(
+                target_counts={CAR: 10}, z_offset_range=(0.0, 0.0), z_offset_std=0.5
+            )
+        with pytest.raises(ValueError, match="`z_offset_std` has no effect"):
+            CopyPaste3D(
+                target_counts={CAR: 10}, z_offset_range=(5.0, 5.0), z_offset_std=0.5
+            )
+
     def test_forward_empty_batch_is_noop(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10})
         result = cp((), ())
