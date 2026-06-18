@@ -342,7 +342,9 @@ def test_perfect_prediction_scores_one() -> None:
 
     assert out["mean_ap"] == pytest.approx(1.0, abs=_TOL)
     assert out["nd_score"] == pytest.approx(1.0, abs=_TOL)
-    assert all(score == pytest.approx(1.0, abs=_TOL) for score in out["tp_scores"].values())
+    assert all(
+        score == pytest.approx(1.0, abs=_TOL) for score in out["tp_scores"].values()
+    )
 
 
 @pytest.mark.parametrize(
