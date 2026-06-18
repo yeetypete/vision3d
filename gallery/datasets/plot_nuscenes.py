@@ -82,14 +82,13 @@ print(
 # annotated with its time offset relative to the key-frame. The denser point
 # cloud retains temporal information and improves model performance.
 #
-# The technique was popularized by the nuScenes dataset (Caesar et al.,
-# "nuScenes: A Multimodal Dataset for Autonomous Driving", CVPR 2020,
-# `arXiv:1903.11027 <https://arxiv.org/abs/1903.11027>`_), which accumulates
+# The technique was popularized by the
+# `nuScenes <https://arxiv.org/abs/1903.11027>`_ dataset, which accumulates
 # 10 sweeps, roughly 0.5 seconds at the 2 Hz key-frame rate.
 #
 # In vision3d, set ``num_sweeps`` on :class:`~vision3d.datasets.NuScenes3D`.
 # Each point gains a trailing time-offset column, so the point cloud grows from
-# ``[N, 5]`` to ``[N, 6]`` channels (x, y, z, intensity, ring number, time).
+# ``[N, 5]`` to ``[N, 6]`` channels (x, y, z, intensity, ring column, time).
 
 dense = NuScenes3D(NUSCENES_ROOT, version="v1.0-mini", split="train", num_sweeps=10)
 
