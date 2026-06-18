@@ -302,8 +302,9 @@ def _devkit_multisweep(
     # its close-point removal (which our loader does not do) so the point clouds
     # match. The devkit keeps (x, y, z, intensity) and a separate time vector.
     # it drops the ring column.
-    # TODO: add close-point removal and optional dropping of ring column to
-    # NuScenes3D dataloader so ego self-returns are filtered like the devkit.
+    # TODO: provide close-point removal as a reusable distance-filter transform
+    # rather than baking it into NuScenes3D, so ego self-returns can be filtered
+    # like the devkit.
     sample = nusc.get("sample", sample_token)
     pc, times = LidarPointCloud.from_file_multisweep(
         nusc,
