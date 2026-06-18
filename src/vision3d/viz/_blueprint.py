@@ -15,7 +15,7 @@ def camera_grid(
     grid: Sequence[Sequence[int]] | None = None,
     *,
     entity_prefix: str = "world/cam",
-    overlay_entity: str | None = "world/boxes",
+    overlay_entities: Sequence[str] | None = ("world/gt/boxes", "world/pred/boxes"),
 ) -> rrb.Grid:
     """Build a 2D camera-panel grid from a dataset's rig metadata.
 
@@ -33,8 +33,11 @@ def camera_grid(
             row in tensor order.
         entity_prefix: Prefix for camera entity origins (e.g. ``"world/cam"``
             -> ``/world/cam_0``, ``/world/cam_1`` ...).
-        overlay_entity: Entity to overlay as wireframe boxes on every camera
-            panel (e.g. ``"world/boxes"``). Pass ``None`` to skip the overlay.
+        overlay_entities: Box entities to overlay on every camera panel
+            (e.g. ``("world/gt/boxes", "world/pred/boxes")``). All overlays
+            are rendered as ``"majorwireframe"`` in the projections, since
+            filled boxes would occlude the underlying image. Pass ``None`` or
+            an empty sequence to skip the overlay.
 
     Returns:
         A :class:`~rerun.blueprint.Grid` containing one
@@ -47,6 +50,11 @@ def camera_grid(
         grid = (tuple(range(len(camera_names))),)
 
     cols = max(len(row) for row in grid)
+    overlays = list(overlay_entities or ())
+
+    # Box overlays are rendered as wireframes so filled faces don't occlude
+    # the image. Contents are the same for every panel.
+    contents = ["+ $origin/**", *(f"+ /{entity}/**" for entity in overlays)]
 
     panels = []
     for row in grid:
@@ -54,23 +62,16 @@ def camera_grid(
             if not 0 <= idx < len(camera_names):
                 msg = f"grid index {idx} out of range for {len(camera_names)} cameras"
                 raise ValueError(msg)
-            contents = ["+ $origin/**"]
-            if overlay_entity is not None:
-                contents.append(f"+ /{overlay_entity}/**")
             panels.append(
                 rrb.Spatial2DView(
                     name=camera_names[idx],
                     origin=f"/{entity_prefix}_{idx}",
                     contents=contents,
-                    overrides=(
-                        {
-                            f"/{overlay_entity}": rr.Boxes3D.from_fields(
-                                fill_mode="majorwireframe"
-                            )
-                        }
-                        if overlay_entity is not None
-                        else None
-                    ),
+                    overrides={
+                        f"/{entity}": rr.Boxes3D.from_fields(fill_mode="majorwireframe")
+                        for entity in overlays
+                    }
+                    or None,
                 )
             )
     return rrb.Grid(*panels, grid_columns=cols)
@@ -110,7 +111,8 @@ def fusion_layout(
 
     Composes :func:`lidar_view` and :func:`camera_grid` under matching entity
     prefixes that align with :func:`vision3d.viz.log_sample`'s defaults
-    (``world/cam_*`` for cameras, ``world/boxes`` for the overlay).
+    (``world/cam_*`` for cameras, ``world/gt/boxes`` and ``world/pred/boxes``
+    for the box overlays).
 
     Args:
         camera_names: Per-camera display names indexed by tensor position.
@@ -118,7 +120,8 @@ def fusion_layout(
             :func:`camera_grid`.
         entity_prefix: Root entity prefix; the 3D view roots at
             ``/{entity_prefix}``, cameras at ``/{entity_prefix}/cam_*``,
-            box overlay at ``/{entity_prefix}/boxes``.
+            box overlays at ``/{entity_prefix}/gt/boxes`` and
+            ``/{entity_prefix}/pred/boxes``.
         row_shares: Vertical split ratio between the 3D view and camera grid.
         name: Optional display name.
 
@@ -132,7 +135,10 @@ def fusion_layout(
             camera_names,
             grid,
             entity_prefix=f"{entity_prefix}/cam",
-            overlay_entity=f"{entity_prefix}/boxes",
+            overlay_entities=(
+                f"{entity_prefix}/gt/boxes",
+                f"{entity_prefix}/pred/boxes",
+            ),
         ),
         row_shares=list(row_shares),
         name=name,

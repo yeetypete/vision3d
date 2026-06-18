@@ -102,7 +102,9 @@ for i, (inp, tgt) in enumerate(zip(batch_inputs, batch_targets)):
 # :func:`vision3d.viz.log_sample` logs a
 # :class:`~vision3d.datasets.SampleInputs` /
 # :class:`~vision3d.datasets.SampleTargets` pair to `Rerun
-# <https://rerun.io/>`_ for interactive visualization.
+# <https://rerun.io/>`_ for interactive visualization. See the
+# visualization examples for overlaying detector predictions on the
+# ground truth.
 
 import rerun as rr
 import rerun.blueprint as rrb
