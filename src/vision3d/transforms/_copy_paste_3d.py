@@ -2,6 +2,7 @@
 
 import math
 from collections import defaultdict, deque
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, override
 
@@ -214,25 +215,25 @@ def _hull_mask_from_projected(
     return mask, (x_min, y_min, x_max, y_max), mean_depth
 
 
-def _apply_z_offset(
+def _apply_offset(
     boxes: Tensor,
     fmt: BoundingBox3DFormat,
-    dz: Tensor,
+    offsets: Tensor,
 ) -> Tensor:
-    """Return a copy of *boxes* with their z-centre shifted by *dz*.
+    """Return a copy of *boxes* translated by per-box *offsets*.
 
     Args:
         boxes: ``[M, K]`` 3-D bounding boxes.
         fmt: Box format.
-        dz: ``[M]`` per-box z offsets in scene units.
+        offsets: ``[M, 3]`` per-box ``(x, y, z)`` offsets in scene units.
 
     Returns:
-        A new ``[M, K]`` tensor with the z position shifted.
+        A new ``[M, K]`` tensor with the box positions shifted.
     """
     out = boxes.clone()
-    out[:, 2] += dz
+    out[:, :3] += offsets
     if fmt is BoundingBox3DFormat.XYZXYZ:
-        out[:, 5] += dz  # also shift the max-z corner
+        out[:, 3:6] += offsets  # also shift the max corner
     return out
 
 
@@ -267,6 +268,83 @@ def _batch_hull_masks(
     ]
 
 
+_AxisRange = tuple[float, float]
+_OffsetRange = _AxisRange | Sequence[_AxisRange]
+_OffsetStd = float | Sequence[float | None] | None
+
+
+def _normalize_offset_range(offset_range: _OffsetRange) -> list[_AxisRange]:
+    """Expand *offset_range* into one ``(min, max)`` pair per x/y/z axis.
+
+    Accepts a single ``(min, max)`` pair (broadcast to all three axes) or a
+    sequence of three ``(min, max)`` pairs.
+
+    Args:
+        offset_range: Offset range specification.
+
+    Returns:
+        List of three ``(min, max)`` float pairs.
+
+    Raises:
+        TypeError: If a per-axis entry is a scalar rather than a pair.
+        ValueError: If the shape is neither a pair nor three pairs, or any
+            pair has ``min > max``.
+    """
+    seq = list(offset_range)
+    msg_per_axis = "Each per-axis `offset_range` entry must be a (min, max) pair."
+    if (
+        len(seq) == 2
+        and isinstance(seq[0], (int, float))
+        and isinstance(seq[1], (int, float))
+    ):
+        pair = (seq[0], seq[1])
+        ranges = [pair, pair, pair]
+    elif len(seq) == 3:
+        ranges = []
+        for axis in seq:
+            if isinstance(axis, (int, float)):
+                raise TypeError(msg_per_axis)
+            entry = tuple(axis)
+            if len(entry) != 2:
+                raise ValueError(msg_per_axis)
+            ranges.append((entry[0], entry[1]))
+    else:
+        msg = (
+            "`offset_range` should be a (min, max) pair applied to all axes "
+            "or a 3-tuple of (min, max) pairs."
+        )
+        raise ValueError(msg)
+    for lo, hi in ranges:
+        if lo > hi:
+            msg = "`offset_range` min must not exceed max."
+            raise ValueError(msg)
+    return ranges
+
+
+def _normalize_offset_std(offset_std: _OffsetStd) -> list[float | None]:
+    """Expand *offset_std* into one standard deviation (or ``None``) per axis.
+
+    Args:
+        offset_std: A single value shared across axes, ``None``, or a 3-tuple
+            of per-axis values (each a float or ``None``).
+
+    Returns:
+        List of three ``float | None`` values.
+
+    Raises:
+        ValueError: If a sequence is given with a length other than three.
+    """
+    if offset_std is None:
+        return [None, None, None]
+    if isinstance(offset_std, (int, float)):
+        return [offset_std, offset_std, offset_std]
+    seq = list(offset_std)
+    if len(seq) != 3:
+        msg = "`offset_std` should be a float, None, or a 3-tuple."
+        raise ValueError(msg)
+    return list(seq)
+
+
 class CopyPaste3D(Transform):
     """Batch-level 3D copy-paste data augmentation.
 
@@ -295,25 +373,29 @@ class CopyPaste3D(Transform):
             have to be stored in the database. Default: ``5``.
         max_database_size: Maximum entries per class. None means
             unlimited. Default: ``None``.
-        z_offset_range: ``(min, max)`` interval, in scene units, for a random
-            z-height offset applied per pasted object (to its box and points)
-            before the overlap check, so placements stay collision-free at the
-            jittered height. ``(0.0, 0.0)`` disables jittering.
-            Default: ``(0.0, 0.0)``.
-        z_offset_std: Standard deviation, in scene units, of the offset
+        offset_range: Random position offset applied per pasted object (to its
+            box and points) before the overlap check, so placements stay
+            collision-free at the jittered pose. Either a single ``(min, max)``
+            interval, in scene units, applied independently to the x, y, and z
+            axes, or a 3-tuple of per-axis intervals
+            ``((x_min, x_max), (y_min, y_max), (z_min, z_max))``. ``(0.0, 0.0)``
+            disables jittering. Default: ``(0.0, 0.0)``.
+        offset_std: Standard deviation, in scene units, of the offset
             distribution. ``None`` (the default) draws offsets uniformly across
-            ``z_offset_range``; a positive value draws from a normal
-            distribution centred on the range midpoint and truncated to the
-            range. Default: ``None``.
+            ``offset_range``; a positive value draws from a normal distribution
+            centred on each range's midpoint and truncated to it. May be a
+            single value shared across axes or a 3-tuple of per-axis values
+            (each a float, or ``None`` to keep that axis uniform).
+            Default: ``None``.
         p: Probability of applying the augmentation. Default: ``1.0``.
 
     Note:
-        When ``z_offset_std`` is set, the 68-95-99.7 rule applies: ~68% of
-        offsets fall within ±1 std of the midpoint, ~95% within ±2 std, and
-        ~99.7% within ±3 std. This holds only when ``z_offset_range`` is wide
-        enough not to clip the tails, so choose the range as roughly ±2 to
-        ±3 std (e.g. ``z_offset_std=0.5`` with ``z_offset_range=(-1.5, 1.5)``).
-        A range narrower than that flattens the bell back toward uniform.
+        Where ``offset_std`` is set, the 68-95-99.7 rule applies per axis: ~68%
+        of offsets fall within ±1 std of the midpoint, ~95% within ±2 std, and
+        ~99.7% within ±3 std. This holds only when ``offset_range`` is wide
+        enough not to clip the tails, so choose each range as roughly ±2 to
+        ±3 std (e.g. ``offset_std=0.5`` with ``offset_range=(-1.5, 1.5)``). A
+        narrower range flattens the bell back toward uniform.
     """
 
     def __init__(
@@ -321,8 +403,8 @@ class CopyPaste3D(Transform):
         target_counts: dict[int, int],
         min_points: int = 5,
         max_database_size: int | None = None,
-        z_offset_range: tuple[float, float] = (0.0, 0.0),
-        z_offset_std: float | None = None,
+        offset_range: _OffsetRange = (0.0, 0.0),
+        offset_std: _OffsetStd = None,
         p: float = 1.0,
     ) -> None:
         super().__init__()
@@ -335,28 +417,23 @@ class CopyPaste3D(Transform):
         if max_database_size is not None and max_database_size < 1:
             msg = "`max_database_size` should be a positive integer or None."
             raise ValueError(msg)
-        if len(z_offset_range) != 2:
-            msg = "`z_offset_range` should be a (min, max) tuple."
-            raise ValueError(msg)
-        if z_offset_range[0] > z_offset_range[1]:
-            msg = "`z_offset_range` min must not exceed max."
-            raise ValueError(msg)
-        if z_offset_std is not None and z_offset_std <= 0:
-            msg = "`z_offset_std` should be a positive float or None."
-            raise ValueError(msg)
-        if z_offset_std is not None and z_offset_range[0] == z_offset_range[1]:
-            msg = (
-                "`z_offset_std` has no effect when `z_offset_range` is "
-                "degenerate (min == max); widen the range or set "
-                "`z_offset_std=None`."
-            )
-            raise ValueError(msg)
+        self.offset_range = _normalize_offset_range(offset_range)
+        self.offset_std = _normalize_offset_std(offset_std)
+        for (lo, hi), std in zip(self.offset_range, self.offset_std):
+            if std is not None and std <= 0:
+                msg = "`offset_std` values should be positive or None."
+                raise ValueError(msg)
+            if std is not None and lo == hi:
+                msg = (
+                    "`offset_std` has no effect on an axis whose `offset_range` "
+                    "is degenerate (min == max); widen the range or use None "
+                    "for that axis."
+                )
+                raise ValueError(msg)
         self.target_counts = target_counts
         self.min_points = min_points
         self.max_database_size = max_database_size
-        self.z_offset_range = (z_offset_range[0], z_offset_range[1])
-        self.z_offset_std = z_offset_std
-        self._jitter_z = self.z_offset_range != (0.0, 0.0)
+        self._jitter = any(r != (0.0, 0.0) for r in self.offset_range)
         self.p = p
 
         self._database: dict[int, deque[ObjectEntry]] = defaultdict(
@@ -609,31 +686,40 @@ class CopyPaste3D(Transform):
                 )
         return result
 
-    def _sample_z_offsets(
-        self, n: int, device: torch.device, dtype: torch.dtype
+    def _sample_axis_offsets(
+        self,
+        n: int,
+        lo: float,
+        hi: float,
+        std: float | None,
+        device: torch.device,
+        dtype: torch.dtype,
     ) -> Tensor:
-        """Draw ``n`` z-height offsets from ``z_offset_range``.
+        """Draw ``n`` offsets for one axis from ``[lo, hi]``.
 
-        Uniform across the range when ``z_offset_std`` is ``None``, otherwise a
-        normal distribution centred on the midpoint of the range and truncated
-        to it, sampled exactly via the inverse CDF (no rejection loop).
+        Uniform when ``std`` is ``None``, otherwise a normal distribution
+        centred on the midpoint and truncated to the interval, sampled exactly
+        via the inverse CDF (no rejection loop).
 
         Args:
             n: Number of offsets to sample.
+            lo: Interval lower bound.
+            hi: Interval upper bound.
+            std: Standard deviation, or ``None`` for uniform sampling.
             device: Device for the output tensor.
             dtype: Dtype for the output tensor.
 
         Returns:
             ``[n]`` tensor of offsets.
         """
-        lo, hi = self.z_offset_range
-        if self.z_offset_std is None:
+        if lo == hi:
+            return torch.full((n,), lo, device=device, dtype=dtype)
+        if std is None:
             return torch.empty(n, device=device, dtype=dtype).uniform_(lo, hi)
 
         # Truncated normal via inverse-CDF: map uniform draws through the
         # standard-normal CDF restricted to [alpha, beta], then back.
         mean = (lo + hi) / 2.0
-        std = self.z_offset_std
         alpha = torch.tensor((lo - mean) / std, device=device, dtype=dtype)
         beta = torch.tensor((hi - mean) / std, device=device, dtype=dtype)
         lo_cdf = torch.special.ndtr(alpha)
@@ -642,6 +728,28 @@ class CopyPaste3D(Transform):
         p = lo_cdf + u * (hi_cdf - lo_cdf)
         # Clamp guards against tiny inverse-CDF rounding outside the interval.
         return (mean + std * torch.special.ndtri(p)).clamp(lo, hi)
+
+    def _sample_offsets(
+        self, n: int, device: torch.device, dtype: torch.dtype
+    ) -> Tensor:
+        """Draw ``n`` per-object ``(x, y, z)`` offsets.
+
+        Each axis is sampled independently from its configured range and
+        standard deviation.
+
+        Args:
+            n: Number of offsets to sample.
+            device: Device for the output tensor.
+            dtype: Dtype for the output tensor.
+
+        Returns:
+            ``[n, 3]`` tensor of offsets.
+        """
+        cols = [
+            self._sample_axis_offsets(n, lo, hi, std, device, dtype)
+            for (lo, hi), std in zip(self.offset_range, self.offset_std)
+        ]
+        return torch.stack(cols, dim=1)
 
     def _paste_objects(
         self,
@@ -682,12 +790,14 @@ class CopyPaste3D(Transform):
             candidates = [db[i] for i in perm[:n_paste]]
             cand_boxes = torch.stack([c.box for c in candidates]).to(device)
 
-            # Randomly jitter each candidate's z-height before placement so the
+            # Randomly jitter each candidate's position before placement so the
             # overlap checks below run against the final (jittered) positions.
-            dz: Tensor | None = None
-            if self._jitter_z:
-                dz = self._sample_z_offsets(len(candidates), device, cand_boxes.dtype)
-                cand_boxes = _apply_z_offset(cand_boxes, fmt, dz)
+            offsets: Tensor | None = None
+            if self._jitter:
+                offsets = self._sample_offsets(
+                    len(candidates), device, cand_boxes.dtype
+                )
+                cand_boxes = _apply_offset(cand_boxes, fmt, offsets)
 
             # Candidates vs existing scene boxes.
             if all_boxes.shape[0] > 0:
@@ -714,7 +824,7 @@ class CopyPaste3D(Transform):
             for k in accepted_k:
                 entry = candidates[k]
                 box_k = cand_boxes[k]
-                if dz is not None:
+                if offsets is not None:
                     # Re-bind the entry to the jittered box so camera projection
                     # and points stay consistent with the placed 3-D box.
                     entry = replace(entry, box=box_k.detach().cpu())
@@ -722,9 +832,9 @@ class CopyPaste3D(Transform):
                 pasted_boxes.append(box_k)
                 if entry.points is not None and points is not None:
                     obj_points = entry.points.to(points.device)
-                    if dz is not None:
+                    if offsets is not None:
                         obj_points = obj_points.clone()
-                        obj_points[:, 2] += dz[k].to(obj_points.device)
+                        obj_points[:, :3] += offsets[k].to(obj_points.device)
                     pasted_points.append(obj_points)
                 pasted_labels.append(entry.label)
             all_boxes = torch.cat([all_boxes, cand_boxes[accepted_k]])
