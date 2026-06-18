@@ -56,7 +56,6 @@ def _accumulate_sweeps_reference(
 
 
 class TestAccumulateSweeps:
-    @pytest.mark.skip_device("cuda")
     @settings(deadline=None, max_examples=200)
     @given(problem=_problems())
     def test_matches_numpy_reference(
@@ -64,14 +63,14 @@ class TestAccumulateSweeps:
     ) -> None:
         sweeps, transforms, time_offsets = problem
         out = accumulate_sweeps(
-            [torch.from_numpy(s) for s in sweeps],
-            torch.from_numpy(transforms),
-            torch.from_numpy(time_offsets),
+            [torch.as_tensor(s) for s in sweeps],
+            torch.as_tensor(transforms),
+            torch.as_tensor(time_offsets),
         )
         ref = torch.from_numpy(
             _accumulate_sweeps_reference(sweeps, transforms, time_offsets)
         )
-        torch.testing.assert_close(out.double(), ref, atol=1e-2, rtol=1e-4)
+        torch.testing.assert_close(out.double().cpu(), ref, atol=1e-2, rtol=1e-4)
 
     def test_does_not_modify_input(self) -> None:
         points = torch.randn(5, 5)
