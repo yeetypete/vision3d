@@ -19,7 +19,8 @@ we use :class:`~vision3d.datasets.NuScenes3D` to source real frames.
 # Prediction visualization only needs a
 # :class:`~vision3d.datasets.SampleInputs` /
 # :class:`~vision3d.datasets.SampleTargets` pair to overlay on. See the
-# dataset examples for the full loading and batching pipeline.
+# :ref:`dataset examples <sphx_glr_auto_examples_datasets>` for the full
+# loading and batching pipeline.
 
 from pathlib import Path
 
