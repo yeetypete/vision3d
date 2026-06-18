@@ -5,7 +5,7 @@ from torch import Tensor
 
 from vision3d.tensors import BoundingBox3DFormat
 
-from ._points_in_boxes_3d import _extract_box_params
+from ._points_in_boxes_3d import extract_box3d_params
 
 
 def box3d_overlap(
@@ -26,8 +26,8 @@ def box3d_overlap(
     Returns:
         Boolean matrix ``[N, M]`` where True indicates overlap.
     """
-    centers1, half1, rot1 = _extract_box_params(boxes1, format)
-    centers2, half2, rot2 = _extract_box_params(boxes2, format)
+    centers1, half1, rot1 = extract_box3d_params(boxes1, format)
+    centers2, half2, rot2 = extract_box3d_params(boxes2, format)
 
     # Pairwise center difference: [N, M, 3]
     diff = centers2.unsqueeze(0) - centers1.unsqueeze(1)

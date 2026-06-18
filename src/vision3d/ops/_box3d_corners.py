@@ -5,7 +5,7 @@ from torch import Tensor
 
 from vision3d.tensors import BoundingBox3DFormat
 
-from ._points_in_boxes_3d import _extract_box_params
+from ._points_in_boxes_3d import extract_box3d_params
 
 
 def box3d_corners(
@@ -35,7 +35,7 @@ def box3d_corners(
     Returns:
         Corner coordinates ``[N, 8, 3]``.
     """
-    centers, half_dims, rot = _extract_box_params(boxes, format)
+    centers, half_dims, rot = extract_box3d_params(boxes, format)
 
     # 8 sign combinations for (x, y, z) offsets
     # Order: (-x,-y,-z), (+x,-y,-z), (+x,+y,-z), (-x,+y,-z),

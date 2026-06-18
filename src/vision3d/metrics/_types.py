@@ -17,11 +17,11 @@ class Prediction3D(TypedDict):
         labels: ``[N]`` integer class labels.
         velocities: Optional ``[N, 2]`` ground-plane (xy) velocities in
             m/s. Required by :class:`~vision3d.metrics.NuScenesDetectionScore`
-            to compute the mean Average Velocity Error (AVE); defaults to
+            to compute the mean Average Velocity Error (AVE). Defaults to
             zeros when omitted.
         attributes: Optional ``[N]`` integer attribute labels. Used by
             :class:`~vision3d.metrics.NuScenesDetectionScore` to compute the
-            mean Average Attribute Error (AAE); a negative value marks
+            mean Average Attribute Error (AAE). A negative value marks
             "no attribute". Defaults to ``-1`` when omitted.
     """
 

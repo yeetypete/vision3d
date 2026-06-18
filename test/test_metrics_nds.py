@@ -29,7 +29,6 @@ from nuscenes.eval.detection.data_classes import (
 from pyquaternion import Quaternion
 
 from vision3d.metrics import NuScenesDetectionScore, Prediction3D, Target3D
-from vision3d.metrics._nuscenes_detection_score import _interp
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
 
 # The devkit reference and the matching loop are CPU-only; the dedicated GPU
@@ -48,16 +47,6 @@ _ATTR_BY_ID = {-1: "", **dict(enumerate(ATTRIBUTE_NAMES))}
 # (box geometry, velocity, labels, ...); a frame pairs a ``gt`` and ``pred`` scene.
 _Scene = dict[str, Any]
 _Frame = dict[str, _Scene]
-
-
-def _t3(a: Any) -> tuple[float, float, float]:
-    """Return the first three entries of ``a`` as a float triple."""
-    return (float(a[0]), float(a[1]), float(a[2]))
-
-
-def _t2(a: Any) -> tuple[float, float]:
-    """Return the first two entries of ``a`` as a float pair."""
-    return (float(a[0]), float(a[1]))
 
 
 def _yaw_quat(yaw: float) -> tuple[float, float, float, float]:
@@ -135,10 +124,10 @@ def _random_frames(
             "attr": np.array(p_attr, dtype=int).reshape(-1),
             "score": np.array(p_score).reshape(-1),
         }
-        # Round geometry to float32 once, as a single source of truth: this is
+        # Cast geometry to float32 once, as a single source of truth: this is
         # the realistic detector-output precision, and feeding identical values
         # to both evaluation paths makes the comparison about the algorithms,
-        # not float32-vs-float64 rounding.
+        # not float32-vs-float64 casting.
         for scene in (gt, pred):
             for key in ("xyz", "lwh", "yaw", "vel", "score"):
                 if key in scene:
@@ -206,19 +195,19 @@ def _to_vision3d(
 def _devkit_box(token: str, scene: _Scene, i: int, *, score: float) -> DetectionBox:
     """Build one devkit ``DetectionBox`` from row ``i`` of ``scene``.
 
-    ``float(...)`` widens the float32 source values to Python float64 without
-    changing them, so the devkit accumulates on the exact same numbers the
-    metric does (which also upcasts to float64).
+    ``tolist()``/``float(...)`` widen the float32 source values to Python
+    float64 without changing them, so the devkit accumulates on the exact same
+    numbers the metric does (which also upcasts to float64).
 
     Returns:
         The constructed ``DetectionBox``.
     """
     return DetectionBox(
         sample_token=token,
-        translation=_t3(scene["xyz"][i]),
-        size=_t3(scene["lwh"][i]),
+        translation=tuple(scene["xyz"][i].tolist()),
+        size=tuple(scene["lwh"][i].tolist()),
         rotation=_yaw_quat(float(scene["yaw"][i])),
-        velocity=_t2(scene["vel"][i]),
+        velocity=tuple(scene["vel"][i].tolist()),
         detection_name=DETECTION_NAMES[int(scene["label"][i])],
         detection_score=score,
         attribute_name=_ATTR_BY_ID[int(scene["attr"][i])],
@@ -328,27 +317,32 @@ def test_matches_devkit(seed: int) -> None:
 
 
 def test_perfect_prediction_scores_one() -> None:
+    # Every class present and predicted exactly (zero error, valid attributes
+    # and velocities): each AP is 1 and every TP error is 0, so the AP and all
+    # TP scores -- and hence the NDS -- are exactly 1.
     rng = np.random.default_rng(123)
-    # Predictions identical to GT -> NDS should be 1.0.
-    frames = _random_frames(
-        rng, num_frames=6, drop_pred_prob=0.0, extra_pred_prob=0.0, jitter=0.0
-    )
-    for frame in frames:
-        frame["pred"] = {
-            **{k: frame["gt"][k].copy() for k in ("xyz", "lwh", "yaw", "vel", "attr")},
-            "label": frame["gt"]["label"].copy(),
-            "score": np.full(len(frame["gt"]["label"]), 0.9),
-        }
+    n_classes = len(DETECTION_NAMES)
+    gt: _Scene = {
+        "xyz": rng.uniform(-40, 40, size=(n_classes, 3)).astype(np.float32),
+        "lwh": rng.uniform(1.0, 5.0, size=(n_classes, 3)).astype(np.float32),
+        "yaw": rng.uniform(-math.pi, math.pi, size=n_classes).astype(np.float32),
+        "vel": rng.uniform(-5, 5, size=(n_classes, 2)).astype(np.float32),
+        "label": np.arange(n_classes),
+        "attr": np.zeros(n_classes, dtype=int),
+    }
+    pred: _Scene = {
+        **{k: gt[k].copy() for k in ("xyz", "lwh", "yaw", "vel", "label", "attr")},
+        "score": np.full(n_classes, 0.9, dtype=np.float32),
+    }
+    preds, targets = _to_vision3d([{"gt": gt, "pred": pred}])
 
-    preds, targets = _to_vision3d(frames)
     metric = _our_metric()
     metric.update(preds, targets)
     out = metric.compute()
 
-    # Only classes that actually appear can reach AP 1; check the matched
-    # TP errors are ~0 and NDS agrees with the devkit either way.
-    ref = _devkit_reference(frames)
-    assert out["nd_score"] == pytest.approx(ref["nd_score"], abs=_TOL)
+    assert out["mean_ap"] == pytest.approx(1.0, abs=_TOL)
+    assert out["nd_score"] == pytest.approx(1.0, abs=_TOL)
+    assert all(score == pytest.approx(1.0, abs=_TOL) for score in out["tp_scores"].values())
 
 
 @pytest.mark.parametrize(
@@ -472,29 +466,6 @@ def test_active_metric_requires_its_annotations() -> None:
         )
 
 
-@pytest.mark.parametrize("seed", range(20))
-def test_interp_matches_numpy(seed: int) -> None:
-    # ``_interp`` must reproduce ``np.interp`` exactly, including duplicate /
-    # flat runs in ``xp`` (every false positive creates one) and queries that
-    # land on a duplicate run clamped at the end of ``xp``.
-    rng = np.random.default_rng(seed)
-    n = int(rng.integers(2, 25))
-    # Heavy duplication: draw from a small integer set and sort.
-    xp = np.sort(rng.integers(0, 6, n).astype(np.float64))
-    if xp[0] == xp[-1]:
-        xp[-1] += 1.0
-    fp = rng.normal(size=n)
-    # Queries deliberately include the exact (possibly duplicated) nodes.
-    q = np.concatenate(
-        [rng.uniform(-1.0, 7.0, 30), xp, np.array([xp[0] - 1.0, xp[-1] + 1.0])]
-    )
-    ref = np.interp(q, xp, fp, right=0.0)
-    ours = _interp(
-        torch.from_numpy(q), torch.from_numpy(xp), torch.from_numpy(fp), right=0.0
-    ).numpy()
-    np.testing.assert_allclose(ours, ref, atol=1e-12)
-
-
 def test_tp_threshold_must_be_in_dist_thresholds() -> None:
     with pytest.raises(ValueError, match="tp_threshold"):
         NuScenesDetectionScore(
@@ -508,7 +479,21 @@ def test_unknown_tp_metric_rejected() -> None:
 
 
 def test_from_class_names_rejects_derived_kwargs() -> None:
-    with pytest.raises(ValueError, match="derived"):
+    # ``orientation_periods``/``skip_tp_metrics`` are derived from the class
+    # names and are not part of the ``from_class_names`` signature, so passing
+    # one is a ``TypeError`` (also flagged statically by the type checker).
+    with pytest.raises(TypeError, match="skip_tp_metrics"):
         NuScenesDetectionScore.from_class_names(
-            ["car"], skip_tp_metrics={0: {"vel_err"}}
+            ["car"],
+            skip_tp_metrics={0: {"vel_err"}},  # type: ignore[call-arg]
         )
+
+
+def test_compute_without_update_returns_zero() -> None:
+    # With no frames every class is empty, mirroring the devkit's
+    # ``no_predictions()`` (AP 0, worst-case TP errors -> TP scores 0), so the
+    # aggregate score is exactly zero.
+    out = NuScenesDetectionScore.from_class_names(list(DETECTION_NAMES)).compute()
+    assert out["nd_score"] == 0.0
+    assert out["mean_ap"] == 0.0
+    assert all(score == 0.0 for score in out["tp_scores"].values())

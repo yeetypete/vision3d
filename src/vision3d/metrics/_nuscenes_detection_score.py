@@ -18,13 +18,15 @@ attribute/velocity/orientation skips for ``barrier`` and ``traffic_cone``).
 import math
 from collections.abc import Iterable
 from dataclasses import dataclass
+from statistics import fmean
 from typing import TYPE_CHECKING, TypedDict
 
+import numpy as np
 import torch
 from torch import Tensor
 
 from vision3d.metrics._types import Prediction3D, Target3D
-from vision3d.ops._points_in_boxes_3d import _extract_box_params
+from vision3d.ops import extract_box3d_params
 
 if TYPE_CHECKING:
     from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
@@ -32,9 +34,9 @@ if TYPE_CHECKING:
 # The five true-positive error metrics, in the order nuScenes reports them.
 TP_METRICS = ("trans_err", "scale_err", "orient_err", "vel_err", "attr_err")
 
-# Number of interpolated recall steps (0 % .. 100 %), matching the devkit's
+# Number of interpolated recall points (0 % .. 100 %), matching the devkit's
 # ``DetectionMetricData.nelem``.
-_NELEM = 101
+_NUM_RECALL_POINTS = 101
 
 # nuScenes classes special-cased in :meth:`from_class_names`: ``barrier``
 # orientation is only defined up to 180 degrees, and barrier/traffic_cone
@@ -191,7 +193,12 @@ class NuScenesDetectionScore:
     def from_class_names(
         cls,
         class_names: list[str],
-        **kwargs: object,
+        dist_thresholds: tuple[float, ...] = (0.5, 1.0, 2.0, 4.0),
+        tp_threshold: float = 2.0,
+        min_recall: float = 0.1,
+        min_precision: float = 0.1,
+        mean_ap_weight: float = 5.0,
+        tp_metrics: tuple[str, ...] = TP_METRICS,
     ) -> "NuScenesDetectionScore":
         """Build the metric from class names using the nuScenes presets.
 
@@ -199,25 +206,27 @@ class NuScenesDetectionScore:
         official nuScenes classes this wires up the ``barrier`` half-period
         orientation and the ``barrier``/``traffic_cone`` TP-metric skips.
 
+        The ``orientation_periods`` and ``skip_tp_metrics`` constructor
+        arguments are derived from the names and therefore cannot be set here;
+        the remaining arguments are forwarded to
+        :class:`NuScenesDetectionScore` unchanged.
+
         Args:
             class_names: Ordered class names; their indices become the
                 integer class IDs scored by the metric.
-            **kwargs: Forwarded to :class:`NuScenesDetectionScore` (e.g.
-                ``dist_thresholds``). ``orientation_periods`` and
-                ``skip_tp_metrics`` are derived from the names and must not
-                be passed here.
+            dist_thresholds: BEV center-distance match thresholds in meters
+                over which AP is averaged.
+            tp_threshold: The single distance threshold at which the TP error
+                metrics are computed; must be one of ``dist_thresholds``.
+            min_recall: Recall below which precision is discarded before
+                integrating AP and TP errors.
+            min_precision: Precision floor subtracted before integrating AP.
+            mean_ap_weight: Weight of mAP relative to the TP scores in the NDS.
+            tp_metrics: The TP error metrics that participate in the score.
 
         Returns:
             A configured :class:`NuScenesDetectionScore`.
-
-        Raises:
-            ValueError: If ``orientation_periods`` or ``skip_tp_metrics`` is
-                passed in ``kwargs`` (they are derived from the names).
         """
-        forbidden = {"orientation_periods", "skip_tp_metrics"} & kwargs.keys()
-        if forbidden:
-            msg = f"{sorted(forbidden)} are derived from class_names"
-            raise ValueError(msg)
         orientation_periods = {
             i: math.pi
             for i, name in enumerate(class_names)
@@ -230,9 +239,14 @@ class NuScenesDetectionScore:
         }
         return cls(
             class_ids=list(range(len(class_names))),
+            dist_thresholds=dist_thresholds,
+            tp_threshold=tp_threshold,
+            min_recall=min_recall,
+            min_precision=min_precision,
+            mean_ap_weight=mean_ap_weight,
+            tp_metrics=tp_metrics,
             orientation_periods=orientation_periods,
             skip_tp_metrics=skip_tp_metrics,
-            **kwargs,  # type: ignore[arg-type]
         )
 
     def update(
@@ -254,8 +268,8 @@ class NuScenesDetectionScore:
         """
         if len(preds) != len(targets):
             msg = (
-                f"preds and targets must have the same length; "
-                f"got {len(preds)} vs {len(targets)}"
+                f"preds and targets must have the same length. "
+                f"Got {len(preds)} vs {len(targets)}"
             )
             raise ValueError(msg)
         for pred, target in zip(preds, targets):
@@ -295,7 +309,7 @@ class NuScenesDetectionScore:
                 if field not in frame:
                     msg = (
                         f"{metric!r} is an active TP metric but {role} is "
-                        f"missing {field!r}; provide it or drop {metric!r} "
+                        f"missing {field!r}. Provide it or drop {metric!r} "
                         f"from tp_metrics"
                     )
                     raise ValueError(msg)
@@ -307,36 +321,35 @@ class NuScenesDetectionScore:
             A populated :class:`NuScenesDetectionScoreResult`.
         """
         label_aps: dict[tuple[int, float], float] = {}
-        # ``_MetricData`` per (class, dist_th); reused for AP and TP metrics.
+        label_tp_errors: dict[tuple[int, str], float] = {}
         # Pin to CPU regardless of any ambient default-device context.
-        md_by_key: dict[tuple[int, float], _MetricData] = {}
         with torch.device("cpu"):
             for class_id in self.class_ids:
                 period = self.orientation_periods.get(class_id, 2.0 * math.pi)
+                tp_md: _MetricData | None = None
                 for dist_th in self.dist_thresholds:
                     md = _accumulate(self._frames, class_id, dist_th, period)
-                    md_by_key[(class_id, dist_th)] = md
                     label_aps[(class_id, dist_th)] = _calc_ap(
                         md, self.min_recall, self.min_precision
                     )
+                    if dist_th == self.tp_threshold:
+                        tp_md = md
+                assert tp_md is not None  # tp_threshold is in dist_thresholds
 
-        label_tp_errors: dict[tuple[int, str], float] = {}
-        for class_id in self.class_ids:
-            skip = self.skip_tp_metrics.get(class_id, set())
-            md = md_by_key[(class_id, self.tp_threshold)]
-            for metric in self.tp_metrics:
-                if metric in skip:
-                    label_tp_errors[(class_id, metric)] = math.nan
-                else:
-                    label_tp_errors[(class_id, metric)] = _calc_tp(
-                        md, self.min_recall, metric
-                    )
+                skip = self.skip_tp_metrics.get(class_id, set())
+                for metric in self.tp_metrics:
+                    if metric in skip:
+                        label_tp_errors[(class_id, metric)] = math.nan
+                    else:
+                        label_tp_errors[(class_id, metric)] = _calc_tp(
+                            tp_md, self.min_recall, metric
+                        )
 
         mean_dist_aps = {
-            class_id: _mean(label_aps[(class_id, t)] for t in self.dist_thresholds)
+            class_id: fmean(label_aps[(class_id, t)] for t in self.dist_thresholds)
             for class_id in self.class_ids
         }
-        mean_ap = _mean(mean_dist_aps.values())
+        mean_ap = fmean(mean_dist_aps.values())
 
         tp_errors: dict[str, float] = {}
         tp_scores: dict[str, float] = {}
@@ -369,28 +382,21 @@ class NuScenesDetectionScore:
 class _MetricData:
     """Interpolated per-(class, threshold) curve, mirroring the devkit.
 
-    Each tensor has length :data:`_NELEM`. ``confidence`` is descending and
+    Each tensor has length :data:`_NUM_RECALL_POINTS`. ``confidence`` is descending and
     ``recall`` ascending.
 
     Attributes:
         recall: Interpolated recall levels.
         precision: Interpolated precision at each recall level.
         confidence: Interpolated confidence at each recall level.
-        trans_err: Interpolated translation error.
-        scale_err: Interpolated scale error.
-        orient_err: Interpolated orientation error.
-        vel_err: Interpolated velocity error.
-        attr_err: Interpolated attribute error.
+        tp_errors: Interpolated TP error per metric, keyed by
+            :data:`TP_METRICS`.
     """
 
     recall: Tensor
     precision: Tensor
     confidence: Tensor
-    trans_err: Tensor
-    scale_err: Tensor
-    orient_err: Tensor
-    vel_err: Tensor
-    attr_err: Tensor
+    tp_errors: dict[str, Tensor]
 
     @property
     def max_recall_ind(self) -> int:
@@ -407,14 +413,13 @@ def _no_predictions_md() -> _MetricData:
         (worst-case) TP errors.
     """
     return _MetricData(
-        recall=torch.linspace(0.0, 1.0, _NELEM, dtype=torch.float64),
-        precision=torch.zeros(_NELEM, dtype=torch.float64),
-        confidence=torch.zeros(_NELEM, dtype=torch.float64),
-        trans_err=torch.ones(_NELEM, dtype=torch.float64),
-        scale_err=torch.ones(_NELEM, dtype=torch.float64),
-        orient_err=torch.ones(_NELEM, dtype=torch.float64),
-        vel_err=torch.ones(_NELEM, dtype=torch.float64),
-        attr_err=torch.ones(_NELEM, dtype=torch.float64),
+        recall=torch.linspace(0.0, 1.0, _NUM_RECALL_POINTS, dtype=torch.float64),
+        precision=torch.zeros(_NUM_RECALL_POINTS, dtype=torch.float64),
+        confidence=torch.zeros(_NUM_RECALL_POINTS, dtype=torch.float64),
+        tp_errors={
+            metric: torch.ones(_NUM_RECALL_POINTS, dtype=torch.float64)
+            for metric in TP_METRICS
+        },
     )
 
 
@@ -529,7 +534,7 @@ def _accumulate(
     prec = tp_cum / (fp_cum + tp_cum)
     rec = tp_cum / float(npos)
 
-    rec_interp = torch.linspace(0.0, 1.0, _NELEM, dtype=torch.float64)
+    rec_interp = torch.linspace(0.0, 1.0, _NUM_RECALL_POINTS, dtype=torch.float64)
     prec_i = _interp(rec_interp, rec, prec, right=0.0)
     conf_i = _interp(rec_interp, rec, conf_t, right=0.0)
 
@@ -555,11 +560,7 @@ def _accumulate(
         recall=rec_interp,
         precision=prec_i,
         confidence=conf_i,
-        trans_err=resampled["trans_err"],
-        scale_err=resampled["scale_err"],
-        orient_err=resampled["orient_err"],
-        vel_err=resampled["vel_err"],
-        attr_err=resampled["attr_err"],
+        tp_errors=resampled,
     )
 
 
@@ -588,40 +589,23 @@ def _calc_tp(md: _MetricData, min_recall: float, metric_name: str) -> float:
     last_ind = md.max_recall_ind
     if last_ind < first_ind:
         return 1.0
-    errors: Tensor = getattr(md, metric_name)
+    errors = md.tp_errors[metric_name]
     return float(errors[first_ind : last_ind + 1].mean())
 
 
 def _interp(x: Tensor, xp: Tensor, fp: Tensor, right: float | None = None) -> Tensor:
-    """1-D linear interpolation matching :func:`numpy.interp`.
+    """1-D linear interpolation: a thin tensor wrapper over :func:`numpy.interp`.
 
-    ``xp`` must be non-decreasing (duplicates allowed). Queries below
-    ``xp[0]`` return ``fp[0]``; queries above ``xp[-1]`` return ``right`` if
-    given, else ``fp[-1]``. On a run of equal ``xp`` the value at the last
-    occurrence is used, reproducing ``numpy``'s behavior exactly.
+    ``xp`` must be non-decreasing (duplicates allowed). Queries below ``xp[0]``
+    return ``fp[0]``; queries above ``xp[-1]`` return ``right`` if given, else
+    ``fp[-1]``. The metric runs on CPU, so delegating to ``numpy`` is both
+    exact and cheap.
 
     Returns:
-        Interpolated values, shaped like ``x``.
+        Interpolated values, shaped like ``x``, with ``fp``'s dtype and device.
     """
-    left_val = fp[0]
-    right_val = (
-        fp[-1]
-        if right is None
-        else torch.tensor(right, dtype=fp.dtype, device=fp.device)
-    )
-    # ``side="right"`` counts xp <= x, so hi-1 lands on the last equal node.
-    hi = torch.searchsorted(xp, x, right=True).clamp(1, xp.numel() - 1)
-    lo = hi - 1
-    x0, x1 = xp[lo], xp[hi]
-    f0, f1 = fp[lo], fp[hi]
-    denom = x1 - x0
-    safe = torch.where(denom != 0, denom, torch.ones_like(denom))
-    slope = (f1 - f0) / safe
-    # ``denom == 0`` only when the query lands on a duplicate run clamped at
-    # the top of ``xp``; numpy resolves that to the last node's value (``f1``).
-    res = torch.where(denom != 0, f0 + slope * (x - x0), f1)
-    res = torch.where(x < xp[0], left_val, res)
-    return torch.where(x > xp[-1], right_val, res)
+    out = np.interp(x.numpy(), xp.numpy(), fp.numpy(), right=right)
+    return torch.from_numpy(out).to(dtype=fp.dtype, device=fp.device)
 
 
 def _match_errors(
@@ -708,16 +692,6 @@ def _cummean(x: Tensor) -> Tensor:
     return torch.where(count != 0, sum_vals / safe, torch.zeros_like(sum_vals))
 
 
-def _mean(values: Iterable[float]) -> float:
-    """Arithmetic mean of a finite, non-empty iterable of floats.
-
-    Returns:
-        The mean.
-    """
-    vals = list(values)
-    return sum(vals) / len(vals)
-
-
 def _nanmean(values: Iterable[float]) -> float:
     """Mean over the non-NaN entries.
 
@@ -725,7 +699,7 @@ def _nanmean(values: Iterable[float]) -> float:
         The mean of the non-NaN values, or ``nan`` if all are NaN.
     """
     vals = [v for v in values if not math.isnan(v)]
-    return sum(vals) / len(vals) if vals else math.nan
+    return fmean(vals) if vals else math.nan
 
 
 def _to_box_data(
@@ -738,7 +712,8 @@ def _to_box_data(
     """Convert a frame's boxes/labels/etc. to CPU float64 ``_BoxData`` tensors.
 
     Centers (xy), sizes and yaw are derived from the box parameters via
-    :func:`_extract_box_params`, so every supported box format is handled.
+    :func:`~vision3d.ops.extract_box3d_params`, so every supported box format
+    is handled.
 
     Returns:
         The populated :class:`_BoxData`.
@@ -751,7 +726,7 @@ def _to_box_data(
     # upcast (the metric is not on any hot path). Everything is moved to CPU
     # since the matching loop is sequential Python.
     boxes_t = boxes.as_subclass(Tensor).detach().double().cpu()
-    centers, half_dims, rot = _extract_box_params(boxes_t, fmt)
+    centers, half_dims, rot = extract_box3d_params(boxes_t, fmt)
     center_xy = centers[:, :2]
     size = 2.0 * half_dims
     # Yaw of the box's local x-axis projected into the xy plane, matching the
