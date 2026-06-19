@@ -90,6 +90,11 @@ print(
 # Each point gains a trailing time-offset column, so the point cloud grows from
 # ``[N, 5]`` to ``[N, 6]`` channels (x, y, z, intensity, ring column, time).
 
+import rerun as rr
+import rerun.blueprint as rrb
+
+from vision3d.viz import fusion_layout, log_sample
+
 dense = NuScenes3D(NUSCENES_ROOT, version="v1.0-mini", split="train", num_sweeps=10)
 
 # A mid-scene frame. The first frames of a scene have fewer prior sweeps to
@@ -102,11 +107,6 @@ print(f"single sweep: {tuple(single_points.shape)} (x,y,z,intensity,ring)")
 print(f"10 sweeps:    {tuple(dense_points.shape)} (x,y,z,intensity,ring,time)")
 time = dense_points[:, -1]
 print(f"time column:  {time.min():.3f} to {time.max():.3f} s before key-frame")
-
-import rerun as rr
-import rerun.blueprint as rrb
-
-from vision3d.viz import fusion_layout, log_sample
 
 dense_inputs, dense_targets = dense[frame]
 
