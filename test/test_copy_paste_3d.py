@@ -552,18 +552,26 @@ class TestOffset:
         if pasted.shape[0] == 0:
             pytest.skip("no objects pasted")
 
-        # Each pasted centre must equal some unmodified source centre plus the
-        # per-axis offset. XYZXYZ stores the min corner at indices 0:3, which
-        # also translates rigidly, so the same check applies.
+        # Each pasted centre must equal some unmodified source centre, either
+        # shifted by the per-axis offset or (when every jittered pose collided)
+        # left at the original pose (the documented fallback). XYZXYZ stores
+        # the min corner at indices 0:3, which also translates rigidly, so the
+        # same check applies.
         src = [
             tuple(round(v, 3) for v in e.box[:3].tolist()) for e in cp._database[CAR]
         ]
-        for box in pasted:
-            cx, cy, cz = box[0].item() - ox, box[1].item() - oy, box[2].item() - oz
-            assert any(
+
+        def matches_source(cx: float, cy: float, cz: float) -> bool:
+            return any(
                 abs(cx - sx) < 1e-2 and abs(cy - sy) < 1e-2 and abs(cz - sz) < 1e-2
                 for sx, sy, sz in src
             )
+
+        for box in pasted:
+            bx, by, bz = box[0].item(), box[1].item(), box[2].item()
+            shifted = matches_source(bx - ox, by - oy, bz - oz)
+            fallback = matches_source(bx, by, bz)
+            assert shifted or fallback
 
     @pytest.mark.parametrize("fmt", ALL_FORMATS)
     def test_pasted_points_follow_jittered_box(self, fmt: BoundingBox3DFormat) -> None:
@@ -641,6 +649,37 @@ class TestOffset:
         assert s[:, 0].std().item() > 0.5
         assert s[:, 2].std().item() < 0.4
 
+    def test_falls_back_to_original_when_jitter_collides(self) -> None:
+        # Constant offset, so every jitter attempt lands at the same pose.
+        offset = 10.0
+        cp = CopyPaste3D(
+            target_counts={CAR: 2},
+            min_points=1,
+            offset_range=(offset, offset),
+            max_jitter_attempts=5,
+        )
+        # Populate the database with a single object.
+        cp(*_make_lidar_batch(batch_size=1, num_boxes=1))
+        assert len(cp._database[CAR]) == 1
+        db_box = cp._database[CAR][0].box.clone()  # [K], XYZLWHY
+
+        # Blocker sits exactly where the (constant) jitter would land, so every
+        # attempt collides. Scene points stay away from it so it is not itself
+        # added to the database.
+        blocker = db_box.clone()
+        blocker[:3] = db_box[:3] + offset
+        boxes = BoundingBoxes3D(
+            blocker.unsqueeze(0), format=BoundingBox3DFormat.XYZLWHY
+        )
+        far_points = PointCloud3D(db_box[:3].unsqueeze(0).repeat(5, 1) - 100.0)
+        inp: dict[str, Any] = {"points": far_points}
+        tgt: dict[str, Any] = {"boxes": boxes, "labels": torch.tensor([CAR])}
+        _, out_targets = cp((inp,), (tgt,))
+
+        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        assert out_boxes.shape[0] == 2  # blocker + pasted fallback
+        assert torch.allclose(out_boxes[1, :3].cpu(), db_box[:3].cpu(), atol=1e-4)
+
     def test_does_not_mutate_database_entries(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1, offset_range=(5.0, 5.0))
         cp(*_make_lidar_batch(batch_size=3, num_boxes=3))
@@ -684,6 +723,12 @@ class TestValidation:
             ValueError, match="`max_database_size` should be a positive"
         ):
             CopyPaste3D(target_counts={CAR: 10}, max_database_size=0)
+
+    def test_max_jitter_attempts_zero_raises(self) -> None:
+        with pytest.raises(
+            ValueError, match="`max_jitter_attempts` should be a positive"
+        ):
+            CopyPaste3D(target_counts={CAR: 10}, max_jitter_attempts=0)
 
     def test_offset_range_wrong_length_raises(self) -> None:
         with pytest.raises(ValueError, match="`offset_range` should be a"):

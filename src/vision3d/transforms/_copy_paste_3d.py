@@ -379,7 +379,10 @@ class CopyPaste3D(Transform):
             interval, in scene units, applied independently to the x, y, and z
             axes, or a 3-tuple of per-axis intervals
             ``((x_min, x_max), (y_min, y_max), (z_min, z_max))``. ``(0.0, 0.0)``
-            disables jittering. Default: ``(0.0, 0.0)``.
+            disables jittering. For each object up to ``max_jitter_attempts``
+            offsets are drawn and the first collision-free one is used; if none
+            is collision-free the object falls back to its original (un-jittered)
+            pose. Default: ``(0.0, 0.0)``.
         offset_std: Standard deviation, in scene units, of the offset
             distribution. ``None`` (the default) draws offsets uniformly across
             ``offset_range``; a positive value draws from a normal distribution
@@ -387,6 +390,10 @@ class CopyPaste3D(Transform):
             single value shared across axes or a 3-tuple of per-axis values
             (each a float, or ``None`` to keep that axis uniform).
             Default: ``None``.
+        max_jitter_attempts: Number of jittered positions to try per object
+            before falling back to its original (un-jittered) pose. Larger
+            values raise the chance of placing a genuinely jittered object in a
+            crowded scene. Ignored when jittering is disabled. Default: ``5``.
         p: Probability of applying the augmentation. Default: ``1.0``.
 
     Note:
@@ -405,6 +412,7 @@ class CopyPaste3D(Transform):
         max_database_size: int | None = None,
         offset_range: _OffsetRange = (0.0, 0.0),
         offset_std: _OffsetStd = None,
+        max_jitter_attempts: int = 5,
         p: float = 1.0,
     ) -> None:
         super().__init__()
@@ -416,6 +424,9 @@ class CopyPaste3D(Transform):
             raise ValueError(msg)
         if max_database_size is not None and max_database_size < 1:
             msg = "`max_database_size` should be a positive integer or None."
+            raise ValueError(msg)
+        if max_jitter_attempts < 1:
+            msg = "`max_jitter_attempts` should be a positive integer."
             raise ValueError(msg)
         self.offset_range = _normalize_offset_range(offset_range)
         self.offset_std = _normalize_offset_std(offset_std)
@@ -433,6 +444,7 @@ class CopyPaste3D(Transform):
         self.target_counts = target_counts
         self.min_points = min_points
         self.max_database_size = max_database_size
+        self.max_jitter_attempts = max_jitter_attempts
         self._jitter = any(r != (0.0, 0.0) for r in self.offset_range)
         self.p = p
 
@@ -751,6 +763,52 @@ class CopyPaste3D(Transform):
         ]
         return torch.stack(cols, dim=1)
 
+    def _place_candidate(
+        self,
+        box: Tensor,
+        fmt: BoundingBox3DFormat,
+        occupied: Tensor,
+    ) -> tuple[Tensor, Tensor] | None:
+        """Find a collision-free pose for one candidate box.
+
+        When jittering is enabled, up to ``max_jitter_attempts`` jittered
+        offsets are drawn and the first that does not overlap *occupied* is
+        used. The original (zero) offset is always appended as a final
+        fallback, so an object whose jittered poses all collide is still
+        placed at its source position when that position is itself free.
+
+        Args:
+            box: Candidate box ``[K]`` at its source position.
+            fmt: Box format.
+            occupied: Boxes ``[M, K]`` the candidate must not overlap (scene
+                boxes plus objects already pasted this sample).
+
+        Returns:
+            ``(placed_box, offset)`` for the chosen pose, or ``None`` if every
+            attempt (including the original) collides.
+        """
+        device = box.device
+        dtype = box.dtype
+        # Jittered attempts first, the original (zero) offset last as fallback.
+        if self._jitter:
+            jittered = self._sample_offsets(self.max_jitter_attempts, device, dtype)
+            offsets = torch.cat([jittered, torch.zeros(1, 3, device=device, dtype=dtype)])
+        else:
+            offsets = torch.zeros(1, 3, device=device, dtype=dtype)
+
+        attempts = _apply_offset(box.unsqueeze(0).expand(offsets.shape[0], -1), fmt, offsets)
+
+        if occupied.shape[0] > 0:
+            collide = box3d_overlap(attempts, occupied, fmt).any(dim=1)
+        else:
+            collide = torch.zeros(offsets.shape[0], dtype=torch.bool, device=device)
+
+        free = (~collide).nonzero(as_tuple=False)
+        if free.numel() == 0:
+            return None
+        k = int(free[0].item())
+        return attempts[k], offsets[k]
+
     def _paste_objects(
         self,
         inputs: dict[str, Any],
@@ -788,56 +846,28 @@ class CopyPaste3D(Transform):
 
             perm = torch.randperm(len(db)).tolist()
             candidates = [db[i] for i in perm[:n_paste]]
-            cand_boxes = torch.stack([c.box for c in candidates]).to(device)
 
-            # Randomly jitter each candidate's position before placement so the
-            # overlap checks below run against the final (jittered) positions.
-            offsets: Tensor | None = None
-            if self._jitter:
-                offsets = self._sample_offsets(
-                    len(candidates), device, cand_boxes.dtype
-                )
-                cand_boxes = _apply_offset(cand_boxes, fmt, offsets)
-
-            # Candidates vs existing scene boxes.
-            if all_boxes.shape[0] > 0:
-                safe = ~box3d_overlap(cand_boxes, all_boxes, fmt).any(dim=1)
-            else:
-                safe = torch.ones(cand_boxes.shape[0], dtype=torch.bool, device=device)
-
-            # Candidates vs each other.
-            cc = box3d_overlap(cand_boxes, cand_boxes, fmt)
-            cc.fill_diagonal_(False)
-
-            safe_cpu = safe.cpu()
-            cc_cpu = cc.cpu()
-            accepted_k: list[int] = []
-            for k in range(len(candidates)):
-                if not safe_cpu[k].item():
+            # Place one at a time so each candidate is checked against both the
+            # scene boxes and the objects already pasted this sample.
+            for entry in candidates:
+                placed = self._place_candidate(entry.box.to(device), fmt, all_boxes)
+                if placed is None:
                     continue
-                if cc_cpu[k, accepted_k].any().item():
-                    continue
-                accepted_k.append(k)
-
-            if not accepted_k:
-                continue
-            for k in accepted_k:
-                entry = candidates[k]
-                box_k = cand_boxes[k]
-                if offsets is not None:
-                    # Re-bind the entry to the jittered box so camera projection
+                box_k, offset_k = placed
+                if self._jitter:
+                    # Re-bind the entry to the placed box so camera projection
                     # and points stay consistent with the placed 3-D box.
                     entry = replace(entry, box=box_k.detach().cpu())
                 pasted_entries.append(entry)
                 pasted_boxes.append(box_k)
                 if entry.points is not None and points is not None:
                     obj_points = entry.points.to(points.device)
-                    if offsets is not None:
+                    if self._jitter:
                         obj_points = obj_points.clone()
-                        obj_points[:, :3] += offsets[k].to(obj_points.device)
+                        obj_points[:, :3] += offset_k.to(obj_points.device)
                     pasted_points.append(obj_points)
                 pasted_labels.append(entry.label)
-            all_boxes = torch.cat([all_boxes, cand_boxes[accepted_k]])
+                all_boxes = torch.cat([all_boxes, box_k.unsqueeze(0)])
 
         if not pasted_boxes:
             return inputs, targets
