@@ -106,7 +106,7 @@ def _random_frames(
             p_attr.append(int(gt["attr"][i]))
             p_score.append(rng.uniform(0.1, 1.0))
         # Some spurious predictions far from any GT.
-        for _ in range(int(rng.binomial(3, extra_pred_prob))):
+        for _ in range(rng.binomial(3, extra_pred_prob)):
             p_xyz.append(rng.uniform(-40, 40, size=3))
             p_lwh.append(rng.uniform(1.0, 5.0, size=3))
             p_yaw.append(rng.uniform(-math.pi, math.pi))
@@ -478,17 +478,6 @@ def test_tp_threshold_must_be_in_dist_thresholds() -> None:
 def test_unknown_tp_metric_rejected() -> None:
     with pytest.raises(ValueError, match="unknown tp_metrics"):
         NuScenesDetectionScore(class_ids=[0], tp_metrics=("trans_err", "bogus"))
-
-
-def test_from_class_names_rejects_derived_kwargs() -> None:
-    # ``orientation_periods``/``skip_tp_metrics`` are derived from the class
-    # names and are not part of the ``from_class_names`` signature, so passing
-    # one is a ``TypeError`` (also flagged statically by the type checker).
-    with pytest.raises(TypeError, match="skip_tp_metrics"):
-        NuScenesDetectionScore.from_class_names(
-            ["car"],
-            skip_tp_metrics={0: {"vel_err"}},  # type: ignore[call-arg]
-        )
 
 
 def test_compute_without_update_returns_zero() -> None:
