@@ -14,6 +14,7 @@ import pytest
 import torch
 
 import vision3d.viz._logging as logging_mod
+from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
 from vision3d.viz import time_series_view
 from vision3d.viz._logging import (
     RerunLogger,
@@ -303,6 +304,13 @@ class TestRerunLoggerLogging:
         logger.log({"loss": 2.0}, step=100, every=50)  # 100 % 50 == 0 -> logged
         assert rr_spy.logged == [("train/loss", 2.0)]
 
+    def test_last_bypasses_throttle(self, rr_spy: _RrSpy) -> None:
+        # The final step rarely lands on a multiple of ``every``; ``last=True``
+        # forces it through so end-of-training metrics are not dropped.
+        logger = RerunLogger("run", spawn=True)
+        logger.log({"loss": 1.0}, step=99, every=50, last=True)
+        assert rr_spy.logged == [("train/loss", 1.0)]
+
     def test_style_series_resolves_namespaced_entity(self, rr_spy: _RrSpy) -> None:
         logger = RerunLogger("run", spawn=True, prefix="runs/baseline")
         logger.style_series("loss/total", legend="baseline", color=(1, 2, 3))
@@ -350,18 +358,104 @@ class TestRerunLoggerErrorHandling:
 
 
 class TestRerunLoggerConfig:
-    def test_log_config_sends_a_property_per_key(self, rr_spy: _RrSpy) -> None:
+    def test_log_config_keeps_numbers_numeric(self, rr_spy: _RrSpy) -> None:
+        # Numbers stay numeric so runs can be sorted/compared on them later;
+        # bools render as readable text rather than 1/0.
         logger = RerunLogger("run", spawn=True)
-        logger.log_config({"lr": 1e-3, "batch_size": 4})
+        logger.log_config({"lr": 1e-3, "batch_size": 4, "amp": True})
+        # Each property names its component after itself (not a shared "value")
+        # so mixed-type configs do not collide on Rerun's per-component type.
         assert rr_spy.properties == [
-            ("lr", ("any", {"value": "0.001"})),
-            ("batch_size", ("any", {"value": "4"})),
+            ("lr", ("any", {"lr": 1e-3})),
+            ("batch_size", ("any", {"batch_size": 4})),
+            ("amp", ("any", {"amp": "True"})),
+        ]
+
+    def test_log_config_stringifies_non_numbers(self, rr_spy: _RrSpy) -> None:
+        logger = RerunLogger("run", spawn=True)
+        logger.log_config({"scheduler": "cosine", "milestones": [10, 20]})
+        assert rr_spy.properties == [
+            ("scheduler", ("any", {"scheduler": "cosine"})),
+            ("milestones", ("any", {"milestones": "[10, 20]"})),
+        ]
+
+    def test_log_config_flattens_nested_mappings(self, rr_spy: _RrSpy) -> None:
+        # A Hydra/OmegaConf-style nested config flattens to dotted keys.
+        logger = RerunLogger("run", spawn=True)
+        logger.log_config({"optimizer": {"name": "adamw", "lr": 1e-3}})
+        assert rr_spy.properties == [
+            ("optimizer.name", ("any", {"optimizer.name": "adamw"})),
+            ("optimizer.lr", ("any", {"optimizer.lr": 1e-3})),
         ]
 
     def test_log_config_disabled_is_noop(self, rr_spy: _RrSpy) -> None:
         logger = RerunLogger("run", save_path="x.rrd", rank=1)
         logger.log_config({"lr": 1e-3})
         assert rr_spy.properties == []
+
+
+def _box() -> BoundingBoxes3D:
+    """Build a single dummy 3D box for scene-method tests.
+
+    Returns:
+        A one-box :class:`BoundingBoxes3D` in XYZLWHY format.
+    """
+    return BoundingBoxes3D(torch.zeros(1, 7), format=BoundingBox3DFormat.XYZLWHY)
+
+
+class TestRerunLoggerSceneMethods:
+    """Scene methods are rank-aware and route into the logger's recording."""
+
+    def test_scene_methods_noop_when_disabled(
+        self, rr_spy: _RrSpy, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Off rank 0 the scene methods must not touch Rerun at all, so they can
+        # be called unconditionally from shared loop code.
+        calls: list[str] = []
+        for fn in ("log_point_cloud", "log_boxes_3d", "log_cameras", "log_sample"):
+            monkeypatch.setattr(
+                logging_mod, fn, lambda *a, _fn=fn, **k: calls.append(_fn)
+            )
+        logger = RerunLogger("run", save_path="x.rrd", rank=1)
+        logger.log_point_cloud("world/lidar", torch.rand(4, 3))
+        logger.log_boxes_3d("world/gt", _box())
+        logger.log_cameras("world/cam", torch.rand(1, 3, 2, 2))
+        logger.log_sample({})
+        logger.set_time(step=0)
+        assert calls == []
+        assert rr_spy.times == []
+
+    def test_scene_method_routes_to_this_recording(
+        self, rr_spy: _RrSpy, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured: dict[str, object] = {}
+        monkeypatch.setattr(
+            logging_mod,
+            "log_point_cloud",
+            lambda entity, points, **k: captured.update(entity=entity, **k),
+        )
+        logger = RerunLogger("run", spawn=True)
+        logger.log_point_cloud("world/lidar", torch.rand(4, 3), static=True)
+        assert captured["entity"] == "world/lidar"
+        assert captured["static"] is True
+        # Explicitly targets this logger's stream, never the global recording.
+        assert captured["recording"] is logger.recording
+
+    def test_set_time_sets_both_timelines(self, rr_spy: _RrSpy) -> None:
+        logger = RerunLogger("run", spawn=True)
+        logger.set_time(step=5, epoch=2)
+        assert rr_spy.times == [("step", 5), ("epoch", 2)]
+
+    def test_scene_method_is_best_effort(
+        self, rr_spy: _RrSpy, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        def boom(*_a: object, **_k: object) -> None:
+            raise RuntimeError("rerun down")
+
+        monkeypatch.setattr(logging_mod, "log_boxes_3d", boom)
+        logger = RerunLogger("run", spawn=True)
+        with pytest.warns(RuntimeWarning, match="suppressed"):
+            logger.log_boxes_3d("world/pred", _box())
 
 
 class TestRerunLoggerIntegration:

@@ -1,6 +1,7 @@
 """Log vision3d data to a Rerun viewer."""
 
 import math
+import numbers
 import warnings
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Self, SupportsFloat
@@ -585,9 +586,17 @@ class RerunLogger:
     def recording(self) -> "RecordingStream | None":
         """This logger's recording stream, or ``None`` when disabled.
 
-        Pass it to the scene loggers (:func:`log_sample`, :func:`log_boxes_3d`,
-        ...) via their ``recording=`` argument to route 3D data into this
-        logger's recording instead of Rerun's global one.
+        Prefer the rank-aware scene methods (:meth:`log_sample`,
+        :meth:`log_boxes_3d`, :meth:`log_point_cloud`, :meth:`log_cameras`)
+        for 3D data: they route into this recording and become no-ops off
+        rank 0, so they can be called unconditionally from shared loop code.
+
+        This property is the escape hatch for raw ``rr.*`` calls that have no
+        method here (e.g. ``rr.log`` of a custom archetype). It is ``None``
+        when the logger is disabled, so guard such calls with ``if
+        logger.recording is not None:`` to keep them off non-zero ranks --
+        passing ``None`` to a bare ``rr.log`` would otherwise fall back to
+        Rerun's global recording.
         """
         return self._rec
 
@@ -633,6 +642,7 @@ class RerunLogger:
         epoch: int | None = None,
         group: str = "train",
         every: int | None = None,
+        last: bool = False,
     ) -> None:
         """Log scalar metrics for this run.
 
@@ -648,10 +658,14 @@ class RerunLogger:
             group: Section under this run, e.g. ``"train"`` or ``"val"``.
             every: If set, only log when ``step`` is a multiple of it -- a
                 cheap throttle for hot loops. Ignored when ``step`` is ``None``.
+            last: Force this call through the ``every`` throttle. Pass
+                ``last=(step == total_steps - 1)`` on the final iteration so a
+                run's end-of-training metrics are never dropped just because
+                the last step is not a multiple of ``every``.
         """
         if not self.enabled:
             return
-        if every is not None and step is not None and step % every != 0:
+        if every is not None and step is not None and not last and step % every != 0:
             return
         self._run(
             "log",
@@ -671,19 +685,33 @@ class RerunLogger:
         (learning rate, batch size, augmentations, ...) travel with the
         recording and show in the viewer's properties panel -- the context you
         need to tell runs apart when comparing them later. Call once at
-        startup. Values are recorded as text, so any type is accepted.
+        startup.
+
+        Nested mappings (e.g. a Hydra/OmegaConf config) are flattened into
+        dot-separated keys, so ``{"optimizer": {"lr": 1e-3}}`` is recorded as
+        ``optimizer.lr``. Numbers are recorded as numbers (so runs can be
+        sorted or compared on, say, ``lr`` later); everything else falls back
+        to its text representation.
 
         Args:
-            config: Mapping of config name to value.
+            config: Mapping of config name to value. Values may themselves be
+                nested mappings.
         """
         if not self.enabled:
             return
 
+        flat = _flatten_config(config)
+
         def _send() -> None:
-            for key, value in config.items():
-                rr.send_property(
-                    key, rr.AnyValues(value=str(value)), recording=self._rec
-                )
+            for key, value in flat.items():
+                # Name the component after the property itself, not a shared
+                # "value": Rerun enforces one type per component name across the
+                # whole recording, so a single shared name would force every
+                # config entry to the first one's type and silently drop the
+                # rest (e.g. strings after a float). The dynamic kwarg trips
+                # pyrefly (AnyValues' first param is positional), hence ignore.
+                values = rr.AnyValues(**{key: _config_value(value)})  # pyrefly: ignore[bad-argument-type]
+                rr.send_property(key, values, recording=self._rec)
 
         self._run("log_config", _send)
 
@@ -715,6 +743,195 @@ class RerunLogger:
             "style_series",
             lambda: style_series(
                 entity, name=legend, color=color, width=width, recording=self._rec
+            ),
+        )
+
+    def set_time(self, *, step: int | None = None, epoch: int | None = None) -> None:
+        """Move this recording's timeline cursor.
+
+        Call before the scene methods (:meth:`log_point_cloud`,
+        :meth:`log_boxes_3d`, ...) when re-logging 3D data over training, so
+        the geometry lands on the same ``step``/``epoch`` as the scalar curves
+        and plays back in lockstep. No-op when disabled.
+
+        Args:
+            step: Sequence value for the ``"step"`` timeline.
+            epoch: Sequence value for the ``"epoch"`` timeline.
+        """
+        if not self.enabled:
+            return
+
+        def _set() -> None:
+            if step is not None:
+                rr.set_time("step", sequence=step, recording=self._rec)
+            if epoch is not None:
+                rr.set_time("epoch", sequence=epoch, recording=self._rec)
+
+        self._run("set_time", _set)
+
+    def log_point_cloud(
+        self,
+        entity: str,
+        points: PointCloud3D | Tensor,
+        *,
+        color_by_distance: bool = True,
+        static: bool = False,
+    ) -> None:
+        """Rank-aware, best-effort wrapper around :func:`log_point_cloud`.
+
+        Routes into this logger's recording and is a no-op when disabled.
+        ``entity`` is an absolute Rerun path (not namespaced by ``prefix``),
+        since 3D scene data is typically shared across a recording.
+
+        Args:
+            entity: Rerun entity path (e.g. ``"world/lidar"``).
+            points: Point cloud ``[N, 3+C]``. See :func:`log_point_cloud`.
+            color_by_distance: Color points by distance from origin.
+            static: Log without a timeline (constant geometry).
+        """
+        if not self.enabled:
+            return
+        self._run(
+            "log_point_cloud",
+            lambda: log_point_cloud(
+                entity,
+                points,
+                color_by_distance=color_by_distance,
+                static=static,
+                recording=self._rec,
+            ),
+        )
+
+    def log_boxes_3d(
+        self,
+        entity: str,
+        boxes: BoundingBoxes3D,
+        *,
+        labels: list[str] | None = None,
+        class_ids: list[int] | None = None,
+        label_to_id: dict[str, int] | None = None,
+        scores: list[float] | Tensor | None = None,
+        score_threshold: float | None = None,
+        fill_mode: "rr.components.FillModeLike | None" = None,
+        show_labels: bool | None = None,
+        log_heading: bool = True,
+        static: bool = False,
+    ) -> None:
+        """Rank-aware, best-effort wrapper around :func:`log_boxes_3d`.
+
+        Routes into this logger's recording and is a no-op when disabled.
+        ``entity`` is an absolute Rerun path (not namespaced by ``prefix``).
+        See :func:`log_boxes_3d` for the argument semantics.
+
+        Args:
+            entity: Rerun entity path (e.g. ``"world/pred/boxes"``).
+            boxes: Bounding boxes in any supported format.
+            labels: Per-box label strings for display.
+            class_ids: Per-box class IDs for coloring.
+            label_to_id: Mapping from class name to class ID.
+            scores: Per-box confidence scores.
+            score_threshold: Drop boxes scoring below this. Requires ``scores``.
+            fill_mode: Box fill mode (e.g. ``"majorwireframe"``).
+            show_labels: Force per-box labels on/off.
+            log_heading: Log heading arrows for rotated boxes.
+            static: Log without a timeline (constant geometry, e.g. ground
+                truth on a fixed sample inspected over training).
+        """
+        if not self.enabled:
+            return
+        self._run(
+            "log_boxes_3d",
+            lambda: log_boxes_3d(
+                entity,
+                boxes,
+                labels=labels,
+                class_ids=class_ids,
+                label_to_id=label_to_id,
+                scores=scores,
+                score_threshold=score_threshold,
+                fill_mode=fill_mode,
+                show_labels=show_labels,
+                log_heading=log_heading,
+                static=static,
+                recording=self._rec,
+            ),
+        )
+
+    def log_cameras(
+        self,
+        entity_prefix: str,
+        images: CameraImages | Tensor,
+        intrinsics: CameraIntrinsics | Tensor | None = None,
+        extrinsics: CameraExtrinsics | Tensor | None = None,
+        *,
+        jpeg_quality: int | None = None,
+    ) -> None:
+        """Rank-aware, best-effort wrapper around :func:`log_cameras`.
+
+        Routes into this logger's recording and is a no-op when disabled.
+        ``entity_prefix`` is an absolute Rerun path (not namespaced by
+        ``prefix``). See :func:`log_cameras`.
+
+        Args:
+            entity_prefix: Rerun entity path prefix (e.g. ``"world/cam"``).
+            images: Camera images ``[N_cams, C, H, W]``.
+            intrinsics: Intrinsic matrices ``[N_cams, 3, 3]``.
+            extrinsics: Extrinsic matrices ``[N_cams, 4, 4]``.
+            jpeg_quality: If set, JPEG-encode each image at this quality.
+        """
+        if not self.enabled:
+            return
+        self._run(
+            "log_cameras",
+            lambda: log_cameras(
+                entity_prefix,
+                images,
+                intrinsics,
+                extrinsics,
+                jpeg_quality=jpeg_quality,
+                recording=self._rec,
+            ),
+        )
+
+    def log_sample(
+        self,
+        inputs: SampleInputs,
+        targets: SampleTargets | None = None,
+        *,
+        predictions: Prediction3D | None = None,
+        entity_prefix: str = "world",
+        label_to_id: dict[str, int] | None = None,
+        score_threshold: float | None = None,
+        jpeg_quality: int | None = None,
+    ) -> None:
+        """Rank-aware, best-effort wrapper around :func:`log_sample`.
+
+        Routes into this logger's recording and is a no-op when disabled.
+        ``entity_prefix`` is an absolute Rerun path (not namespaced by
+        ``prefix``). See :func:`log_sample`.
+
+        Args:
+            inputs: Sample inputs (points, images, intrinsics, extrinsics).
+            targets: Ground-truth targets.
+            predictions: Model predictions.
+            entity_prefix: Root entity path for the sample (e.g. ``"world"``).
+            label_to_id: Mapping from class name to class ID.
+            score_threshold: Drop predictions scoring below this.
+            jpeg_quality: If set, JPEG-encode camera images at this quality.
+        """
+        if not self.enabled:
+            return
+        self._run(
+            "log_sample",
+            lambda: log_sample(
+                inputs,
+                targets,
+                predictions=predictions,
+                entity_prefix=entity_prefix,
+                label_to_id=label_to_id,
+                score_threshold=score_threshold,
+                jpeg_quality=jpeg_quality,
+                recording=self._rec,
             ),
         )
 
@@ -755,6 +972,48 @@ def _scalar_value(name: str, value: SupportsFloat | Tensor) -> float:
             raise ValueError(msg)
         return value.detach().cpu().item()
     return float(value)
+
+
+def _flatten_config(
+    config: Mapping[str, object], _parent: str = ""
+) -> dict[str, object]:
+    """Flatten a (possibly nested) config mapping into dot-separated keys.
+
+    ``{"optimizer": {"lr": 1e-3}}`` becomes ``{"optimizer.lr": 1e-3}`` so each
+    leaf can be recorded as its own Rerun property.
+
+    Returns:
+        A flat mapping from dotted key to leaf value.
+    """
+    flat: dict[str, object] = {}
+    for key, value in config.items():
+        full = f"{_parent}.{key}" if _parent else key
+        if isinstance(value, Mapping):
+            flat.update(_flatten_config(value, full))
+        else:
+            flat[full] = value
+    return flat
+
+
+def _config_value(value: object) -> object:
+    """Coerce a config value to a type Rerun records natively.
+
+    Numbers pass through as numbers so runs can be compared on them later;
+    booleans and everything else fall back to a readable text representation.
+
+    Returns:
+        ``value`` as an ``int``/``float`` when numeric, else its ``str``.
+    """
+    if isinstance(value, bool):
+        # bool is an int subclass; keep the readable "True"/"False" text.
+        return str(value)
+    if isinstance(value, numbers.Integral):
+        return int(value)
+    if isinstance(value, numbers.Real):
+        return float(value)
+    if isinstance(value, Tensor) and value.numel() == 1:
+        return value.detach().cpu().item()
+    return str(value)
 
 
 def _build_labels(

@@ -108,8 +108,6 @@ import rerun.blueprint as rrb
 from vision3d.viz import (
     RerunLogger,
     lidar_view,
-    log_boxes_3d,
-    log_point_cloud,
     time_series_view,
 )
 
@@ -137,15 +135,18 @@ logger = RerunLogger("vision3d_training", spawn=True, blueprint=dashboard)
 # are logged in the run-comparison section below.
 logger.log_config({"epochs": EPOCHS, "steps_per_epoch": STEPS_PER_EPOCH})
 
-# The 3D scene shares this recording. Passing ``recording=logger.recording``
-# routes the scene loggers into it explicitly, rather than relying on Rerun's
-# global recording.
-rr.log(
-    "val_sample",
-    rr.ViewCoordinates.RIGHT_HAND_Z_UP,
-    static=True,
-    recording=logger.recording,
-)
+# The 3D scene shares this recording. The logger's scene methods
+# (``logger.log_point_cloud``/``log_boxes_3d``) route into it and no-op off
+# rank 0. For raw ``rr.*`` archetypes with no method -- like these view
+# coordinates -- guard on ``logger.recording`` (``None`` when disabled) so the
+# call is skipped off rank 0 instead of leaking to Rerun's global recording.
+if logger.recording is not None:
+    rr.log(
+        "val_sample",
+        rr.ViewCoordinates.RIGHT_HAND_Z_UP,
+        static=True,
+        recording=logger.recording,
+    )
 
 # %%
 # Log per-step training metrics
@@ -236,15 +237,14 @@ gt = BoundingBoxes3D(
 class_ids = [0, 0, 0]
 label_to_id = {"car": 0}
 
-log_point_cloud("val_sample/lidar", points, static=True, recording=logger.recording)
-log_boxes_3d(
+logger.log_point_cloud("val_sample/lidar", points, static=True)
+logger.log_boxes_3d(
     "val_sample/gt/boxes",
     gt,
     class_ids=class_ids,
     label_to_id=label_to_id,
     fill_mode="transparentfillmajorwireframe",
     static=True,
-    recording=logger.recording,
 )
 
 # Each object gets a fixed but badly-wrong initial guess: far-off position,
@@ -308,8 +308,8 @@ for step in range(TOTAL_STEPS):
         0.02, 0.99
     )
 
-    rr.set_time("step", sequence=step, recording=logger.recording)
-    log_boxes_3d(
+    logger.set_time(step=step)
+    logger.log_boxes_3d(
         "val_sample/pred/boxes",
         BoundingBoxes3D(raw, format=BoundingBox3DFormat.XYZLWHY),
         class_ids=class_ids,
@@ -317,5 +317,4 @@ for step in range(TOTAL_STEPS):
         scores=scores,
         fill_mode="majorwireframe",
         show_labels=True,
-        recording=logger.recording,
     )
