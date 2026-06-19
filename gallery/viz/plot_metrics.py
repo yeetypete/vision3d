@@ -3,20 +3,20 @@ Logging training metrics with vision3d
 ======================================
 
 This example demonstrates tracking a 3D detector's training run with
-`Rerun <https://rerun.io/>`_: per-step scalar metrics
-(:func:`vision3d.viz.log_scalars`), comparing several runs in one plot
-(:func:`vision3d.viz.style_series`), and watching predictions converge on a
-fixed sample over training (:func:`vision3d.viz.log_boxes_3d` with
-``static=True``). Everything is logged to a single recording and arranged into
-one dashboard with :func:`vision3d.viz.time_series_view` and
-:func:`vision3d.viz.lidar_view`. Because every panel shares the ``step``
-timeline, playing it draws the loss curves *and* converges the 3D boxes at the
-same time.
+`Rerun <https://rerun.io/>`_, driven by :class:`vision3d.viz.MetricLogger` --
+the high-level entry point that owns the recording, sink, and dashboard. It
+covers per-step scalar metrics, comparing several runs in one plot, and
+watching predictions converge on a fixed sample over training
+(:func:`vision3d.viz.log_boxes_3d` with ``static=True``). Everything is logged
+to a single recording and arranged into one dashboard with
+:func:`vision3d.viz.time_series_view` and :func:`vision3d.viz.lidar_view`.
+Because every panel shares the ``step`` timeline, playing it draws the loss
+curves *and* converges the 3D boxes at the same time.
 
-Training itself lives outside vision3d, but the logging primitives do not. To
-keep the example self-contained we synthesize a plausible run rather than
-training a real model; in practice the scalars come from your loop and the
-validation metrics from :mod:`vision3d.metrics`.
+Training itself lives outside vision3d, but the logging does not. To keep the
+example self-contained we synthesize a plausible run rather than training a
+real model; in practice the scalars come from your loop and the validation
+metrics from :mod:`vision3d.metrics`.
 """
 
 # %%
@@ -93,95 +93,99 @@ RUNS = [
 ]
 
 # %%
-# Set up the dashboard
-# --------------------
-# We log everything to one recording and compose a single blueprint:
-# :func:`~vision3d.viz.time_series_view` captures the scalars logged under each
-# prefix (``train``, ``runs``, ``val``), and :func:`~vision3d.viz.lidar_view`
-# captures the 3D entity tree. A row of metric plots sits above the 3D scene,
-# all driven by the shared ``step`` timeline.
+# Set up the logger and dashboard
+# -------------------------------
+# :class:`~vision3d.viz.MetricLogger` owns the Rerun recording: it picks the
+# sink, sends the dashboard blueprint, and (with ``rank=...``) becomes a no-op
+# off rank 0 so it is safe to call from shared multi-GPU loop code. The
+# blueprint composes :func:`~vision3d.viz.time_series_view` (scalars under each
+# prefix: ``train``, ``runs``, ``val``) and :func:`~vision3d.viz.lidar_view`
+# (the 3D scene), all driven by the shared ``step`` timeline.
 
 import rerun as rr
 import rerun.blueprint as rrb
 
 from vision3d.viz import (
+    MetricLogger,
     lidar_view,
     log_boxes_3d,
     log_point_cloud,
-    log_scalars,
-    style_series,
     time_series_view,
 )
 
-rr.init("vision3d_training", spawn=True)
-rr.send_blueprint(
-    rrb.Blueprint(
-        rrb.Vertical(
-            rrb.Horizontal(
-                time_series_view(entity_prefix="train", name="loss (baseline)"),
-                time_series_view(entity_prefix="runs", name="total loss (runs)"),
-                time_series_view(entity_prefix="val", name="val metrics"),
-            ),
-            lidar_view(entity_prefix="val_sample", name="pred vs gt over training"),
-            row_shares=(2, 3),
-        )
+dashboard = rrb.Blueprint(
+    rrb.Vertical(
+        rrb.Horizontal(
+            time_series_view(entity_prefix="train", name="loss (baseline)"),
+            time_series_view(entity_prefix="runs", name="total loss (runs)"),
+            time_series_view(entity_prefix="val", name="val metrics"),
+        ),
+        lidar_view(entity_prefix="val_sample", name="pred vs gt over training"),
+        row_shares=(2, 3),
     )
 )
+
+# A real (often multi-GPU) run would write to a file and guard on rank::
+#
+#     logger = MetricLogger("bevfusion", save_path="run.rrd",
+#                           rank=rank, blueprint=dashboard)
+#
+# Here we spawn a viewer so the example renders inline.
+logger = MetricLogger("vision3d_training", spawn=True, blueprint=dashboard)
 rr.log("val_sample", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 
 # %%
 # Log per-step training metrics
 # -----------------------------
-# Inside the training loop, call :func:`~vision3d.viz.log_scalars` once per
-# optimizer step. Names containing ``/`` (e.g. ``"loss/cls"``) nest into a
-# shared entity, so the component losses group under ``train/loss``. We log the
-# baseline run's full breakdown under the ``"train"`` prefix.
+# Inside the training loop, call :meth:`~vision3d.viz.MetricLogger.log` once per
+# optimizer step. Metrics default to the ``"train"`` group; names containing
+# ``/`` (e.g. ``"loss/cls"``) nest, so the component losses group under
+# ``train/loss``. In a hot loop, pass ``every=N`` to throttle logging (and the
+# ``.item()`` GPU sync it costs) to every N steps.
 
 for step, (losses, lr) in enumerate(simulate_run(base_lr=1e-3, decay=3.0, seed=0)):
     total = sum(losses.values())
-    log_scalars({"loss/total": total, **losses, "lr": lr}, step=step, prefix="train")
+    logger.log({"loss/total": total, **losses, "lr": lr}, step=step)
 
 # %%
 # Compare several runs in one plot
 # --------------------------------
-# Rerun overlays scalars logged to sibling entities in the same view. Routing
-# each run to its own prefix (``runs/<name>``) puts their curves on one plot;
-# :func:`~vision3d.viz.style_series` then gives each a stable legend name and
-# color. This is the Rerun analogue of a wandb run comparison. (Rerun has no
-# sweep table or parallel-coordinate view, so for experiment *management* you
-# would still pair it with a tool like wandb or MLflow.)
+# Rerun overlays scalars logged to sibling entities in the same view. Giving
+# each run its own ``group`` (``runs/<name>``) puts their curves on one plot;
+# :meth:`~vision3d.viz.MetricLogger.style_series` then gives each a stable
+# legend name and color without repeating the entity path. This is the Rerun
+# analogue of a wandb run comparison. (Rerun has no sweep table or
+# parallel-coordinate view, so for experiment *management* you would still pair
+# it with a tool like wandb or MLflow.)
 
 for run in RUNS:
-    style_series(
-        f"runs/{run.name}/loss/total", name=run.name, color=run.color, width=2.0
+    group = f"runs/{run.name}"
+    logger.style_series(
+        "loss/total", group=group, legend=run.name, color=run.color, width=2.0
     )
     steps = simulate_run(base_lr=run.base_lr, decay=run.decay, seed=run.seed)
     for step, (losses, _lr) in enumerate(steps):
-        log_scalars(
-            {"loss/total": sum(losses.values())},
-            step=step,
-            prefix=f"runs/{run.name}",
-        )
+        logger.log({"loss/total": sum(losses.values())}, step=step, group=group)
 
 # %%
 # Log per-epoch validation metrics
 # --------------------------------
-# Validation runs less often, so log it on the ``"epoch"`` timeline (we also
-# pass ``step`` so the points line up with the training curves when viewed
-# against steps). In a real loop these come straight from
-# :mod:`vision3d.metrics` -- e.g. ``log_scalars(metric.compute(), epoch=epoch,
-# prefix="val")`` for nuScenes mAP and NDS. Here we synthesize values that
-# climb as training progresses.
+# Validation runs less often, so log it under the ``"val"`` group on the
+# ``"epoch"`` timeline (we also pass ``step`` so the points line up with the
+# training curves when viewed against steps). In a real loop these come
+# straight from :mod:`vision3d.metrics` -- e.g.
+# ``logger.log(metric.compute(), epoch=epoch, group="val")`` for nuScenes mAP
+# and NDS. Here we synthesize values that climb as training progresses.
 
 val_gen = torch.Generator().manual_seed(3)
 for epoch in range(EPOCHS):
     progress = (epoch + 1) / EPOCHS
     jitter = 0.02 * torch.randn(1, generator=val_gen).item()
-    log_scalars(
+    logger.log(
         {"mAP": 0.25 + 0.4 * progress + jitter, "NDS": 0.30 + 0.35 * progress + jitter},
         step=(epoch + 1) * STEPS_PER_EPOCH - 1,
         epoch=epoch,
-        prefix="val",
+        group="val",
     )
 
 # %%

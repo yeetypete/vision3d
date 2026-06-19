@@ -2,6 +2,7 @@
 
 import math
 from collections.abc import Mapping
+from typing import TYPE_CHECKING, Self
 
 import torch
 from torch import Tensor
@@ -22,6 +23,11 @@ try:
 except ImportError as e:
     msg = "rerun-sdk is required for visualization. Install with: pip install vision3d[viz]"
     raise ImportError(msg) from e
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from rerun.blueprint import BlueprintLike
 
 
 def log_point_cloud(
@@ -381,6 +387,12 @@ def log_scalars(
             ``step`` to log on both timelines at once.
         prefix: Entity path prefix grouping these metrics (e.g. ``"train"``,
             ``"val"``). Pass ``""`` to log each metric at the root.
+
+    Note:
+        ``step``/``epoch`` move the active recording's timeline cursor, which
+        persists: a later ``rr.log`` with no explicit time lands on the last
+        value set here. Pass ``step`` on every call (or use
+        :class:`MetricLogger`) to keep things aligned.
     """
     if step is not None:
         rr.set_time("step", sequence=step)
@@ -427,6 +439,176 @@ def style_series(
         rr.SeriesLines(names=name, colors=color, widths=width),
         static=True,
     )
+
+
+class MetricLogger:
+    """High-level Rerun logger for training metrics.
+
+    Wraps the Rerun recording lifecycle -- initialization, sink selection, an
+    optional dashboard blueprint, rank-aware disabling, and flushing -- around
+    :func:`log_scalars` and :func:`style_series`, so a training loop can log
+    metrics in a single line. Training lives outside vision3d; this is the
+    recommended entry point for wiring vision3d's Rerun logging into it.
+
+    Choose at most one sink:
+
+    * ``save_path`` -- write an ``.rrd`` file (typical for headless or cluster
+      runs; open it later with ``rerun <file>.rrd``).
+    * ``grpc_url`` -- stream to a running Rerun viewer/server.
+    * ``spawn`` -- launch a local viewer and stream to it (interactive use).
+
+    With none of them the recording is buffered in memory only.
+
+    For distributed training, pass ``rank`` (e.g.
+    ``torch.distributed.get_rank()``): the logger becomes a no-op on every
+    non-zero rank and never touches Rerun there, so it can be called
+    unconditionally from shared loop code. ``enabled=False`` disables it
+    everywhere (e.g. for debug runs).
+
+    Example:
+        >>> logger = MetricLogger("bevfusion", save_path="run.rrd", rank=rank)
+        >>> for step, batch in enumerate(loader):  # doctest: +SKIP
+        ...     loss = train_step(batch)
+        ...     logger.log({"loss/total": loss, "lr": lr}, step=step, every=50)
+        >>> logger.close()  # doctest: +SKIP
+
+    Note:
+        Logging a tensor value calls ``.item()``, which synchronizes the GPU.
+        In a hot loop, log every N steps with ``every=`` to avoid stalling on
+        every iteration.
+
+    Args:
+        name: Rerun application id for the recording.
+        save_path: Path to write an ``.rrd`` file to.
+        grpc_url: URL of a Rerun gRPC sink to stream to.
+        spawn: Launch a local Rerun viewer and stream to it.
+        blueprint: Optional dashboard layout, built from
+            :func:`time_series_view` and :func:`lidar_view`. When ``None``,
+            Rerun auto-arranges views.
+        prefix: Entity-path namespace prepended to every metric (e.g.
+            ``"runs/baseline"`` to keep one run's curves together for
+            cross-run comparison). Empty by default.
+        rank: Process rank; the logger only records on rank 0.
+        enabled: Master switch; ``False`` disables logging entirely.
+        recording_id: Optional stable recording id (e.g. to group runs).
+
+    Raises:
+        ValueError: If more than one of ``save_path``, ``grpc_url``, or
+            ``spawn`` is given.
+    """
+
+    def __init__(
+        self,
+        name: str = "vision3d",
+        *,
+        save_path: "str | Path | None" = None,
+        grpc_url: str | None = None,
+        spawn: bool = False,
+        blueprint: "BlueprintLike | None" = None,
+        prefix: str = "",
+        rank: int = 0,
+        enabled: bool = True,
+        recording_id: str | None = None,
+    ) -> None:
+        self.enabled = enabled and rank == 0
+        self._prefix = prefix.strip("/")
+        if not self.enabled:
+            return
+        if sum((save_path is not None, grpc_url is not None, spawn)) > 1:
+            msg = "pass at most one of save_path, grpc_url, spawn"
+            raise ValueError(msg)
+        rr.init(name, recording_id=recording_id, spawn=spawn)
+        if save_path is not None:
+            rr.save(str(save_path))
+        elif grpc_url is not None:
+            rr.connect_grpc(grpc_url)
+        if blueprint is not None:
+            rr.send_blueprint(blueprint)
+
+    def _entity_prefix(self, group: str) -> str:
+        """Join the run namespace and ``group`` into an entity prefix.
+
+        Returns:
+            The ``/``-joined non-empty parts of ``(prefix, group)``.
+        """
+        return "/".join(part for part in (self._prefix, group) if part)
+
+    def log(
+        self,
+        values: Mapping[str, float | Tensor],
+        *,
+        step: int | None = None,
+        epoch: int | None = None,
+        group: str = "train",
+        every: int | None = None,
+    ) -> None:
+        """Log scalar metrics for this run.
+
+        Delegates to :func:`log_scalars`, routing each metric to
+        ``{prefix}/{group}/{name}`` so a dashboard
+        (:func:`time_series_view`) groups it by run and section.
+
+        Args:
+            values: Mapping from metric name to scalar value (float, numpy
+                scalar, or single-element tensor). See :func:`log_scalars`.
+            step: Optimizer/iteration step (``"step"`` timeline).
+            epoch: Training epoch (``"epoch"`` timeline).
+            group: Section under this run, e.g. ``"train"`` or ``"val"``.
+            every: If set, only log when ``step`` is a multiple of it -- a
+                cheap throttle for hot loops. Ignored when ``step`` is ``None``.
+        """
+        if not self.enabled:
+            return
+        if every is not None and step is not None and step % every != 0:
+            return
+        log_scalars(values, step=step, epoch=epoch, prefix=self._entity_prefix(group))
+
+    def style_series(
+        self,
+        name: str,
+        *,
+        group: str = "train",
+        legend: str | None = None,
+        color: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+        width: float | None = None,
+    ) -> None:
+        """Style one of this run's metric series.
+
+        Resolves the entity from this logger's namespace so the run prefix
+        and ``group`` need not be repeated. See :func:`style_series`.
+
+        Args:
+            name: Metric name to style (the same name passed to :meth:`log`).
+            group: Section the metric was logged under.
+            legend: Legend name for the series.
+            color: RGB or RGBA color (0-255 per channel).
+            width: Line width in points.
+        """
+        if not self.enabled:
+            return
+        entity = "/".join(part for part in (self._entity_prefix(group), name) if part)
+        style_series(entity, name=legend, color=color, width=width)
+
+    def flush(self) -> None:
+        """Flush buffered data to the sink so partial results are visible."""
+        if not self.enabled:
+            return
+        recording = rr.get_global_data_recording()
+        if recording is not None:
+            recording.flush()
+
+    def close(self) -> None:
+        """Flush and disconnect the recording's sink."""
+        if not self.enabled:
+            return
+        self.flush()
+        rr.disconnect()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
 
 def _scalar_value(name: str, value: float | Tensor) -> float:

@@ -7,6 +7,7 @@ Requires the ``viz`` dependency group::
 
 from ._blueprint import camera_grid, fusion_layout, lidar_view, time_series_view
 from ._logging import (
+    MetricLogger,
     log_boxes_3d,
     log_cameras,
     log_point_cloud,
@@ -16,6 +17,7 @@ from ._logging import (
 )
 
 __all__ = [
+    "MetricLogger",
     "camera_grid",
     "fusion_layout",
     "lidar_view",
