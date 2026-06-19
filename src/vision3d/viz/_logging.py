@@ -998,16 +998,13 @@ def _flatten_config(
     return flat
 
 
-# The scalar types Rerun records natively as a recording property; any other
-# config value is coerced to its text form.
-type _ConfigScalar = int | float | str
-
-
-def _config_value(value: object) -> _ConfigScalar:
+def _config_value(value: object) -> int | float | str:
     """Coerce an arbitrary config value to a Rerun-recordable scalar.
 
-    Numbers pass through as numbers so runs can be compared on them later;
-    booleans and everything else fall back to a readable text representation.
+    ``int``/``float``/``str`` are the scalar types Rerun records natively as a
+    recording property. Numbers pass through as numbers so runs can be compared
+    on them later; booleans and everything else fall back to a readable text
+    representation.
 
     Returns:
         ``value`` as an ``int``/``float`` when numeric, else its ``str``.
