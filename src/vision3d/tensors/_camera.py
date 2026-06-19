@@ -197,7 +197,7 @@ class CameraIntrinsics(TVTensor):
         output: Tensor,
         args: Any = (),
         kwargs: Any = None,
-    ) -> Self:
+    ) -> Tensor:
 
         flat_params, _ = tree_flatten(
             tuple(args) + (tuple(kwargs.values()) if kwargs else ())
