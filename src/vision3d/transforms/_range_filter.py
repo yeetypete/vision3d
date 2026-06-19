@@ -5,7 +5,7 @@ from typing import Any, override
 import torch
 from torch import Tensor
 
-from vision3d.ops._points_in_boxes_3d import _extract_box_params
+from vision3d.ops import extract_box3d_params
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 from ._transform import Transform
@@ -92,7 +92,7 @@ class RangeFilter3D(Transform):
 
     def _box_keep_mask(self, boxes: BoundingBoxes3D) -> Tensor:
         raw = boxes.as_subclass(Tensor)
-        centers, _, _ = _extract_box_params(raw, boxes.format)
+        centers, _, _ = extract_box3d_params(raw, boxes.format)
         min_bound = torch.tensor(
             self.point_cloud_range[:3], dtype=raw.dtype, device=raw.device
         )
