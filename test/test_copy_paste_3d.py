@@ -731,19 +731,18 @@ class TestValidation:
             CopyPaste3D(target_counts={CAR: 10}, max_jitter_attempts=0)
 
     def test_offset_range_wrong_length_raises(self) -> None:
+        bad_range: Any = (0.0,)
         with pytest.raises(ValueError, match="`offset_range` should be a"):
-            CopyPaste3D(target_counts={CAR: 10}, offset_range=(0.0,))  # type: ignore[arg-type]
+            CopyPaste3D(target_counts={CAR: 10}, offset_range=bad_range)
 
     def test_offset_range_min_gt_max_raises(self) -> None:
         with pytest.raises(ValueError, match="min must not exceed max"):
             CopyPaste3D(target_counts={CAR: 10}, offset_range=(0.5, -0.5))
 
     def test_offset_range_per_axis_scalar_entry_raises(self) -> None:
+        bad_range: Any = (1.0, (0.0, 0.0), (0.0, 0.0))
         with pytest.raises(TypeError, match="must be a \\(min, max\\) pair"):
-            CopyPaste3D(
-                target_counts={CAR: 10},
-                offset_range=(1.0, (0.0, 0.0), (0.0, 0.0)),  # type: ignore[arg-type]
-            )
+            CopyPaste3D(target_counts={CAR: 10}, offset_range=bad_range)
 
     def test_offset_std_non_positive_raises(self) -> None:
         with pytest.raises(ValueError, match="`offset_std` values should be positive"):
@@ -756,7 +755,7 @@ class TestValidation:
             CopyPaste3D(
                 target_counts={CAR: 10},
                 offset_range=(-1.0, 1.0),
-                offset_std=(0.3, 0.3),  # type: ignore[arg-type]
+                offset_std=(0.3, 0.3),
             )
 
     def test_offset_std_with_degenerate_range_raises(self) -> None:

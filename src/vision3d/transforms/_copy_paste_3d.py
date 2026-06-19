@@ -792,11 +792,15 @@ class CopyPaste3D(Transform):
         # Jittered attempts first, the original (zero) offset last as fallback.
         if self._jitter:
             jittered = self._sample_offsets(self.max_jitter_attempts, device, dtype)
-            offsets = torch.cat([jittered, torch.zeros(1, 3, device=device, dtype=dtype)])
+            offsets = torch.cat(
+                [jittered, torch.zeros(1, 3, device=device, dtype=dtype)]
+            )
         else:
             offsets = torch.zeros(1, 3, device=device, dtype=dtype)
 
-        attempts = _apply_offset(box.unsqueeze(0).expand(offsets.shape[0], -1), fmt, offsets)
+        attempts = _apply_offset(
+            box.unsqueeze(0).expand(offsets.shape[0], -1), fmt, offsets
+        )
 
         if occupied.shape[0] > 0:
             collide = box3d_overlap(attempts, occupied, fmt).any(dim=1)
