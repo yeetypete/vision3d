@@ -3,7 +3,7 @@ Logging training metrics with vision3d
 ======================================
 
 This example demonstrates tracking a 3D detector's training run with
-`Rerun <https://rerun.io/>`_, driven by :class:`vision3d.viz.MetricLogger` --
+`Rerun <https://rerun.io/>`_, driven by :class:`vision3d.viz.RerunLogger` --
 the high-level entry point that owns the recording, sink, and dashboard. It
 covers per-step scalar metrics, comparing several runs in one plot, and
 watching predictions converge on a fixed sample over training
@@ -95,7 +95,7 @@ RUNS = [
 # %%
 # Set up the logger and dashboard
 # -------------------------------
-# :class:`~vision3d.viz.MetricLogger` owns the Rerun recording: it picks the
+# :class:`~vision3d.viz.RerunLogger` owns the Rerun recording: it picks the
 # sink, sends the dashboard blueprint, and (with ``rank=...``) becomes a no-op
 # off rank 0 so it is safe to call from shared multi-GPU loop code. The
 # blueprint composes :func:`~vision3d.viz.time_series_view` (scalars under each
@@ -106,7 +106,7 @@ import rerun as rr
 import rerun.blueprint as rrb
 
 from vision3d.viz import (
-    MetricLogger,
+    RerunLogger,
     lidar_view,
     log_boxes_3d,
     log_point_cloud,
@@ -127,17 +127,30 @@ dashboard = rrb.Blueprint(
 
 # A real (often multi-GPU) run would write to a file and guard on rank::
 #
-#     logger = MetricLogger("bevfusion", save_path="run.rrd",
+#     logger = RerunLogger("bevfusion", save_path="run.rrd",
 #                           rank=rank, blueprint=dashboard)
 #
 # Here we spawn a viewer so the example renders inline.
-logger = MetricLogger("vision3d_training", spawn=True, blueprint=dashboard)
-rr.log("val_sample", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+logger = RerunLogger("vision3d_training", spawn=True, blueprint=dashboard)
+
+# Record run-wide settings as recording properties; per-run hyperparameters
+# are logged in the run-comparison section below.
+logger.log_config({"epochs": EPOCHS, "steps_per_epoch": STEPS_PER_EPOCH})
+
+# The 3D scene shares this recording. Passing ``recording=logger.recording``
+# routes the scene loggers into it explicitly, rather than relying on Rerun's
+# global recording.
+rr.log(
+    "val_sample",
+    rr.ViewCoordinates.RIGHT_HAND_Z_UP,
+    static=True,
+    recording=logger.recording,
+)
 
 # %%
 # Log per-step training metrics
 # -----------------------------
-# Inside the training loop, call :meth:`~vision3d.viz.MetricLogger.log` once per
+# Inside the training loop, call :meth:`~vision3d.viz.RerunLogger.log` once per
 # optimizer step. Metrics default to the ``"train"`` group; names containing
 # ``/`` (e.g. ``"loss/cls"``) nest, so the component losses group under
 # ``train/loss``. In a hot loop, pass ``every=N`` to throttle logging (and the
@@ -152,16 +165,21 @@ for step, (losses, lr) in enumerate(simulate_run(base_lr=1e-3, decay=3.0, seed=0
 # --------------------------------
 # Rerun overlays scalars logged to sibling entities in the same view. Giving
 # each run its own ``group`` (``runs/<name>``) puts their curves on one plot;
-# :meth:`~vision3d.viz.MetricLogger.style_series` then gives each a stable
-# legend name and color without repeating the entity path. This is the Rerun
-# analogue of a wandb run comparison. (Rerun has no sweep table or
-# parallel-coordinate view, so for experiment *management* you would still pair
-# it with a tool like wandb or MLflow.)
+# :meth:`~vision3d.viz.RerunLogger.style_series` then gives each a stable
+# legend name and color without repeating the entity path, and
+# :meth:`~vision3d.viz.RerunLogger.log_config` records each run's distinct
+# hyperparameters (namespaced by run) so you can tell the curves apart later.
+# This is the Rerun analogue of a wandb run comparison. (Rerun has no sweep
+# table or parallel-coordinate view, so for experiment *management* you would
+# still pair it with a tool like wandb or MLflow.)
 
 for run in RUNS:
     group = f"runs/{run.name}"
     logger.style_series(
         "loss/total", group=group, legend=run.name, color=run.color, width=2.0
+    )
+    logger.log_config(
+        {f"{run.name}/base_lr": run.base_lr, f"{run.name}/decay": run.decay}
     )
     steps = simulate_run(base_lr=run.base_lr, decay=run.decay, seed=run.seed)
     for step, (losses, _lr) in enumerate(steps):
@@ -218,7 +236,7 @@ gt = BoundingBoxes3D(
 class_ids = [0, 0, 0]
 label_to_id = {"car": 0}
 
-log_point_cloud("val_sample/lidar", points, static=True)
+log_point_cloud("val_sample/lidar", points, static=True, recording=logger.recording)
 log_boxes_3d(
     "val_sample/gt/boxes",
     gt,
@@ -226,6 +244,7 @@ log_boxes_3d(
     label_to_id=label_to_id,
     fill_mode="transparentfillmajorwireframe",
     static=True,
+    recording=logger.recording,
 )
 
 # Each object gets a fixed but badly-wrong initial guess: far-off position,
@@ -289,7 +308,7 @@ for step in range(TOTAL_STEPS):
         0.02, 0.99
     )
 
-    rr.set_time("step", sequence=step)
+    rr.set_time("step", sequence=step, recording=logger.recording)
     log_boxes_3d(
         "val_sample/pred/boxes",
         BoundingBoxes3D(raw, format=BoundingBox3DFormat.XYZLWHY),
@@ -298,4 +317,5 @@ for step in range(TOTAL_STEPS):
         scores=scores,
         fill_mode="majorwireframe",
         show_labels=True,
+        recording=logger.recording,
     )

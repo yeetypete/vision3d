@@ -1,8 +1,9 @@
 """Log vision3d data to a Rerun viewer."""
 
 import math
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Self
+import warnings
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Self, SupportsFloat
 
 import torch
 from torch import Tensor
@@ -27,6 +28,7 @@ except ImportError as e:
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from rerun import RecordingStream
     from rerun.blueprint import BlueprintLike
 
 
@@ -36,6 +38,7 @@ def log_point_cloud(
     *,
     color_by_distance: bool = True,
     static: bool = False,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     """Log a point cloud to Rerun.
 
@@ -46,6 +49,8 @@ def log_point_cloud(
         static: Log without a timeline so the cloud shows at every point on
             every timeline. Use for geometry that is constant across a
             recording, such as a fixed sample inspected over training steps.
+        recording: Target recording. ``None`` (default) uses Rerun's active
+            global recording.
     """
     xyz = points[:, :3].detach().cpu()
 
@@ -59,7 +64,7 @@ def log_point_cloud(
         colors[:, 2] = ((1 - normalized) * 255).to(torch.uint8)
         colors[:, 3] = 255
 
-    rr.log(entity, rr.Points3D(xyz, colors=colors), static=static)
+    rr.log(entity, rr.Points3D(xyz, colors=colors), static=static, recording=recording)
 
 
 def log_boxes_3d(
@@ -75,6 +80,7 @@ def log_boxes_3d(
     show_labels: bool | None = None,
     log_heading: bool = True,
     static: bool = False,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     """Log 3D bounding boxes to Rerun.
 
@@ -107,6 +113,8 @@ def log_boxes_3d(
         static: Log without a timeline so the boxes show at every point on
             every timeline. Use for ground truth on a fixed sample inspected
             over training steps, where only the predictions change over time.
+        recording: Target recording. ``None`` (default) uses Rerun's active
+            global recording.
 
     Raises:
         ValueError: If ``score_threshold`` is set without ``scores``, or if
@@ -118,6 +126,7 @@ def log_boxes_3d(
             entity,
             rr.AnnotationContext([(i, name) for name, i in label_to_id.items()]),
             static=True,
+            recording=recording,
         )
 
     raw = boxes.as_subclass(Tensor).detach().cpu()
@@ -152,7 +161,7 @@ def log_boxes_3d(
     n = raw.shape[0]
 
     if n == 0:
-        rr.log(entity, rr.Clear(recursive=True), static=static)
+        rr.log(entity, rr.Clear(recursive=True), static=static, recording=recording)
         return
 
     display_labels = _build_labels(labels, class_ids, label_to_id, score_list)
@@ -175,6 +184,7 @@ def log_boxes_3d(
             show_labels=show_labels,
         ),
         static=static,
+        recording=recording,
     )
 
     if log_heading and BoundingBox3DFormat.is_rotated(fmt):
@@ -205,6 +215,7 @@ def log_boxes_3d(
                 colors=[(255, 255, 255)] * n,
             ),
             static=static,
+            recording=recording,
         )
 
 
@@ -215,6 +226,7 @@ def log_cameras(
     extrinsics: CameraExtrinsics | Tensor | None = None,
     *,
     jpeg_quality: int | None = None,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     """Log all camera images with optional pinhole projection to Rerun.
 
@@ -227,6 +239,8 @@ def log_cameras(
         extrinsics: Extrinsic matrices ``[N_cams, 4, 4]`` (lidar-to-camera).
         jpeg_quality: If set, JPEG-encode each image at this quality (0-100)
             before logging. ``None`` (default) logs uncompressed.
+        recording: Target recording. ``None`` (default) uses Rerun's active
+            global recording.
     """
     for i in range(images.shape[0]):
         _log_single_camera(
@@ -236,6 +250,7 @@ def log_cameras(
             extrinsics,
             camera_index=i,
             jpeg_quality=jpeg_quality,
+            recording=recording,
         )
 
 
@@ -247,6 +262,7 @@ def _log_single_camera(
     *,
     camera_index: int,
     jpeg_quality: int | None = None,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     img = images[camera_index].detach().cpu()
     # [C, H, W] -> [H, W, C], uint8
@@ -265,6 +281,7 @@ def _log_single_camera(
                 mat3x3=ext[:3, :3],
                 relation=rr.TransformRelation.ChildFromParent,
             ),
+            recording=recording,
         )
 
     if intrinsics is not None:
@@ -278,12 +295,13 @@ def _log_single_camera(
                 height=h,
                 camera_xyz=rr.ViewCoordinates.RDF,
             ),
+            recording=recording,
         )
 
     archetype = rr.Image(img)
     if jpeg_quality is not None:
         archetype = archetype.compress(jpeg_quality=jpeg_quality)
-    rr.log(entity, archetype)
+    rr.log(entity, archetype, recording=recording)
 
 
 def log_sample(
@@ -295,6 +313,7 @@ def log_sample(
     label_to_id: dict[str, int] | None = None,
     score_threshold: float | None = None,
     jpeg_quality: int | None = None,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     """Log a full sample dict to Rerun.
 
@@ -319,9 +338,11 @@ def log_sample(
         score_threshold: If set, predictions below this score are dropped.
         jpeg_quality: If set, JPEG-encode camera images at this quality
             (0-100) before logging. See :func:`log_cameras`.
+        recording: Target recording. ``None`` (default) uses Rerun's active
+            global recording.
     """
     if "points" in inputs:
-        log_point_cloud(f"{entity_prefix}/lidar", inputs["points"])
+        log_point_cloud(f"{entity_prefix}/lidar", inputs["points"], recording=recording)
 
     if "images" in inputs:
         log_cameras(
@@ -330,6 +351,7 @@ def log_sample(
             inputs.get("intrinsics"),
             inputs.get("extrinsics"),
             jpeg_quality=jpeg_quality,
+            recording=recording,
         )
 
     if targets and "boxes" in targets:
@@ -340,6 +362,7 @@ def log_sample(
             class_ids=class_ids,
             label_to_id=label_to_id,
             fill_mode="transparentfillmajorwireframe",
+            recording=recording,
         )
 
     if predictions and "boxes" in predictions:
@@ -353,15 +376,17 @@ def log_sample(
             score_threshold=score_threshold,
             fill_mode="majorwireframe",
             show_labels=True,
+            recording=recording,
         )
 
 
 def log_scalars(
-    values: Mapping[str, float | Tensor],
+    values: Mapping[str, SupportsFloat | Tensor],
     *,
     step: int | None = None,
     epoch: int | None = None,
     prefix: str = "train",
+    recording: "RecordingStream | None" = None,
 ) -> None:
     """Log scalar training metrics to Rerun.
 
@@ -378,8 +403,9 @@ def log_scalars(
     ``{"loss/total": ..., "loss/cls": ...}`` groups under ``{prefix}/loss``.
 
     Args:
-        values: Mapping from metric name to scalar value. Tensor values must
-            hold a single element and are moved to the CPU before logging.
+        values: Mapping from metric name to scalar value (Python or numpy
+            number, or single-element tensor). Tensor values must hold a
+            single element and are moved to the CPU before logging.
         step: Optimizer/iteration step. When given, scalars are logged on a
             ``"step"`` timeline so they align by iteration.
         epoch: Training epoch. When given, scalars are logged on an
@@ -387,21 +413,24 @@ def log_scalars(
             ``step`` to log on both timelines at once.
         prefix: Entity path prefix grouping these metrics (e.g. ``"train"``,
             ``"val"``). Pass ``""`` to log each metric at the root.
+        recording: Target recording. ``None`` (default) uses Rerun's active
+            global recording; pass an explicit stream to avoid relying on
+            global state (see :class:`RerunLogger`).
 
     Note:
-        ``step``/``epoch`` move the active recording's timeline cursor, which
+        ``step``/``epoch`` move the recording's timeline cursor, which
         persists: a later ``rr.log`` with no explicit time lands on the last
         value set here. Pass ``step`` on every call (or use
-        :class:`MetricLogger`) to keep things aligned.
+        :class:`RerunLogger`) to keep things aligned.
     """
     if step is not None:
-        rr.set_time("step", sequence=step)
+        rr.set_time("step", sequence=step, recording=recording)
     if epoch is not None:
-        rr.set_time("epoch", sequence=epoch)
+        rr.set_time("epoch", sequence=epoch, recording=recording)
 
     for name, value in values.items():
         entity = f"{prefix}/{name}" if prefix else name
-        rr.log(entity, rr.Scalars(_scalar_value(name, value)))
+        rr.log(entity, rr.Scalars(_scalar_value(name, value)), recording=recording)
 
 
 def style_series(
@@ -410,6 +439,7 @@ def style_series(
     name: str | None = None,
     color: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
     width: float | None = None,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     """Style a scalar time series for plotting.
 
@@ -433,15 +463,18 @@ def style_series(
         color: RGB or RGBA color (0-255 per channel). ``None`` lets Rerun
             auto-assign a color.
         width: Line width in points. ``None`` uses Rerun's default.
+        recording: Target recording. ``None`` (default) uses Rerun's active
+            global recording.
     """
     rr.log(
         entity,
         rr.SeriesLines(names=name, colors=color, widths=width),
         static=True,
+        recording=recording,
     )
 
 
-class MetricLogger:
+class RerunLogger:
     """High-level Rerun logger for training metrics.
 
     Wraps the Rerun recording lifecycle -- initialization, sink selection, an
@@ -465,8 +498,19 @@ class MetricLogger:
     unconditionally from shared loop code. ``enabled=False`` disables it
     everywhere (e.g. for debug runs).
 
+    Logging is **best-effort by default**: a failure in any logging call
+    (e.g. a dropped connection or a full disk) is caught and suppressed with a
+    single warning, so a visualization hiccup never crashes a long training
+    run. Pass ``strict=True`` to let such errors propagate instead.
+
+    Record the run's hyperparameters once with :meth:`log_config` so they
+    travel with the recording -- essential context when comparing runs later.
+
     Example:
-        >>> logger = MetricLogger("bevfusion", save_path="run.rrd", rank=rank)
+        >>> logger = RerunLogger(  # doctest: +SKIP
+        ...     "bevfusion", save_path="run.rrd", rank=rank
+        ... )
+        >>> logger.log_config({"lr": 1e-3, "batch_size": 4})  # doctest: +SKIP
         >>> for step, batch in enumerate(loader):  # doctest: +SKIP
         ...     loss = train_step(batch)
         ...     logger.log({"loss/total": loss, "lr": lr}, step=step, every=50)
@@ -490,6 +534,8 @@ class MetricLogger:
             cross-run comparison). Empty by default.
         rank: Process rank; the logger only records on rank 0.
         enabled: Master switch; ``False`` disables logging entirely.
+        strict: If ``True``, let logging errors propagate instead of
+            suppressing them best-effort.
         recording_id: Optional stable recording id (e.g. to group runs).
 
     Raises:
@@ -508,22 +554,42 @@ class MetricLogger:
         prefix: str = "",
         rank: int = 0,
         enabled: bool = True,
+        strict: bool = False,
         recording_id: str | None = None,
     ) -> None:
         self.enabled = enabled and rank == 0
         self._prefix = prefix.strip("/")
+        self._strict = strict
+        self._warned = False
+        self._closed = False
+        self._rec: RecordingStream | None = None
         if not self.enabled:
             return
         if sum((save_path is not None, grpc_url is not None, spawn)) > 1:
             msg = "pass at most one of save_path, grpc_url, spawn"
             raise ValueError(msg)
+        # rr.init also registers this as the global recording (so the docs
+        # scraper and bare rr.* helpers find it), but we capture the stream and
+        # target it explicitly below -- so two loggers never cross-talk and
+        # close() only finalizes this recording's sink.
         rr.init(name, recording_id=recording_id, spawn=spawn)
+        self._rec = rr.get_global_data_recording()
         if save_path is not None:
-            rr.save(str(save_path))
+            rr.save(str(save_path), recording=self._rec)
         elif grpc_url is not None:
-            rr.connect_grpc(grpc_url)
+            rr.connect_grpc(grpc_url, recording=self._rec)
         if blueprint is not None:
-            rr.send_blueprint(blueprint)
+            rr.send_blueprint(blueprint, recording=self._rec)
+
+    @property
+    def recording(self) -> "RecordingStream | None":
+        """This logger's recording stream, or ``None`` when disabled.
+
+        Pass it to the scene loggers (:func:`log_sample`, :func:`log_boxes_3d`,
+        ...) via their ``recording=`` argument to route 3D data into this
+        logger's recording instead of Rerun's global one.
+        """
+        return self._rec
 
     def _entity_prefix(self, group: str) -> str:
         """Join the run namespace and ``group`` into an entity prefix.
@@ -533,9 +599,35 @@ class MetricLogger:
         """
         return "/".join(part for part in (self._prefix, group) if part)
 
+    def _run(self, action: str, fn: Callable[[], None]) -> None:
+        """Run a logging action, suppressing failures unless ``strict``.
+
+        Keeps a visualization failure from crashing training: the first
+        suppressed error emits one warning; the rest are silenced.
+
+        Args:
+            action: Short name of the action, used in the warning message.
+            fn: Zero-argument callable performing the Rerun calls.
+        """
+        try:
+            fn()
+        except Exception:
+            # Broad by design: visualization logging must never crash training.
+            if self._strict:
+                raise
+            if not self._warned:
+                self._warned = True
+                warnings.warn(
+                    f"RerunLogger: {action!r} failed and was suppressed; "
+                    "further logging errors are silenced (pass strict=True to "
+                    "raise).",
+                    RuntimeWarning,
+                    stacklevel=3,
+                )
+
     def log(
         self,
-        values: Mapping[str, float | Tensor],
+        values: Mapping[str, SupportsFloat | Tensor],
         *,
         step: int | None = None,
         epoch: int | None = None,
@@ -549,8 +641,8 @@ class MetricLogger:
         (:func:`time_series_view`) groups it by run and section.
 
         Args:
-            values: Mapping from metric name to scalar value (float, numpy
-                scalar, or single-element tensor). See :func:`log_scalars`.
+            values: Mapping from metric name to scalar value (Python or numpy
+                number, or single-element tensor). See :func:`log_scalars`.
             step: Optimizer/iteration step (``"step"`` timeline).
             epoch: Training epoch (``"epoch"`` timeline).
             group: Section under this run, e.g. ``"train"`` or ``"val"``.
@@ -561,7 +653,39 @@ class MetricLogger:
             return
         if every is not None and step is not None and step % every != 0:
             return
-        log_scalars(values, step=step, epoch=epoch, prefix=self._entity_prefix(group))
+        self._run(
+            "log",
+            lambda: log_scalars(
+                values,
+                step=step,
+                epoch=epoch,
+                prefix=self._entity_prefix(group),
+                recording=self._rec,
+            ),
+        )
+
+    def log_config(self, config: Mapping[str, object]) -> None:
+        """Attach the run's hyperparameters/config to the recording.
+
+        Records ``config`` as a Rerun recording property so the run's settings
+        (learning rate, batch size, augmentations, ...) travel with the
+        recording and show in the viewer's properties panel -- the context you
+        need to tell runs apart when comparing them later. Call once at
+        startup. Values are recorded as text, so any type is accepted.
+
+        Args:
+            config: Mapping of config name to value.
+        """
+        if not self.enabled:
+            return
+
+        def _send() -> None:
+            for key, value in config.items():
+                rr.send_property(
+                    key, rr.AnyValues(value=str(value)), recording=self._rec
+                )
+
+        self._run("log_config", _send)
 
     def style_series(
         self,
@@ -587,22 +711,26 @@ class MetricLogger:
         if not self.enabled:
             return
         entity = "/".join(part for part in (self._entity_prefix(group), name) if part)
-        style_series(entity, name=legend, color=color, width=width)
+        self._run(
+            "style_series",
+            lambda: style_series(
+                entity, name=legend, color=color, width=width, recording=self._rec
+            ),
+        )
 
     def flush(self) -> None:
         """Flush buffered data to the sink so partial results are visible."""
-        if not self.enabled:
+        if not self.enabled or self._rec is None:
             return
-        recording = rr.get_global_data_recording()
-        if recording is not None:
-            recording.flush()
+        self._run("flush", self._rec.flush)
 
     def close(self) -> None:
-        """Flush and disconnect the recording's sink."""
-        if not self.enabled:
+        """Flush and disconnect this recording's sink (idempotent)."""
+        if not self.enabled or self._closed or self._rec is None:
             return
+        self._closed = True
         self.flush()
-        rr.disconnect()
+        self._run("close", self._rec.disconnect)
 
     def __enter__(self) -> Self:
         return self
@@ -611,7 +739,7 @@ class MetricLogger:
         self.close()
 
 
-def _scalar_value(name: str, value: float | Tensor) -> float:
+def _scalar_value(name: str, value: SupportsFloat | Tensor) -> float:
     """Coerce a scalar metric value to a Python float.
 
     Returns:
