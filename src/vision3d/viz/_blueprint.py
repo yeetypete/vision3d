@@ -99,6 +99,29 @@ def lidar_view(
     return rrb.Spatial3DView(origin=f"/{entity_prefix}", name=name)
 
 
+def time_series_view(
+    *,
+    entity_prefix: str = "train",
+    name: str = "metrics",
+) -> rrb.TimeSeriesView:
+    """Build a time-series view of logged training metrics.
+
+    Captures every scalar logged under ``/{entity_prefix}``, pairing with
+    :func:`vision3d.viz.log_scalars` to plot quantities such as loss and
+    learning rate over a training run.
+
+    Args:
+        entity_prefix: Origin entity path (without leading slash), matching
+            :func:`vision3d.viz.log_scalars`' ``prefix``.
+        name: Display name shown in the view's title bar.
+
+    Returns:
+        A :class:`~rerun.blueprint.TimeSeriesView` rooted at
+        ``/{entity_prefix}``.
+    """
+    return rrb.TimeSeriesView(origin=f"/{entity_prefix}", name=name)
+
+
 def fusion_layout(
     camera_names: Sequence[str],
     grid: Sequence[Sequence[int]] | None = None,

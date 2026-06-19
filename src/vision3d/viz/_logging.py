@@ -1,6 +1,7 @@
 """Log vision3d data to a Rerun viewer."""
 
 import math
+from collections.abc import Mapping
 
 import torch
 from torch import Tensor
@@ -28,6 +29,7 @@ def log_point_cloud(
     points: PointCloud3D | Tensor,
     *,
     color_by_distance: bool = True,
+    static: bool = False,
 ) -> None:
     """Log a point cloud to Rerun.
 
@@ -35,6 +37,9 @@ def log_point_cloud(
         entity: Rerun entity path (e.g. ``"world/lidar"``).
         points: Point cloud ``[N, 3+C]``. First 3 columns are xyz.
         color_by_distance: Color points by distance from origin.
+        static: Log without a timeline so the cloud shows at every point on
+            every timeline. Use for geometry that is constant across a
+            recording, such as a fixed sample inspected over training steps.
     """
     xyz = points[:, :3].detach().cpu()
 
@@ -43,12 +48,12 @@ def log_point_cloud(
         distances = torch.linalg.norm(xyz, dim=1)
         max_dist = max(float(torch.quantile(distances, 0.98)), 1e-6)
         normalized = (distances / max_dist).clamp(0, 1)
-        colors = torch.zeros(len(xyz), 4, dtype=torch.uint8)
+        colors = torch.zeros(len(xyz), 4, dtype=torch.uint8, device=xyz.device)
         colors[:, 0] = (normalized * 255).to(torch.uint8)
         colors[:, 2] = ((1 - normalized) * 255).to(torch.uint8)
         colors[:, 3] = 255
 
-    rr.log(entity, rr.Points3D(xyz, colors=colors))
+    rr.log(entity, rr.Points3D(xyz, colors=colors), static=static)
 
 
 def log_boxes_3d(
@@ -63,6 +68,7 @@ def log_boxes_3d(
     fill_mode: rr.components.FillModeLike | None = None,
     show_labels: bool | None = None,
     log_heading: bool = True,
+    static: bool = False,
 ) -> None:
     """Log 3D bounding boxes to Rerun.
 
@@ -92,6 +98,9 @@ def log_boxes_3d(
             in the viewer. ``None`` leaves Rerun's default heuristic, which
             hides labels when there are many boxes.
         log_heading: If True and boxes have rotation, log heading arrows.
+        static: Log without a timeline so the boxes show at every point on
+            every timeline. Use for ground truth on a fixed sample inspected
+            over training steps, where only the predictions change over time.
 
     Raises:
         ValueError: If ``score_threshold`` is set without ``scores``, or if
@@ -137,7 +146,7 @@ def log_boxes_3d(
     n = raw.shape[0]
 
     if n == 0:
-        rr.log(entity, rr.Clear(recursive=True))
+        rr.log(entity, rr.Clear(recursive=True), static=static)
         return
 
     display_labels = _build_labels(labels, class_ids, label_to_id, score_list)
@@ -159,6 +168,7 @@ def log_boxes_3d(
             fill_mode=fill_mode,
             show_labels=show_labels,
         ),
+        static=static,
     )
 
     if log_heading and BoundingBox3DFormat.is_rotated(fmt):
@@ -188,6 +198,7 @@ def log_boxes_3d(
                 radii=radii,
                 colors=[(255, 255, 255)] * n,
             ),
+            static=static,
         )
 
 
@@ -337,6 +348,103 @@ def log_sample(
             fill_mode="majorwireframe",
             show_labels=True,
         )
+
+
+def log_scalars(
+    values: Mapping[str, float | Tensor],
+    *,
+    step: int | None = None,
+    epoch: int | None = None,
+    prefix: str = "train",
+) -> None:
+    """Log scalar training metrics to Rerun.
+
+    Each entry in ``values`` is logged as an :class:`rerun.Scalars` archetype
+    to its own entity (``{prefix}/{name}``), forming a time series that Rerun
+    plots in a :class:`~rerun.blueprint.TimeSeriesView` (see
+    :func:`vision3d.viz.time_series_view`). This is the primitive for tracking
+    quantities such as loss, learning rate, or validation metrics over a
+    training run. Call it once per logging point (e.g. every optimizer step)
+    from a training loop, which lives outside this repo and supplies ``step``
+    and ``epoch`` from its own counters.
+
+    Metric names may contain ``/`` to build a nested entity hierarchy, e.g.
+    ``{"loss/total": ..., "loss/cls": ...}`` groups under ``{prefix}/loss``.
+
+    Args:
+        values: Mapping from metric name to scalar value. Tensor values must
+            hold a single element and are moved to the CPU before logging.
+        step: Optimizer/iteration step. When given, scalars are logged on a
+            ``"step"`` timeline so they align by iteration.
+        epoch: Training epoch. When given, scalars are logged on an
+            ``"epoch"`` timeline so they align by epoch. May be combined with
+            ``step`` to log on both timelines at once.
+        prefix: Entity path prefix grouping these metrics (e.g. ``"train"``,
+            ``"val"``). Pass ``""`` to log each metric at the root.
+    """
+    if step is not None:
+        rr.set_time("step", sequence=step)
+    if epoch is not None:
+        rr.set_time("epoch", sequence=epoch)
+
+    for name, value in values.items():
+        entity = f"{prefix}/{name}" if prefix else name
+        rr.log(entity, rr.Scalars(_scalar_value(name, value)))
+
+
+def style_series(
+    entity: str,
+    *,
+    name: str | None = None,
+    color: tuple[int, int, int] | tuple[int, int, int, int] | None = None,
+    width: float | None = None,
+) -> None:
+    """Style a scalar time series for plotting.
+
+    Logs an :class:`rerun.SeriesLines` archetype statically on ``entity`` to
+    control how the curve produced by :func:`log_scalars` appears in a
+    :class:`~rerun.blueprint.TimeSeriesView`. This is most useful for
+    overlaying multiple training runs in one plot: give each run's series a
+    stable legend name and a distinct color so they can be told apart. Route
+    each run to its own entity prefix (e.g. ``log_scalars(..., prefix=
+    "runs/baseline/train")``) and style the matching entity here.
+
+    Call once, before or after logging the series; the style is static so it
+    applies across the whole recording.
+
+    Args:
+        entity: Rerun entity path of the scalar series to style (e.g.
+            ``"runs/baseline/train/loss/total"``), matching the entity
+            :func:`log_scalars` writes to.
+        name: Legend name for the series. ``None`` keeps Rerun's
+            entity-derived default.
+        color: RGB or RGBA color (0-255 per channel). ``None`` lets Rerun
+            auto-assign a color.
+        width: Line width in points. ``None`` uses Rerun's default.
+    """
+    rr.log(
+        entity,
+        rr.SeriesLines(names=name, colors=color, widths=width),
+        static=True,
+    )
+
+
+def _scalar_value(name: str, value: float | Tensor) -> float:
+    """Coerce a scalar metric value to a Python float.
+
+    Returns:
+        The value as a float.
+
+    Raises:
+        ValueError: If ``value`` is a tensor that does not hold exactly one
+            element.
+    """
+    if isinstance(value, Tensor):
+        if value.numel() != 1:
+            msg = f"metric {name!r} must be a scalar but has {value.numel()} elements"
+            raise ValueError(msg)
+        return value.detach().cpu().item()
+    return float(value)
 
 
 def _build_labels(

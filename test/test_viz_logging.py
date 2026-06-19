@@ -10,7 +10,7 @@ import torch
 
 import vision3d.viz._logging as logging_mod
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
-from vision3d.viz._logging import _build_labels, log_boxes_3d
+from vision3d.viz._logging import _build_labels, log_boxes_3d, log_point_cloud
 
 
 def _boxes(n: int) -> BoundingBoxes3D:
@@ -111,3 +111,42 @@ class TestValidation:
     def test_score_threshold_without_scores_raises(self, spy: _Spy) -> None:
         with pytest.raises(ValueError, match="score_threshold requires scores"):
             log_boxes_3d("world/pred/boxes", _boxes(2), score_threshold=0.5)
+
+
+class TestStatic:
+    """``static=True`` should reach every ``rr.log`` an entity emits."""
+
+    def test_point_cloud_propagates_static(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[bool | None] = []
+        monkeypatch.setattr(
+            logging_mod.rr,
+            "log",
+            lambda _entity, _archetype, **k: seen.append(k.get("static")),
+        )
+        log_point_cloud("world/lidar", torch.rand(5, 3), static=True)
+        assert seen == [True]
+
+    def test_boxes_propagate_static_to_geometry(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[tuple[str, bool | None]] = []
+        monkeypatch.setattr(
+            logging_mod.rr,
+            "log",
+            lambda entity, _archetype, **k: seen.append((entity, k.get("static"))),
+        )
+        log_boxes_3d("world/gt/boxes", _boxes(2), static=True, log_heading=False)
+        # The box geometry carries static=True.
+        assert ("world/gt/boxes", True) in seen
+
+    def test_static_defaults_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        seen: list[bool | None] = []
+        monkeypatch.setattr(
+            logging_mod.rr,
+            "log",
+            lambda _entity, _archetype, **k: seen.append(k.get("static")),
+        )
+        log_point_cloud("world/lidar", torch.rand(5, 3))
+        assert seen == [False]
