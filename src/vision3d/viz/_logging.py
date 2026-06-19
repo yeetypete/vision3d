@@ -708,9 +708,12 @@ class RerunLogger:
                 # "value": Rerun enforces one type per component name across the
                 # whole recording, so a single shared name would force every
                 # config entry to the first one's type and silently drop the
-                # rest (e.g. strings after a float). The dynamic kwarg trips
-                # pyrefly (AnyValues' first param is positional), hence ignore.
-                values = rr.AnyValues(**{key: _config_value(value)})  # pyrefly: ignore[bad-argument-type]
+                # rest (e.g. strings after a float). ``drop_untyped_nones`` is
+                # passed explicitly so the dynamic ``**`` only has to satisfy
+                # AnyValues' keyword-values parameter.
+                values = rr.AnyValues(
+                    drop_untyped_nones=True, **{key: _config_value(value)}
+                )
                 rr.send_property(key, values, recording=self._rec)
 
         self._run("log_config", _send)
@@ -995,8 +998,13 @@ def _flatten_config(
     return flat
 
 
-def _config_value(value: object) -> object:
-    """Coerce a config value to a type Rerun records natively.
+# The scalar types Rerun records natively as a recording property; any other
+# config value is coerced to its text form.
+type _ConfigScalar = int | float | str
+
+
+def _config_value(value: object) -> _ConfigScalar:
+    """Coerce an arbitrary config value to a Rerun-recordable scalar.
 
     Numbers pass through as numbers so runs can be compared on them later;
     booleans and everything else fall back to a readable text representation.
@@ -1012,7 +1020,7 @@ def _config_value(value: object) -> object:
     if isinstance(value, numbers.Real):
         return float(value)
     if isinstance(value, Tensor) and value.numel() == 1:
-        return value.detach().cpu().item()
+        return float(value.detach().cpu().item())
     return str(value)
 
 

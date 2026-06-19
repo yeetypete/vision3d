@@ -212,7 +212,10 @@ class _RrSpy:
     def send_property(self, name: str, values: object, **_: object) -> None:
         self.properties.append((name, values))
 
-    def AnyValues(self, **kwargs: object) -> tuple[str, dict[str, object]]:
+    def AnyValues(
+        self, *, drop_untyped_nones: bool = True, **kwargs: object
+    ) -> tuple[str, dict[str, object]]:
+        # Consume the constant flag so assertions focus on the config fields.
         return ("any", kwargs)
 
 
