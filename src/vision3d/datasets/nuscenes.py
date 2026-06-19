@@ -27,6 +27,7 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
+from vision3d.transforms.functional import accumulate_sweeps
 
 # Detection class set used for evaluation, Mirrors
 # ``nuscenes.eval.detection.constants.DETECTION_NAMES``.
@@ -1311,6 +1312,12 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         split (str): One of ``"train"`` or ``"val"``. Default: ``"train"``.
         transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
+        num_sweeps (int): Number of lidar sweeps to aggregate into each sample,
+            counting the key-frame. When greater than 1, the preceding sweeps
+            are motion-compensated into the key-frame lidar frame and a trailing
+            time-offset column (seconds before the key-frame) is appended to
+            every point. Scenes shorter than ``num_sweeps`` contribute as many
+            sweeps as are available. Default: ``1``.
         download (bool, optional): If true, downloads the dataset from the
             internet and puts it in root directory. If dataset is already
             downloaded, it is not downloaded again. Only the publicly
@@ -1347,12 +1354,16 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         version: str = "v1.0-mini",
         split: str = "train",
         transforms: Any | None = None,
+        num_sweeps: int = 1,
         download: bool = False,
     ) -> None:
+        if num_sweeps < 1:
+            raise ValueError(f"num_sweeps must be >= 1, got {num_sweeps}.")
         self.root = Path(root)
         self.version = version
         self.split = split
         self.transforms = transforms
+        self.num_sweeps = num_sweeps
 
         if download:
             self.download()
@@ -1423,7 +1434,9 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             **inputs** is a dict with keys:
 
             - ``"points"``: :class:`PointCloud3D` in lidar frame ``[N, 5]``
-              (x, y, z, intensity, ring_index).
+              (x, y, z, intensity, ring_index). With ``num_sweeps > 1`` the
+              shape is ``[N, 6]`` with a trailing time-offset column (seconds
+              before the key-frame).
             - ``"images"``: :class:`CameraImages` ``[6, 3, H, W]``.
             - ``"extrinsics"``: :class:`CameraExtrinsics` ``[6, 4, 4]``
               (lidar-to-camera).
@@ -1439,7 +1452,6 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
         # Lidar
         lidar_data = self._nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
-        points = self._load_lidar(lidar_data)
         lidar_ego_pose = self._nusc.get("ego_pose", lidar_data["ego_pose_token"])
         lidar_calib = self._nusc.get(
             "calibrated_sensor", lidar_data["calibrated_sensor_token"]
@@ -1453,6 +1465,11 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             lidar_calib["translation"],
             lidar_calib["rotation"],
         )
+
+        if self.num_sweeps > 1:
+            points = self._load_lidar_sweeps(lidar_data, lidar_to_global)
+        else:
+            points = self._load_lidar(lidar_data)
 
         # Cameras
         images_list = []
@@ -1506,6 +1523,54 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         path = self.root / lidar_data["filename"]
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)
         return torch.from_numpy(points)
+
+    def _load_lidar_sweeps(
+        self, lidar_data: _SampleData, lidar_to_global: Tensor
+    ) -> Tensor:
+        """Aggregate up to ``num_sweeps`` lidar sweeps into the key-frame frame.
+
+        Walks the ``prev`` chain back from the key-frame, motion-compensating
+        each sweep into the key-frame lidar frame and appending a time-offset
+        column (seconds before the key-frame). The walk stops early at the
+        start of a scene, so fewer than ``num_sweeps`` sweeps may be returned.
+
+        Returns:
+            ``[N, 6]`` point cloud (x, y, z, intensity, ring_index, time).
+        """
+        global_to_lidar = torch.linalg.inv(lidar_to_global)
+        keyframe_time = lidar_data["timestamp"]
+
+        sweeps: list[Tensor] = []
+        transforms: list[Tensor] = []
+        time_offsets: list[float] = []
+        sweep_data = lidar_data
+        for _ in range(self.num_sweeps):
+            sweeps.append(self._load_lidar(sweep_data))
+            sweep_ego_pose = self._nusc.get("ego_pose", sweep_data["ego_pose_token"])
+            sweep_calib = self._nusc.get(
+                "calibrated_sensor", sweep_data["calibrated_sensor_token"]
+            )
+            sweep_to_global = _make_transform(
+                sweep_ego_pose["translation"],
+                sweep_ego_pose["rotation"],
+            ) @ _make_transform(
+                sweep_calib["translation"],
+                sweep_calib["rotation"],
+            )
+            transforms.append(global_to_lidar @ sweep_to_global)
+            # nuScenes timestamps are microseconds.
+            time_offsets.append((keyframe_time - sweep_data["timestamp"]) / 1e6)
+            # An empty prev marks the start of the scene: stop with the sweeps
+            # gathered so far rather than crossing into the previous scene.
+            if not sweep_data["prev"]:
+                break
+            sweep_data = self._nusc.get("sample_data", sweep_data["prev"])
+
+        return accumulate_sweeps(
+            sweeps,
+            torch.stack(transforms),
+            torch.tensor(time_offsets, dtype=torch.float32),
+        )
 
     def _load_image(self, cam_data: _SampleData) -> Tensor:
         path = self.root / cam_data["filename"]
