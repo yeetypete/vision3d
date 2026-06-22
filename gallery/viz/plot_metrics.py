@@ -286,6 +286,12 @@ yaw_wander = rand(n, lo=0.0, hi=0.6)
 yaw_freq = rand(n, lo=1.0, hi=3.0)
 yaw_phase = rand(n, lo=0.0, hi=TWO_PI)
 
+# The validation loop above left the ``epoch`` cursor at its last value, and
+# Rerun stamps every log with all active cursors. Clear it so these per-step
+# predictions ride the ``step`` timeline alone instead of carrying a stale
+# epoch.
+logger.reset_time()
+
 for step in range(TOTAL_STEPS):
     frac = step / TOTAL_STEPS
     alpha = 1 - torch.exp(-decay_k * frac)  # [n], per-box, 0 -> ~1

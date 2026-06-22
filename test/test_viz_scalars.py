@@ -17,6 +17,7 @@ import vision3d.viz._logging as logging_mod
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
 from vision3d.viz import time_series_view
 from vision3d.viz._logging import (
+    LoggingInputError,
     RerunLogger,
     _scalar_value,
     log_scalars,
@@ -100,7 +101,9 @@ class TestScalarCoercion:
         assert spy.logged == [("train/loss", pytest.approx(0.5))]
 
     def test_multi_element_tensor_raises(self) -> None:
-        with pytest.raises(ValueError, match="must be a scalar but has 2 elements"):
+        # A non-scalar metric is a caller bug: raise the dedicated input error
+        # (a ValueError subclass) so RerunLogger can re-raise it best-effort.
+        with pytest.raises(LoggingInputError, match="must be a scalar but has 2"):
             _scalar_value("loss", torch.tensor([1.0, 2.0]))
 
     def test_numpy_scalar_coerced(self, spy: _Spy) -> None:
@@ -175,6 +178,7 @@ class _RrSpy:
         self.flushes = 0
         self.logged: list[tuple[str, object]] = []
         self.times: list[tuple[str, int | None]] = []
+        self.resets = 0
         self.properties: list[tuple[str, object]] = []
         self._recording = _SpyRecording(self)
 
@@ -199,6 +203,9 @@ class _RrSpy:
         self, timeline: str, *, sequence: int | None = None, **_: object
     ) -> None:
         self.times.append((timeline, sequence))
+
+    def reset_time(self, **_: object) -> None:
+        self.resets += 1
 
     def Scalars(self, value: float) -> float:
         return value
@@ -234,6 +241,7 @@ def rr_spy(monkeypatch: pytest.MonkeyPatch) -> _RrSpy:
         "send_blueprint",
         "get_global_data_recording",
         "set_time",
+        "reset_time",
         "Scalars",
         "SeriesLines",
         "log",
@@ -307,6 +315,14 @@ class TestRerunLoggerLogging:
         logger.log({"loss": 2.0}, step=100, every=50)  # 100 % 50 == 0 -> logged
         assert rr_spy.logged == [("train/loss", 2.0)]
 
+    def test_every_throttles_on_epoch_without_step(self, rr_spy: _RrSpy) -> None:
+        # With no ``step``, the throttle falls back to ``epoch`` rather than
+        # being silently ignored.
+        logger = RerunLogger("run", spawn=True)
+        logger.log({"mAP": 0.4}, epoch=3, every=2, group="val")  # 3 % 2 -> skipped
+        logger.log({"mAP": 0.5}, epoch=4, every=2, group="val")  # 4 % 2 -> logged
+        assert rr_spy.logged == [("val/mAP", 0.5)]
+
     def test_last_bypasses_throttle(self, rr_spy: _RrSpy) -> None:
         # The final step rarely lands on a multiple of ``every``; ``last=True``
         # forces it through so end-of-training metrics are not dropped.
@@ -358,6 +374,15 @@ class TestRerunLoggerErrorHandling:
         logger = RerunLogger("run", spawn=True, strict=True)
         with pytest.raises(RuntimeError, match="rerun down"):
             logger.log({"loss": 1.0}, step=0)
+
+    def test_input_error_propagates_even_when_not_strict(self, rr_spy: _RrSpy) -> None:
+        # A non-scalar metric is a caller bug, not a transport hiccup: it must
+        # surface even in best-effort mode rather than being swallowed.
+        logger = RerunLogger("run", spawn=True)
+        with pytest.raises(LoggingInputError, match="must be a scalar"):
+            logger.log({"loss": torch.tensor([1.0, 2.0])}, step=0)
+        # The bad value never reached Rerun as a logged scalar.
+        assert rr_spy.logged == []
 
 
 class TestRerunLoggerConfig:
@@ -448,6 +473,16 @@ class TestRerunLoggerSceneMethods:
         logger = RerunLogger("run", spawn=True)
         logger.set_time(step=5, epoch=2)
         assert rr_spy.times == [("step", 5), ("epoch", 2)]
+
+    def test_reset_time_clears_cursors(self, rr_spy: _RrSpy) -> None:
+        logger = RerunLogger("run", spawn=True)
+        logger.reset_time()
+        assert rr_spy.resets == 1
+
+    def test_reset_time_noop_when_disabled(self, rr_spy: _RrSpy) -> None:
+        logger = RerunLogger("run", save_path="x.rrd", rank=1)
+        logger.reset_time()
+        assert rr_spy.resets == 0
 
     def test_scene_method_is_best_effort(
         self, rr_spy: _RrSpy, monkeypatch: pytest.MonkeyPatch

@@ -33,6 +33,18 @@ if TYPE_CHECKING:
     from rerun.blueprint import BlueprintLike
 
 
+class LoggingInputError(ValueError):
+    """Raised when logging is called with malformed input.
+
+    Signals a caller bug -- a non-scalar metric, mismatched per-box list
+    lengths, an unsupported box format -- as opposed to a transient sink or
+    transport failure. Subclasses :class:`ValueError`, so existing
+    ``except ValueError`` handlers still catch it, but lets
+    :class:`RerunLogger` tell a usage bug apart from a visualization hiccup
+    and re-raise it even in best-effort (non-``strict``) mode.
+    """
+
+
 def log_point_cloud(
     entity: str,
     points: PointCloud3D | Tensor,
@@ -60,7 +72,7 @@ def log_point_cloud(
         distances = torch.linalg.norm(xyz, dim=1)
         max_dist = max(float(torch.quantile(distances, 0.98)), 1e-6)
         normalized = (distances / max_dist).clamp(0, 1)
-        colors = torch.zeros(len(xyz), 4, dtype=torch.uint8, device=xyz.device)
+        colors = torch.zeros(len(xyz), 4, dtype=torch.uint8)
         colors[:, 0] = (normalized * 255).to(torch.uint8)
         colors[:, 2] = ((1 - normalized) * 255).to(torch.uint8)
         colors[:, 3] = 255
@@ -118,9 +130,9 @@ def log_boxes_3d(
             global recording.
 
     Raises:
-        ValueError: If ``score_threshold`` is set without ``scores``, or if
-            ``scores``, ``labels``, or ``class_ids`` length does not match
-            the number of boxes.
+        LoggingInputError: If ``score_threshold`` is set without ``scores``,
+            or if ``scores``, ``labels``, or ``class_ids`` length does not
+            match the number of boxes.
     """
     if label_to_id is not None:
         rr.log(
@@ -138,19 +150,19 @@ def log_boxes_3d(
     )
     if score_list is not None and len(score_list) != raw.shape[0]:
         msg = f"scores has length {len(score_list)} but there are {raw.shape[0]} boxes"
-        raise ValueError(msg)
+        raise LoggingInputError(msg)
     if labels is not None and len(labels) != raw.shape[0]:
         msg = f"labels has length {len(labels)} but there are {raw.shape[0]} boxes"
-        raise ValueError(msg)
+        raise LoggingInputError(msg)
     if class_ids is not None and len(class_ids) != raw.shape[0]:
         msg = (
             f"class_ids has length {len(class_ids)} but there are {raw.shape[0]} boxes"
         )
-        raise ValueError(msg)
+        raise LoggingInputError(msg)
     if score_threshold is not None:
         if score_list is None:
             msg = "score_threshold requires scores"
-            raise ValueError(msg)
+            raise LoggingInputError(msg)
         keep = [i for i, s in enumerate(score_list) if s >= score_threshold]
         raw = raw[keep]
         score_list = [score_list[i] for i in keep]
@@ -499,10 +511,14 @@ class RerunLogger:
     unconditionally from shared loop code. ``enabled=False`` disables it
     everywhere (e.g. for debug runs).
 
-    Logging is **best-effort by default**: a failure in any logging call
-    (e.g. a dropped connection or a full disk) is caught and suppressed with a
-    single warning, so a visualization hiccup never crashes a long training
-    run. Pass ``strict=True`` to let such errors propagate instead.
+    Logging is **best-effort by default**: an *operational* failure in any
+    logging call (e.g. a dropped connection or a full disk) is caught and
+    suppressed with a single warning, so a visualization hiccup never crashes a
+    long training run. Pass ``strict=True`` to let such errors propagate
+    instead. *Input* errors are treated differently: malformed arguments (a
+    non-scalar metric, mismatched per-box list lengths, ...) raise
+    :class:`LoggingInputError` and always propagate, even in best-effort mode,
+    since they signal a caller bug that suppression would only hide.
 
     Record the run's hyperparameters once with :meth:`log_config` so they
     travel with the recording -- essential context when comparing runs later.
@@ -617,9 +633,19 @@ class RerunLogger:
         Args:
             action: Short name of the action, used in the warning message.
             fn: Zero-argument callable performing the Rerun calls.
+
+        Raises:
+            LoggingInputError: If ``fn`` reports malformed input. Re-raised
+                even when not ``strict``, since it signals a caller bug.
         """
         try:
             fn()
+        except LoggingInputError:
+            # A caller bug (non-scalar metric, mismatched list lengths, ...),
+            # not a transient sink failure. Always surface it so it gets fixed,
+            # even in best-effort mode -- suppressing it would silently drop
+            # data and leave the user debugging a phantom.
+            raise
         except Exception:
             # Broad by design: visualization logging must never crash training.
             if self._strict:
@@ -656,8 +682,10 @@ class RerunLogger:
             step: Optimizer/iteration step (``"step"`` timeline).
             epoch: Training epoch (``"epoch"`` timeline).
             group: Section under this run, e.g. ``"train"`` or ``"val"``.
-            every: If set, only log when ``step`` is a multiple of it -- a
-                cheap throttle for hot loops. Ignored when ``step`` is ``None``.
+            every: If set, only log when the driving counter (``step`` if
+                given, else ``epoch``) is a multiple of it -- a cheap throttle
+                for hot loops. Ignored when neither ``step`` nor ``epoch`` is
+                given.
             last: Force this call through the ``every`` throttle. Pass
                 ``last=(step == total_steps - 1)`` on the final iteration so a
                 run's end-of-training metrics are never dropped just because
@@ -665,7 +693,13 @@ class RerunLogger:
         """
         if not self.enabled:
             return
-        if every is not None and step is not None and not last and step % every != 0:
+        counter = step if step is not None else epoch
+        if (
+            every is not None
+            and counter is not None
+            and not last
+            and counter % every != 0
+        ):
             return
         self._run(
             "log",
@@ -757,6 +791,12 @@ class RerunLogger:
         the geometry lands on the same ``step``/``epoch`` as the scalar curves
         and plays back in lockstep. No-op when disabled.
 
+        A cursor set here persists: only the timelines you pass are moved, and
+        each subsequent log carries *every* active cursor. After logging on the
+        ``"epoch"`` timeline, switching to ``set_time(step=...)`` still stamps
+        the stale ``"epoch"`` value too; call :meth:`reset_time` first to clear
+        it when changing which timeline drives a sequence of logs.
+
         Args:
             step: Sequence value for the ``"step"`` timeline.
             epoch: Sequence value for the ``"epoch"`` timeline.
@@ -771,6 +811,20 @@ class RerunLogger:
                 rr.set_time("epoch", sequence=epoch, recording=self._rec)
 
         self._run("set_time", _set)
+
+    def reset_time(self) -> None:
+        """Clear all timeline cursors on this recording.
+
+        Subsequent logs carry no timeline until the next :meth:`set_time` (or
+        ``step``/``epoch`` on :meth:`log`). Use this when switching which
+        timeline drives a run of logs -- e.g. after logging per-epoch
+        validation metrics, reset before re-logging predictions on the
+        ``"step"`` timeline so they are not stamped with a stale ``epoch``
+        cursor. No-op when disabled.
+        """
+        if not self.enabled:
+            return
+        self._run("reset_time", lambda: rr.reset_time(recording=self._rec))
 
     def log_point_cloud(
         self,
@@ -966,13 +1020,13 @@ def _scalar_value(name: str, value: SupportsFloat | Tensor) -> float:
         The value as a float.
 
     Raises:
-        ValueError: If ``value`` is a tensor that does not hold exactly one
-            element.
+        LoggingInputError: If ``value`` is a tensor that does not hold exactly
+            one element.
     """
     if isinstance(value, Tensor):
         if value.numel() != 1:
             msg = f"metric {name!r} must be a scalar but has {value.numel()} elements"
-            raise ValueError(msg)
+            raise LoggingInputError(msg)
         return value.detach().cpu().item()
     return float(value)
 
@@ -1059,7 +1113,7 @@ def _extract_centers_sizes_yaws(
         yaws is a list of floats.
 
     Raises:
-        ValueError: If ``fmt`` is not a supported format.
+        LoggingInputError: If ``fmt`` is not a supported format.
     """
     if fmt is BoundingBox3DFormat.XYZXYZ:
         mins = raw[:, :3]
@@ -1077,6 +1131,6 @@ def _extract_centers_sizes_yaws(
         yaws = raw[:, 6].tolist()
     else:
         msg = f"Unsupported format: {fmt}"
-        raise ValueError(msg)
+        raise LoggingInputError(msg)
 
     return centers, sizes, yaws
