@@ -495,6 +495,18 @@ class TestRerunLoggerSceneMethods:
         with pytest.warns(RuntimeWarning, match="suppressed"):
             logger.log_boxes_3d("world/pred", _box())
 
+    def test_scene_method_input_error_propagates_when_not_strict(
+        self, rr_spy: _RrSpy
+    ) -> None:
+        # Malformed box args are a caller bug, not a transport hiccup: they
+        # must surface through the scene wrapper's best-effort boundary too,
+        # not just the scalar path.
+        logger = RerunLogger("run", spawn=True)
+        with pytest.raises(LoggingInputError, match="score_threshold requires scores"):
+            logger.log_boxes_3d("world/pred", _box(), score_threshold=0.5)
+        # The bad call never reached Rerun as a logged archetype.
+        assert rr_spy.logged == []
+
 
 class TestRerunLoggerIntegration:
     def test_writes_nonempty_rrd(self, tmp_path: Path) -> None:

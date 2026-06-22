@@ -556,7 +556,7 @@ class RerunLogger:
         recording_id: Optional stable recording id (e.g. to group runs).
 
     Raises:
-        ValueError: If more than one of ``save_path``, ``grpc_url``, or
+        LoggingInputError: If more than one of ``save_path``, ``grpc_url``, or
             ``spawn`` is given.
     """
 
@@ -584,7 +584,7 @@ class RerunLogger:
             return
         if sum((save_path is not None, grpc_url is not None, spawn)) > 1:
             msg = "pass at most one of save_path, grpc_url, spawn"
-            raise ValueError(msg)
+            raise LoggingInputError(msg)
         # rr.init also registers this as the global recording (so the docs
         # scraper and bare rr.* helpers find it), but we capture the stream and
         # target it explicitly below -- so two loggers never cross-talk and
