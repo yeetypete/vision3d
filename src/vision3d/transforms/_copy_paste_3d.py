@@ -851,27 +851,65 @@ class CopyPaste3D(Transform):
             perm = torch.randperm(len(db)).tolist()
             candidates = [db[i] for i in perm[:n_paste]]
 
-            # Place one at a time so each candidate is checked against both the
-            # scene boxes and the objects already pasted this sample.
-            for entry in candidates:
-                placed = self._place_candidate(entry.box.to(device), fmt, all_boxes)
-                if placed is None:
-                    continue
-                box_k, offset_k = placed
-                if self._jitter:
+            if self._jitter:
+                # Jitter path: place one at a time so each candidate's jittered
+                # pose is checked against both the scene boxes and the objects
+                # already pasted this sample. This costs one overlap kernel per
+                # candidate, which is why it is gated behind ``_jitter``.
+                for entry in candidates:
+                    placed = self._place_candidate(entry.box.to(device), fmt, all_boxes)
+                    if placed is None:
+                        continue
+                    box_k, offset_k = placed
                     # Re-bind the entry to the placed box so camera projection
                     # and points stay consistent with the placed 3-D box.
                     entry = replace(entry, box=box_k.detach().cpu())
-                pasted_entries.append(entry)
-                pasted_boxes.append(box_k)
-                if entry.points is not None and points is not None:
-                    obj_points = entry.points.to(points.device)
-                    if self._jitter:
-                        obj_points = obj_points.clone()
+                    pasted_entries.append(entry)
+                    pasted_boxes.append(box_k)
+                    if entry.points is not None and points is not None:
+                        obj_points = entry.points.to(points.device).clone()
                         obj_points[:, :3] += offset_k.to(obj_points.device)
-                    pasted_points.append(obj_points)
-                pasted_labels.append(entry.label)
-                all_boxes = torch.cat([all_boxes, box_k.unsqueeze(0)])
+                        pasted_points.append(obj_points)
+                    pasted_labels.append(entry.label)
+                    all_boxes = torch.cat([all_boxes, box_k.unsqueeze(0)])
+            else:
+                # Default fast path: two batched overlap kernels per class
+                # (candidates vs scene, candidates vs each other) followed by
+                # a cheap greedy accept on CPU. No per-candidate GPU sync.
+                cand_boxes = torch.stack([c.box for c in candidates]).to(device)
+
+                # Candidates vs existing scene boxes.
+                if all_boxes.shape[0] > 0:
+                    safe = ~box3d_overlap(cand_boxes, all_boxes, fmt).any(dim=1)
+                else:
+                    safe = torch.ones(
+                        cand_boxes.shape[0], dtype=torch.bool, device=device
+                    )
+
+                # Candidates vs each other.
+                cc = box3d_overlap(cand_boxes, cand_boxes, fmt)
+                cc.fill_diagonal_(False)
+
+                safe_cpu = safe.cpu()
+                cc_cpu = cc.cpu()
+                accepted_k: list[int] = []
+                for k in range(len(candidates)):
+                    if not safe_cpu[k].item():
+                        continue
+                    if cc_cpu[k, accepted_k].any().item():
+                        continue
+                    accepted_k.append(k)
+
+                if not accepted_k:
+                    continue
+                for k in accepted_k:
+                    entry = candidates[k]
+                    pasted_entries.append(entry)
+                    pasted_boxes.append(cand_boxes[k])
+                    if entry.points is not None and points is not None:
+                        pasted_points.append(entry.points.to(points.device))
+                    pasted_labels.append(entry.label)
+                all_boxes = torch.cat([all_boxes, cand_boxes[accepted_k]])
 
         if not pasted_boxes:
             return inputs, targets

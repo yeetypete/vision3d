@@ -688,6 +688,81 @@ class TestOffset:
         after = [e.box[:3].tolist() for e in cp._database[CAR]]
         assert after[: len(before)] == before
 
+    def test_random_range_displaces_pasted_centers(self) -> None:
+        # Paste into an empty scene so nothing can collide: every candidate is
+        # placed at its jittered pose, never the original-pose fallback. With a
+        # wide random range each drawn offset is non-zero (a.s.), so every
+        # pasted centre must differ from every source centre.
+        cp = CopyPaste3D(
+            target_counts={CAR: 5}, min_points=1, offset_range=(-25.0, 25.0)
+        )
+        cp(*_make_lidar_batch(batch_size=4, num_boxes=4))
+        src = torch.stack([e.box[:3] for e in cp._database[CAR]])
+
+        empty_inp: dict[str, Any] = {"points": PointCloud3D(torch.zeros(0, 3))}
+        empty_tgt: dict[str, Any] = {
+            "boxes": BoundingBoxes3D(
+                torch.zeros(0, 7), format=BoundingBox3DFormat.XYZLWHY
+            ),
+            "labels": torch.zeros(0, dtype=torch.long),
+        }
+        torch.manual_seed(0)
+        _, out_targets = cp((empty_inp,), (empty_tgt,))
+
+        pasted = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        assert pasted.shape[0] > 0, "expected objects to be pasted"
+        for box in pasted:
+            # L1 distance to the nearest source centre: a real displacement
+            # means it coincides with none of them. (DB boxes live on CPU.)
+            dist = (src - box[:3].cpu()).abs().sum(dim=1)
+            assert dist.min().item() > 1e-3
+
+    def test_camera_paste_with_jitter(self) -> None:
+        # The pasted object is re-bound to its jittered box before camera
+        # reprojection (the most fragile path). Exercise it on a fusion batch:
+        # a small constant offset keeps objects in front of the camera and in
+        # frame, so the re-projected crop is actually written into the image.
+        ox, oy, oz = 0.5, 0.5, 1.0
+        cp = CopyPaste3D(
+            target_counts={CAR: 10},
+            min_points=1,
+            offset_range=((ox, ox), (oy, oy), (oz, oz)),
+        )
+        cp(*_make_fusion_batch(batch_size=2, num_boxes=3, image_fill=0.9))
+        n_original = 1
+        out_inputs, out_targets = cp(
+            *_make_fusion_batch(batch_size=1, num_boxes=n_original, image_fill=0.1)
+        )
+
+        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        if out_boxes.shape[0] <= n_original:
+            pytest.skip("no objects pasted")
+
+        # Camera reprojection of the jittered box succeeded: crop pixels (0.9)
+        # appear over the original fill (0.1), confirming the re-bound box gave
+        # a valid in-frame projection.
+        images = out_inputs[0]["images"]
+        assert (images > 0.8).any(), "Pasted crop pixels should appear"
+        assert (images < 0.2).any(), "Original pixels should remain"
+
+        # The pasted 3-D centres are shifted by the offset (or, when every
+        # jittered pose collided, left at the source pose as documented).
+        src = [
+            tuple(round(v, 3) for v in e.box[:3].tolist()) for e in cp._database[CAR]
+        ]
+
+        def matches_source(cx: float, cy: float, cz: float) -> bool:
+            return any(
+                abs(cx - sx) < 1e-2 and abs(cy - sy) < 1e-2 and abs(cz - sz) < 1e-2
+                for sx, sy, sz in src
+            )
+
+        for box in out_boxes[n_original:]:
+            bx, by, bz = box[0].item(), box[1].item(), box[2].item()
+            shifted = matches_source(bx - ox, by - oy, bz - oz)
+            fallback = matches_source(bx, by, bz)
+            assert shifted or fallback
+
 
 # Determinism
 class TestDeterminism:
