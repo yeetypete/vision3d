@@ -43,17 +43,17 @@ _ATOL = 1e-4
 
 
 def _uniform_std(lo: float, hi: float) -> float:
-    """Population standard deviation of a uniform distribution on ``[lo, hi]``."""
+    # Population std of a uniform distribution on [lo, hi].
     return (hi - lo) / math.sqrt(12.0)
 
 
 def _sample_mean_stderr(std: float, n: int) -> float:
-    """Standard error of the sample mean for ``n`` i.i.d. draws (``std / sqrt(n)``)."""
+    # Standard error of the sample mean for n i.i.d. draws.
     return std / math.sqrt(n)
 
 
 def _sample_std_stderr(std: float, n: int) -> float:
-    """Standard error of the sample std for ``n`` i.i.d. draws (``std / sqrt(2n)``)."""
+    # Standard error of the sample std for n i.i.d. draws.
     return std / math.sqrt(2 * n)
 
 
