@@ -25,7 +25,7 @@ def points_in_boxes_3d(
         Boolean tensor ``[N, M]`` where entry ``(i, j)`` is True if
         point ``i`` is inside box ``j``.
     """
-    centers, half_dims, rot = _extract_box_params(boxes, format)
+    centers, half_dims, rot = extract_box3d_params(boxes, format)
     return _points_in_rotated_boxes(points[:, :3], centers, half_dims, rot)
 
 
@@ -110,10 +110,17 @@ def _build_rotation_matrix(
     return rot
 
 
-def _extract_box_params(
+def extract_box3d_params(
     boxes: Tensor, format: BoundingBox3DFormat
 ) -> tuple[Tensor, Tensor, Tensor]:
-    """Extract centers, half-dimensions, and rotation matrix from boxes.
+    """Decompose 3D boxes into centers, half-dimensions, and rotation matrices.
+
+    Supports all box formats including full 9-DOF (yaw, pitch, roll); formats
+    without rotation yield identity rotation matrices.
+
+    Args:
+        boxes: 3D bounding boxes ``[M, K]`` where ``K`` depends on ``format``.
+        format: Format of the bounding boxes.
 
     Returns:
         ``(centers, half_dims, rot)`` where ``centers`` and ``half_dims`` are

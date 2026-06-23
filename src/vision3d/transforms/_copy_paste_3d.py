@@ -17,11 +17,11 @@ from torchvision.tv_tensors import TVTensor
 from vision3d.ops import (
     box3d_corners,
     box3d_overlap,
+    extract_box3d_params,
     points_in_boxes_3d,
     points_in_boxes_3d_indices,
     project_to_image,
 )
-from vision3d.ops._points_in_boxes_3d import _extract_box_params
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -968,7 +968,7 @@ class CopyPaste3D(Transform):
         pasted_box_stack = torch.stack([e.box for e in pasted_entries]).to(
             images.device
         )
-        p_centers, _, _ = _extract_box_params(pasted_box_stack, fmt)
+        p_centers, _, _ = extract_box3d_params(pasted_box_stack, fmt)
         p_ones = torch.ones(
             p_centers.shape[0], 1, dtype=p_centers.dtype, device=p_centers.device
         )
@@ -979,7 +979,7 @@ class CopyPaste3D(Transform):
             0, 4, dtype=existing_boxes.dtype, device=existing_boxes.device
         )
         if has_existing:
-            e_centers, _, _ = _extract_box_params(existing_boxes, fmt)
+            e_centers, _, _ = extract_box3d_params(existing_boxes, fmt)
             e_ones = torch.ones(
                 e_centers.shape[0], 1, dtype=e_centers.dtype, device=e_centers.device
             )

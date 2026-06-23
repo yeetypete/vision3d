@@ -9,8 +9,7 @@ import torch
 from torch import Tensor
 
 from vision3d.metrics._types import Prediction3D, Target3D
-from vision3d.ops import box3d_iou
-from vision3d.ops._points_in_boxes_3d import _extract_box_params
+from vision3d.ops import box3d_iou, extract_box3d_params
 
 if TYPE_CHECKING:
     from vision3d.tensors import BoundingBox3DFormat
@@ -168,8 +167,8 @@ class MeanAveragePrecision3D:
 
         fmt: BoundingBox3DFormat = gt_boxes.format
 
-        pred_centers, _, _ = _extract_box_params(pred_boxes, fmt)
-        gt_centers, _, _ = _extract_box_params(gt_boxes, fmt)
+        pred_centers, _, _ = extract_box3d_params(pred_boxes, fmt)
+        gt_centers, _, _ = extract_box3d_params(gt_boxes, fmt)
         pred_dist = pred_centers.norm(dim=-1)
         gt_dist = gt_centers.norm(dim=-1)
 

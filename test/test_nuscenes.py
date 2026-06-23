@@ -21,6 +21,7 @@ from nuscenes.eval.detection.utils import (
 )
 from nuscenes.nuscenes import NuScenes as devkit_NuScenes
 from nuscenes.utils import splits as devkit_splits
+from nuscenes.utils.data_classes import LidarPointCloud
 from PIL import Image
 from pyquaternion import Quaternion
 
@@ -292,3 +293,76 @@ def test_nuscenes3d_outputs_match_devkit(
     )
     assert torch.equal(targets["labels"], ref["labels"])
     torch.testing.assert_close(targets["boxes"], ref["boxes"], atol=1e-5, rtol=0)
+
+
+def _devkit_multisweep(
+    nusc: devkit_NuScenes, sample_token: str, num_sweeps: int
+) -> torch.Tensor:
+    # Accumulate sweeps with the nuscenes-devkit. ``min_distance=0`` disables
+    # its close-point removal (which our loader does not do) so the point clouds
+    # match. The devkit keeps (x, y, z, intensity) and a separate time vector.
+    # it drops the ring column.
+    # TODO: provide close-point removal as a reusable distance-filter transform
+    # rather than baking it into NuScenes3D, so ego self-returns can be filtered
+    # like the devkit.
+    sample = nusc.get("sample", sample_token)
+    pc, times = LidarPointCloud.from_file_multisweep(
+        nusc,
+        sample,
+        chan="LIDAR_TOP",
+        ref_chan="LIDAR_TOP",
+        nsweeps=num_sweeps,
+        min_distance=0.0,
+    )
+    return torch.cat(
+        [torch.from_numpy(pc.points.T), torch.from_numpy(times.T)], dim=1
+    ).float()
+
+
+def _drop_ring(points: torch.Tensor) -> torch.Tensor:
+    # Our cloud is (x, y, z, intensity, ring, time). Drop ring to match the
+    # devkit's (x, y, z, intensity, time) layout.
+    return torch.cat([points[:, :4], points[:, 5:]], dim=1)
+
+
+@pytest.mark.parametrize("num_sweeps", [3, 10])
+def test_nuscenes3d_sweeps_match_devkit(
+    mini_root: Path, devkit_db: devkit_NuScenes, num_sweeps: int
+) -> None:
+    """Aggregated multi-sweep clouds match the devkit ``from_file_multisweep``."""
+    ds = NuScenes3D(
+        mini_root, version="v1.0-mini", split="train", num_sweeps=num_sweeps
+    )
+    single = NuScenes3D(mini_root, version="v1.0-mini", split="train")
+    for index in (0, len(ds) // 2, len(ds) - 1):
+        points = ds[index][0]["points"]
+        ref = _devkit_multisweep(devkit_db, ds._sample_tokens[index], num_sweeps)
+        assert points.shape[1] == 6
+        # Aggregating sweeps only adds points to the key-frame.
+        assert points.shape[0] >= single[index][0]["points"].shape[0]
+        torch.testing.assert_close(_drop_ring(points), ref, atol=1e-3, rtol=0)
+        # Key-frame points come first and carry a zero time offset.
+        assert points[: single[index][0]["points"].shape[0], -1].abs().max() == 0.0
+
+
+def test_nuscenes3d_sweeps_scene_start(
+    mini_root: Path, devkit_db: devkit_NuScenes
+) -> None:
+    """Requesting more sweeps than a scene provides falls back to the sweeps
+    that are available."""
+    ds = NuScenes3D(mini_root, version="v1.0-mini", split="train", num_sweeps=10)
+    single = NuScenes3D(mini_root, version="v1.0-mini", split="train")
+    # ``_sample_tokens`` is built scene by scene, so index 0 is a scene start.
+    token = ds._sample_tokens[0]
+    lidar_data = devkit_db.get(
+        "sample_data", devkit_db.get("sample", token)["data"]["LIDAR_TOP"]
+    )
+    assert lidar_data["prev"] == "", "expected index 0 to be a scene start"
+
+    points = ds[0][0]["points"]
+    # With no previous sweeps, the result is exactly the single-frame key-frame.
+    assert points.shape[0] == single[0][0]["points"].shape[0]
+    assert points[:, -1].abs().max() == 0.0
+    torch.testing.assert_close(
+        _drop_ring(points), _devkit_multisweep(devkit_db, token, 10), atol=1e-3, rtol=0
+    )

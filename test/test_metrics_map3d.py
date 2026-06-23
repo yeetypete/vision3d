@@ -343,6 +343,15 @@ class TestReset:
         assert m.compute()["mAP"] == -1.0
 
 
+def test_compute_without_update_returns_undefined() -> None:
+    # No update() -> every bucket undefined -> the -1.0 sentinel (COCO
+    # convention), not a real score of 0.0.
+    m = MeanAveragePrecision3D(class_ids=[CAR])
+    out = m.compute()
+    assert out["mAP"] == -1.0
+    assert all(ap == -1.0 for ap in out["mAP_per_class"].values())
+
+
 class TestInputValidation:
     def test_length_mismatch_raises(self) -> None:
         m = MeanAveragePrecision3D(class_ids=[CAR])

@@ -132,7 +132,7 @@ class BoundingBoxes3D(TVTensor):
         output: Tensor,
         args: Sequence[Any] = (),
         kwargs: Mapping[str, Any] | None = None,
-    ) -> Self:
+    ) -> Tensor:
         # Metadata is lost after __torch_function__ calls. Restore it by taking
         # the format from the first BoundingBoxes3D in the args. This is correct
         # in most cases; when it isn't (e.g. mixing formats in one operation),
