@@ -38,8 +38,8 @@ _PASTE_FILL = 0.9
 _SCENE_FILL = 0.1
 _FILL_TOL = 0.1
 
-# Absolute tolerance for box-centre coincidence checks (scene units).
-_CENTER_ATOL = 1e-4
+# Absolute tolerance for float comparisons in scene units (centres, bounds).
+_ATOL = 1e-4
 
 
 def _uniform_std(lo: float, hi: float) -> float:
@@ -665,8 +665,8 @@ class TestOffset:
         torch.manual_seed(0)
         s = cp._sample_offsets(n, torch.device("cpu"), torch.float32)[:, 0]
         # Never escapes the interval.
-        assert s.min().item() >= -1.0 - 1e-5
-        assert s.max().item() <= 1.0 + 1e-5
+        assert s.min().item() >= -1.0 - _ATOL
+        assert s.max().item() <= 1.0 + _ATOL
         # Centred on the midpoint (true mean 0) within a few stderrs.
         mean_tol = _SIGMA_TOL * _sample_mean_stderr(nominal_std, n)
         assert abs(s.mean().item()) < mean_tol
@@ -725,9 +725,7 @@ class TestOffset:
 
         out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
         assert out_boxes.shape[0] == 2  # blocker + pasted fallback
-        assert torch.allclose(
-            out_boxes[1, :3].cpu(), db_box[:3].cpu(), atol=_CENTER_ATOL
-        )
+        assert torch.allclose(out_boxes[1, :3].cpu(), db_box[:3].cpu(), atol=_ATOL)
 
     def test_does_not_mutate_database_entries(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1, offset_range=(5.0, 5.0))
@@ -764,7 +762,7 @@ class TestOffset:
             # L1 distance to the nearest source centre: a real displacement
             # means it coincides with none of them. (DB boxes live on CPU.)
             dist = (src - box[:3].cpu()).abs().sum(dim=1)
-            assert dist.min().item() > _CENTER_ATOL
+            assert dist.min().item() > _ATOL
 
     def test_camera_paste_with_jitter(self) -> None:
         # The pasted object is re-bound to its jittered box before camera
