@@ -289,6 +289,20 @@ class TestRerunLoggerLifecycle:
         with pytest.raises(ValueError, match="at most one of"):
             RerunLogger("run", save_path="x.rrd", spawn=True)
 
+    def test_multiple_sinks_raise_off_rank_zero(self) -> None:
+        # Config validation is a pure argument check: it must reject a bad
+        # configuration on every rank, not just rank 0, so the error does not
+        # depend on which process happens to run it.
+        with pytest.raises(ValueError, match="at most one of"):
+            RerunLogger("run", save_path="x.rrd", spawn=True, rank=1)
+
+    def test_multiple_sinks_raise_when_disabled(self) -> None:
+        # A logger should always be correctly configured: an invalid sink combo
+        # is rejected even when logging is disabled outright, so the mistake
+        # surfaces at construction rather than lurking until logging is enabled.
+        with pytest.raises(ValueError, match="at most one of"):
+            RerunLogger("run", save_path="x.rrd", spawn=True, enabled=False)
+
     def test_context_manager_flushes_and_disconnects(self, rr_spy: _RrSpy) -> None:
         with RerunLogger("run", save_path="x.rrd"):
             pass
@@ -298,7 +312,7 @@ class TestRerunLoggerLifecycle:
 
 class TestRerunLoggerLogging:
     def test_namespace_and_group_compose_entity(self, rr_spy: _RrSpy) -> None:
-        logger = RerunLogger("run", spawn=True, prefix="runs/baseline")
+        logger = RerunLogger("run", spawn=True, namespace="runs/baseline")
         logger.log({"loss/total": 1.0}, step=3)
         assert rr_spy.times == [("step", 3)]
         assert rr_spy.logged == [("runs/baseline/train/loss/total", 1.0)]
@@ -331,7 +345,7 @@ class TestRerunLoggerLogging:
         assert rr_spy.logged == [("train/loss", 1.0)]
 
     def test_style_series_resolves_namespaced_entity(self, rr_spy: _RrSpy) -> None:
-        logger = RerunLogger("run", spawn=True, prefix="runs/baseline")
+        logger = RerunLogger("run", spawn=True, namespace="runs/baseline")
         logger.style_series("loss/total", legend="baseline", color=(1, 2, 3))
         entity, _ = rr_spy.logged[0]
         assert entity == "runs/baseline/train/loss/total"
@@ -363,6 +377,31 @@ class TestRerunLoggerErrorHandling:
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             logger.log({"loss": 2.0}, step=1)
+
+    def test_warns_once_per_failing_action(
+        self, rr_spy: _RrSpy, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The warning is rate-limited per action, not once for the whole logger:
+        # a different failing operation still surfaces once even after another
+        # has already been silenced.
+        def boom(*_a: object, **_k: object) -> None:
+            raise RuntimeError("rerun down")
+
+        monkeypatch.setattr(logging_mod, "log_scalars", boom)
+        monkeypatch.setattr(logging_mod, "log_boxes_3d", boom)
+        logger = RerunLogger("run", spawn=True)
+
+        # 'log' warns once, then goes quiet.
+        with pytest.warns(RuntimeWarning, match="'log' failed"):
+            logger.log({"loss": 1.0}, step=0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            logger.log({"loss": 2.0}, step=1)
+
+        # A distinct action ('log_boxes_3d') is not suppressed by 'log' having
+        # already warned -- it surfaces its own first warning.
+        with pytest.warns(RuntimeWarning, match="'log_boxes_3d' failed"):
+            logger.log_boxes_3d("world/pred", _box())
 
     def test_strict_propagates(
         self, rr_spy: _RrSpy, monkeypatch: pytest.MonkeyPatch

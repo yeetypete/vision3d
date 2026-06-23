@@ -243,7 +243,9 @@ def log_cameras(
 ) -> None:
     """Log all camera images with optional pinhole projection to Rerun.
 
-    Each camera is logged to ``{entity_prefix}_{i}``.
+    Each camera is logged to ``{entity_prefix}_{i}``. Images are inherently
+    per-frame, so -- unlike :func:`log_point_cloud` and :func:`log_boxes_3d` --
+    there is no ``static`` option here.
 
     Args:
         entity_prefix: Rerun entity path prefix (e.g. ``"world/cam"``).
@@ -336,6 +338,12 @@ def log_sample(
     can be toggled independently; both keep per-class colors and are
     distinguished by fill style (ground truth as translucent colored
     faces, predictions as a wireframe).
+
+    The whole sample is logged at the current timeline position, so there is no
+    ``static`` option. To inspect a fixed sample over training (constant cloud
+    and ground truth, only predictions changing), log its parts directly with
+    :func:`log_point_cloud`/:func:`log_boxes_3d` using ``static=True`` for the
+    constant geometry.
 
     Args:
         inputs: :class:`~vision3d.datasets.SampleInputs` with ``"points"``,
@@ -513,8 +521,11 @@ class RerunLogger:
 
     Logging is **best-effort by default**: an *operational* failure in any
     logging call (e.g. a dropped connection or a full disk) is caught and
-    suppressed with a single warning, so a visualization hiccup never crashes a
-    long training run. Pass ``strict=True`` to let such errors propagate
+    suppressed with a warning, so a visualization hiccup never crashes a long
+    training run. The warning fires once per failing operation (e.g. ``log``,
+    ``log_config``) and is then silenced for that operation, so a flood of the
+    same failure stays quiet while a later, different failure still surfaces.
+    Pass ``strict=True`` to let such errors propagate
     instead. *Input* errors are treated differently: malformed arguments (a
     non-scalar metric, mismatched per-box list lengths, ...) raise
     :class:`LoggingInputError` and always propagate, even in best-effort mode,
@@ -546,9 +557,12 @@ class RerunLogger:
         blueprint: Optional dashboard layout, built from
             :func:`time_series_view` and :func:`lidar_view`. When ``None``,
             Rerun auto-arranges views.
-        prefix: Entity-path namespace prepended to every metric (e.g.
+        namespace: Entity-path namespace prepended to every metric (e.g.
             ``"runs/baseline"`` to keep one run's curves together for
-            cross-run comparison). Empty by default.
+            cross-run comparison). Set once for the whole run, then combined
+            with each call's ``group`` to form the entity prefix passed to
+            :func:`log_scalars` -- distinct from that function's ``prefix``,
+            which is the already-composed full prefix. Empty by default.
         rank: Process rank; the logger only records on rank 0.
         enabled: Master switch; ``False`` disables logging entirely.
         strict: If ``True``, let logging errors propagate instead of
@@ -568,23 +582,26 @@ class RerunLogger:
         grpc_url: str | None = None,
         spawn: bool = False,
         blueprint: "BlueprintLike | None" = None,
-        prefix: str = "",
+        namespace: str = "",
         rank: int = 0,
         enabled: bool = True,
         strict: bool = False,
         recording_id: str | None = None,
     ) -> None:
+        # Validate config before the rank guard so every rank rejects a bad
+        # configuration identically -- it is a pure argument check and must not
+        # depend on which rank happens to run it.
+        if sum((save_path is not None, grpc_url is not None, spawn)) > 1:
+            msg = "pass at most one of save_path, grpc_url, spawn"
+            raise LoggingInputError(msg)
         self.enabled = enabled and rank == 0
-        self._prefix = prefix.strip("/")
+        self._namespace = namespace.strip("/")
         self._strict = strict
-        self._warned = False
+        self._warned: set[str] = set()
         self._closed = False
         self._rec: RecordingStream | None = None
         if not self.enabled:
             return
-        if sum((save_path is not None, grpc_url is not None, spawn)) > 1:
-            msg = "pass at most one of save_path, grpc_url, spawn"
-            raise LoggingInputError(msg)
         # rr.init also registers this as the global recording (so the docs
         # scraper and bare rr.* helpers find it), but we capture the stream and
         # target it explicitly below -- so two loggers never cross-talk and
@@ -620,18 +637,22 @@ class RerunLogger:
         """Join the run namespace and ``group`` into an entity prefix.
 
         Returns:
-            The ``/``-joined non-empty parts of ``(prefix, group)``.
+            The ``/``-joined non-empty parts of ``(namespace, group)``.
         """
-        return "/".join(part for part in (self._prefix, group) if part)
+        return "/".join(part for part in (self._namespace, group) if part)
 
     def _run(self, action: str, fn: Callable[[], None]) -> None:
         """Run a logging action, suppressing failures unless ``strict``.
 
         Keeps a visualization failure from crashing training: the first
-        suppressed error emits one warning; the rest are silenced.
+        suppressed failure of each ``action`` emits one warning; repeats of
+        that action are then silenced. Warning per action rather than once for
+        the whole logger means a later, unrelated failure mode (e.g. a blueprint
+        send after scalar logging has been failing) still surfaces once.
 
         Args:
-            action: Short name of the action, used in the warning message.
+            action: Short name of the action, used in the warning message and
+                as the rate-limit key.
             fn: Zero-argument callable performing the Rerun calls.
 
         Raises:
@@ -650,15 +671,38 @@ class RerunLogger:
             # Broad by design: visualization logging must never crash training.
             if self._strict:
                 raise
-            if not self._warned:
-                self._warned = True
+            if action not in self._warned:
+                self._warned.add(action)
                 warnings.warn(
                     f"RerunLogger: {action!r} failed and was suppressed; "
-                    "further logging errors are silenced (pass strict=True to "
-                    "raise).",
+                    f"further {action!r} errors are silenced (pass strict=True "
+                    "to raise).",
                     RuntimeWarning,
                     stacklevel=3,
                 )
+
+    def _scene(
+        self, action: str, fn: Callable[..., None], *args: object, **kwargs: object
+    ) -> None:
+        """Dispatch a scene logger onto this recording, rank-aware and safe.
+
+        The shared body of the scene wrappers (:meth:`log_point_cloud`,
+        :meth:`log_boxes_3d`, :meth:`log_cameras`, :meth:`log_sample`): skip
+        off rank 0, target this logger's recording rather than Rerun's global,
+        and route through :meth:`_run` for best-effort error handling. Keeping
+        it in one place means the four wrappers cannot drift on that policy.
+
+        Args:
+            action: Rate-limit key and warning label for :meth:`_run`.
+            fn: Free scene-logging function to call (e.g.
+                :func:`log_point_cloud`).
+            *args: Positional arguments forwarded to ``fn``.
+            **kwargs: Keyword arguments forwarded to ``fn``; ``recording`` is
+                injected automatically.
+        """
+        if not self.enabled:
+            return
+        self._run(action, lambda: fn(*args, recording=self._rec, **kwargs))
 
     def log(
         self,
@@ -673,7 +717,7 @@ class RerunLogger:
         """Log scalar metrics for this run.
 
         Delegates to :func:`log_scalars`, routing each metric to
-        ``{prefix}/{group}/{name}`` so a dashboard
+        ``{namespace}/{group}/{name}`` so a dashboard
         (:func:`time_series_view`) groups it by run and section.
 
         Args:
@@ -763,8 +807,9 @@ class RerunLogger:
     ) -> None:
         """Style one of this run's metric series.
 
-        Resolves the entity from this logger's namespace so the run prefix
-        and ``group`` need not be repeated. See :func:`style_series`.
+        Resolves the entity from this logger's namespace so the run
+        ``namespace`` and ``group`` need not be repeated. See
+        :func:`style_series`.
 
         Args:
             name: Metric name to style (the same name passed to :meth:`log`).
@@ -837,7 +882,7 @@ class RerunLogger:
         """Rank-aware, best-effort wrapper around :func:`log_point_cloud`.
 
         Routes into this logger's recording and is a no-op when disabled.
-        ``entity`` is an absolute Rerun path (not namespaced by ``prefix``),
+        ``entity`` is an absolute Rerun path (not namespaced by ``namespace``),
         since 3D scene data is typically shared across a recording.
 
         Args:
@@ -846,17 +891,13 @@ class RerunLogger:
             color_by_distance: Color points by distance from origin.
             static: Log without a timeline (constant geometry).
         """
-        if not self.enabled:
-            return
-        self._run(
+        self._scene(
             "log_point_cloud",
-            lambda: log_point_cloud(
-                entity,
-                points,
-                color_by_distance=color_by_distance,
-                static=static,
-                recording=self._rec,
-            ),
+            log_point_cloud,
+            entity,
+            points,
+            color_by_distance=color_by_distance,
+            static=static,
         )
 
     def log_boxes_3d(
@@ -869,7 +910,7 @@ class RerunLogger:
         label_to_id: dict[str, int] | None = None,
         scores: list[float] | Tensor | None = None,
         score_threshold: float | None = None,
-        fill_mode: "rr.components.FillModeLike | None" = None,
+        fill_mode: rr.components.FillModeLike | None = None,
         show_labels: bool | None = None,
         log_heading: bool = True,
         static: bool = False,
@@ -877,7 +918,7 @@ class RerunLogger:
         """Rank-aware, best-effort wrapper around :func:`log_boxes_3d`.
 
         Routes into this logger's recording and is a no-op when disabled.
-        ``entity`` is an absolute Rerun path (not namespaced by ``prefix``).
+        ``entity`` is an absolute Rerun path (not namespaced by ``namespace``).
         See :func:`log_boxes_3d` for the argument semantics.
 
         Args:
@@ -894,24 +935,20 @@ class RerunLogger:
             static: Log without a timeline (constant geometry, e.g. ground
                 truth on a fixed sample inspected over training).
         """
-        if not self.enabled:
-            return
-        self._run(
+        self._scene(
             "log_boxes_3d",
-            lambda: log_boxes_3d(
-                entity,
-                boxes,
-                labels=labels,
-                class_ids=class_ids,
-                label_to_id=label_to_id,
-                scores=scores,
-                score_threshold=score_threshold,
-                fill_mode=fill_mode,
-                show_labels=show_labels,
-                log_heading=log_heading,
-                static=static,
-                recording=self._rec,
-            ),
+            log_boxes_3d,
+            entity,
+            boxes,
+            labels=labels,
+            class_ids=class_ids,
+            label_to_id=label_to_id,
+            scores=scores,
+            score_threshold=score_threshold,
+            fill_mode=fill_mode,
+            show_labels=show_labels,
+            log_heading=log_heading,
+            static=static,
         )
 
     def log_cameras(
@@ -927,7 +964,7 @@ class RerunLogger:
 
         Routes into this logger's recording and is a no-op when disabled.
         ``entity_prefix`` is an absolute Rerun path (not namespaced by
-        ``prefix``). See :func:`log_cameras`.
+        ``namespace``). See :func:`log_cameras`.
 
         Args:
             entity_prefix: Rerun entity path prefix (e.g. ``"world/cam"``).
@@ -936,18 +973,14 @@ class RerunLogger:
             extrinsics: Extrinsic matrices ``[N_cams, 4, 4]``.
             jpeg_quality: If set, JPEG-encode each image at this quality.
         """
-        if not self.enabled:
-            return
-        self._run(
+        self._scene(
             "log_cameras",
-            lambda: log_cameras(
-                entity_prefix,
-                images,
-                intrinsics,
-                extrinsics,
-                jpeg_quality=jpeg_quality,
-                recording=self._rec,
-            ),
+            log_cameras,
+            entity_prefix,
+            images,
+            intrinsics,
+            extrinsics,
+            jpeg_quality=jpeg_quality,
         )
 
     def log_sample(
@@ -965,7 +998,7 @@ class RerunLogger:
 
         Routes into this logger's recording and is a no-op when disabled.
         ``entity_prefix`` is an absolute Rerun path (not namespaced by
-        ``prefix``). See :func:`log_sample`.
+        ``namespace``). See :func:`log_sample`.
 
         Args:
             inputs: Sample inputs (points, images, intrinsics, extrinsics).
@@ -976,20 +1009,16 @@ class RerunLogger:
             score_threshold: Drop predictions scoring below this.
             jpeg_quality: If set, JPEG-encode camera images at this quality.
         """
-        if not self.enabled:
-            return
-        self._run(
+        self._scene(
             "log_sample",
-            lambda: log_sample(
-                inputs,
-                targets,
-                predictions=predictions,
-                entity_prefix=entity_prefix,
-                label_to_id=label_to_id,
-                score_threshold=score_threshold,
-                jpeg_quality=jpeg_quality,
-                recording=self._rec,
-            ),
+            log_sample,
+            inputs,
+            targets,
+            predictions=predictions,
+            entity_prefix=entity_prefix,
+            label_to_id=label_to_id,
+            score_threshold=score_threshold,
+            jpeg_quality=jpeg_quality,
         )
 
     def flush(self) -> None:
