@@ -15,7 +15,7 @@ def camera_grid(
     """Build a 2D camera-panel grid from a dataset's rig metadata.
 
     Each cell in ``grid`` is an index into ``camera_names``. Entity origins
-    follow ``log_cameras``' ``{entity_prefix}_{i}`` convention so this helper
+    follow ``log_cameras``' ``{entity_prefix}/{i}`` convention so this helper
     pairs directly with :func:`vision3d.viz.log_cameras`.
 
     Panels are emitted row-major into a :class:`~rerun.blueprint.Grid`
@@ -27,7 +27,7 @@ def camera_grid(
             the dataset hasn't declared a rig layout. Falls back to a single
             row in tensor order.
         entity_prefix: Prefix for camera entity origins (e.g. ``"world/cam"``
-            -> ``/world/cam_0``, ``/world/cam_1`` ...).
+            -> ``/world/cam/0``, ``/world/cam/1`` ...).
         overlay_entities: Box entities to overlay on every camera panel
             (e.g. ``("world/gt/boxes", "world/pred/boxes")``). All overlays
             are rendered as ``"majorwireframe"`` in the projections, since
@@ -60,7 +60,7 @@ def camera_grid(
             panels.append(
                 rrb.Spatial2DView(
                     name=camera_names[idx],
-                    origin=f"/{entity_prefix}_{idx}",
+                    origin=f"/{entity_prefix}/{idx}",
                     contents=contents,
                     overrides={
                         f"/{entity}": rr.Boxes3D.from_fields(fill_mode="majorwireframe")
@@ -129,7 +129,7 @@ def fusion_layout(
 
     Composes :func:`lidar_view` and :func:`camera_grid` under matching entity
     prefixes that align with :func:`vision3d.viz.log_sample`'s defaults
-    (``world/cam_*`` for cameras, ``world/gt/boxes`` and ``world/pred/boxes``
+    (``world/cam/*`` for cameras, ``world/gt/boxes`` and ``world/pred/boxes``
     for the box overlays).
 
     Args:
@@ -137,7 +137,7 @@ def fusion_layout(
         grid: Row-major grid of indices into ``camera_names``. See
             :func:`camera_grid`.
         entity_prefix: Root entity prefix; the 3D view roots at
-            ``/{entity_prefix}``, cameras at ``/{entity_prefix}/cam_*``,
+            ``/{entity_prefix}``, cameras at ``/{entity_prefix}/cam/*``,
             box overlays at ``/{entity_prefix}/gt/boxes`` and
             ``/{entity_prefix}/pred/boxes``.
         row_shares: Vertical split ratio between the 3D view and camera grid.

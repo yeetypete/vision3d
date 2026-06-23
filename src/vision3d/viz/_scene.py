@@ -222,7 +222,7 @@ def log_cameras(
 ) -> None:
     """Log all camera images with optional pinhole projection to Rerun.
 
-    Each camera is logged to ``{entity_prefix}_{i}``. Images are inherently
+    Each camera is logged to ``{entity_prefix}/{i}``. Images are inherently
     per-frame, so -- unlike :func:`log_point_cloud` and :func:`log_boxes_3d` --
     there is no ``static`` option here.
 
@@ -238,7 +238,7 @@ def log_cameras(
     """
     for i in range(images.shape[0]):
         _log_single_camera(
-            f"{entity_prefix}_{i}",
+            f"{entity_prefix}/{i}",
             images,
             intrinsics,
             extrinsics,

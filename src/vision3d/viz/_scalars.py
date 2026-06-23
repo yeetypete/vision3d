@@ -100,5 +100,5 @@ def _scalar_value(name: str, value: SupportsFloat | Tensor) -> float:
         if value.numel() != 1:
             msg = f"metric {name!r} must be a scalar but has {value.numel()} elements"
             raise LoggingInputError(msg)
-        return value.detach().cpu().item()
+        return float(value.detach().cpu().item())
     return float(value)
