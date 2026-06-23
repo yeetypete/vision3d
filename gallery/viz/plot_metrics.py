@@ -123,12 +123,15 @@ dashboard = rrb.Blueprint(
     )
 )
 
-# A real (often multi-GPU) run would write to a file and guard on rank::
+# A real (often multi-GPU) run would write to a file, guard on rank, and use
+# the context manager so the sink is always flushed and closed::
 #
-#     logger = RerunLogger("bevfusion", save_path="run.rrd",
-#                           rank=rank, blueprint=dashboard)
+#     with RerunLogger("bevfusion", save_path="run.rrd",
+#                      rank=rank, blueprint=dashboard) as logger:
+#         ...  # training loop
 #
-# Here we spawn a viewer so the example renders inline.
+# Here the example logs across several narrative cells, so we hold the logger
+# directly and :meth:`~vision3d.viz.RerunLogger.close` it explicitly at the end.
 logger = RerunLogger("vision3d_training", spawn=True, blueprint=dashboard)
 
 # Record run-wide settings as recording properties; per-run hyperparameters
@@ -324,3 +327,11 @@ for step in range(TOTAL_STEPS):
         fill_mode="majorwireframe",
         show_labels=True,
     )
+
+# %%
+# Close the logger
+# ----------------
+# Flush and disconnect the sink. A ``with RerunLogger(...) as logger:`` block
+# does this automatically (and is preferred in a real loop); here we close
+# explicitly because the run spans several cells.
+logger.close()

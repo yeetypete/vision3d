@@ -2,12 +2,7 @@
 
 from collections.abc import Sequence
 
-try:
-    import rerun as rr
-    import rerun.blueprint as rrb
-except ImportError as e:
-    msg = "rerun-sdk is required for visualization. Install with: pip install vision3d[viz]"
-    raise ImportError(msg) from e
+from ._rerun import rr, rrb
 
 
 def camera_grid(

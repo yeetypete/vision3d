@@ -1,4 +1,4 @@
-"""Tests for :mod:`vision3d.viz._logging` box logging logic.
+"""Tests for :mod:`vision3d.viz._scene` box and point-cloud logging logic.
 
 These exercise the pure label-building and score-filtering logic without a
 live Rerun recording: ``rr.log`` and ``rr.Boxes3D`` are spied on so the
@@ -8,9 +8,9 @@ arguments handed to Rerun can be asserted directly.
 import pytest
 import torch
 
-import vision3d.viz._logging as logging_mod
+import vision3d.viz._scene as scene_mod
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
-from vision3d.viz._logging import _build_labels, log_boxes_3d, log_point_cloud
+from vision3d.viz._scene import _build_labels, log_boxes_3d, log_point_cloud
 
 
 def _boxes(n: int) -> BoundingBoxes3D:
@@ -45,8 +45,8 @@ def spy(monkeypatch: pytest.MonkeyPatch) -> _Spy:
         The :class:`_Spy` recording calls into Rerun.
     """
     s = _Spy()
-    monkeypatch.setattr(logging_mod.rr, "log", s.log)
-    monkeypatch.setattr(logging_mod.rr, "Boxes3D", s.boxes3d)
+    monkeypatch.setattr(scene_mod.rr, "log", s.log)
+    monkeypatch.setattr(scene_mod.rr, "Boxes3D", s.boxes3d)
     return s
 
 
@@ -92,7 +92,7 @@ class TestScoreFiltering:
         assert len(spy.logged) == 1
         entity, archetype = spy.logged[0]
         assert entity == "world/pred/boxes"
-        assert isinstance(archetype, logging_mod.rr.Clear)
+        assert isinstance(archetype, scene_mod.rr.Clear)
 
 
 class TestValidation:
@@ -121,7 +121,7 @@ class TestStatic:
     ) -> None:
         seen: list[bool | None] = []
         monkeypatch.setattr(
-            logging_mod.rr,
+            scene_mod.rr,
             "log",
             lambda _entity, _archetype, **k: seen.append(k.get("static")),
         )
@@ -133,7 +133,7 @@ class TestStatic:
     ) -> None:
         seen: list[tuple[str, bool | None]] = []
         monkeypatch.setattr(
-            logging_mod.rr,
+            scene_mod.rr,
             "log",
             lambda entity, _archetype, **k: seen.append((entity, k.get("static"))),
         )
@@ -144,7 +144,7 @@ class TestStatic:
     def test_static_defaults_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         seen: list[bool | None] = []
         monkeypatch.setattr(
-            logging_mod.rr,
+            scene_mod.rr,
             "log",
             lambda _entity, _archetype, **k: seen.append(k.get("static")),
         )
