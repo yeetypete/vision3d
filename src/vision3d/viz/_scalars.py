@@ -23,37 +23,23 @@ def log_scalars(
     """Log scalar training metrics to Rerun.
 
     Each entry in ``values`` is logged as an :class:`rerun.Scalars` archetype
-    to its own entity (``{prefix}/{name}``), forming a time series that Rerun
-    plots in a :class:`~rerun.blueprint.TimeSeriesView` (see
-    :func:`vision3d.viz.time_series_view`). This is the primitive for tracking
-    quantities such as loss, learning rate, or validation metrics over a
-    training run. Call it once per logging point (e.g. every optimizer step)
-    from a training loop, which lives outside this repo and supplies ``step``
-    and ``epoch`` from its own counters.
-
-    Metric names may contain ``/`` to build a nested entity hierarchy, e.g.
-    ``{"loss/total": ..., "loss/cls": ...}`` groups under ``{prefix}/loss``.
+    to its own entity (``{prefix}/{name}``), forming a time series for a
+    :class:`~rerun.blueprint.TimeSeriesView`. Metric names may contain ``/`` to
+    nest, e.g. ``{"loss/total": ..., "loss/cls": ...}`` groups under
+    ``{prefix}/loss``. ``step``/``epoch`` move the recording's timeline cursor,
+    which persists, so pass them on every call (or use :class:`RerunLogger`).
 
     Args:
         values: Mapping from metric name to scalar value (Python or numpy
             number, or single-element tensor). Tensor values must hold a
             single element and are moved to the CPU before logging.
-        step: Optimizer/iteration step. When given, scalars are logged on a
-            ``"step"`` timeline so they align by iteration.
-        epoch: Training epoch. When given, scalars are logged on an
-            ``"epoch"`` timeline so they align by epoch. May be combined with
-            ``step`` to log on both timelines at once.
+        step: Optimizer/iteration step, logged on a ``"step"`` timeline.
+        epoch: Training epoch, logged on an ``"epoch"`` timeline. May be
+            combined with ``step`` to log on both timelines at once.
         prefix: Entity path prefix grouping these metrics (e.g. ``"train"``,
             ``"val"``). Pass ``""`` to log each metric at the root.
         recording: Target recording. ``None`` (default) uses Rerun's active
-            global recording; pass an explicit stream to avoid relying on
-            global state (see :class:`RerunLogger`).
-
-    Note:
-        ``step``/``epoch`` move the recording's timeline cursor, which
-        persists: a later ``rr.log`` with no explicit time lands on the last
-        value set here. Pass ``step`` on every call (or use
-        :class:`RerunLogger`) to keep things aligned.
+            global recording.
     """
     if step is not None:
         rr.set_time("step", sequence=step, recording=recording)
@@ -76,15 +62,9 @@ def style_series(
     """Style a scalar time series for plotting.
 
     Logs an :class:`rerun.SeriesLines` archetype statically on ``entity`` to
-    control how the curve produced by :func:`log_scalars` appears in a
-    :class:`~rerun.blueprint.TimeSeriesView`. This is most useful for
-    overlaying multiple training runs in one plot: give each run's series a
-    stable legend name and a distinct color so they can be told apart. Route
-    each run to its own entity prefix (e.g. ``log_scalars(..., prefix=
-    "runs/baseline/train")``) and style the matching entity here.
-
-    Call once, before or after logging the series; the style is static so it
-    applies across the whole recording.
+    control how the curve produced by :func:`log_scalars` appears. Most useful
+    for overlaying multiple training runs in one plot: route each run to its
+    own entity prefix and give it a stable legend name and distinct color.
 
     Args:
         entity: Rerun entity path of the scalar series to style (e.g.

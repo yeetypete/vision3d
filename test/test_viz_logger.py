@@ -20,10 +20,27 @@ from vision3d.viz._logger import RerunLogger
 
 
 class _SpyRecording:
-    """Stand-in for the ``RecordingStream`` a logger owns and targets."""
+    """Stand-in for the ``RecordingStream`` a logger owns and targets.
+
+    The logger drives its sink through this stream's own methods (never the
+    module-level ``rr.*`` helpers), so the sink calls are recorded here and
+    funnelled back to the parent spy.
+    """
 
     def __init__(self, spy: "_RrSpy") -> None:
         self._spy = spy
+
+    def spawn(self, **_: object) -> None:
+        self._spy.spawns += 1
+
+    def save(self, path: str, **_: object) -> None:
+        self._spy.saves.append(path)
+
+    def connect_grpc(self, url: str, **_: object) -> None:
+        self._spy.grpc.append(url)
+
+    def send_blueprint(self, blueprint: object, **_: object) -> None:
+        self._spy.blueprints.append(blueprint)
 
     def flush(self, **_: object) -> None:
         self._spy.flushes += 1
@@ -36,7 +53,8 @@ class _RrSpy:
     """Spy standing in for the Rerun module inside :class:`RerunLogger`."""
 
     def __init__(self) -> None:
-        self.inits: list[tuple[str, str | None, bool]] = []
+        self.inits: list[tuple[str, str | None]] = []
+        self.spawns = 0
         self.saves: list[str] = []
         self.grpc: list[str] = []
         self.blueprints: list[object] = []
@@ -48,21 +66,15 @@ class _RrSpy:
         self.properties: list[tuple[str, object]] = []
         self._recording = _SpyRecording(self)
 
-    def init(
-        self, name: str, *, recording_id: str | None = None, spawn: bool = False
-    ) -> None:
-        self.inits.append((name, recording_id, spawn))
-
-    def save(self, path: str, **_: object) -> None:
-        self.saves.append(path)
-
-    def connect_grpc(self, url: str, **_: object) -> None:
-        self.grpc.append(url)
-
-    def send_blueprint(self, blueprint: object, **_: object) -> None:
-        self.blueprints.append(blueprint)
-
-    def get_global_data_recording(self) -> _SpyRecording:
+    def RecordingStream(
+        self, name: str, *, recording_id: str | None = None, **_: object
+    ) -> _SpyRecording:
+        # The logger owns a private stream rather than calling rr.init, so it
+        # never registers a process-global recording. Each construction yields a
+        # fresh stream -- as the real SDK does -- so two loggers in one process
+        # cannot cross-talk; sink calls still funnel back here for assertions.
+        self.inits.append((name, recording_id))
+        self._recording = _SpyRecording(self)
         return self._recording
 
     def set_time(
@@ -101,11 +113,7 @@ def rr_spy(monkeypatch: pytest.MonkeyPatch) -> _RrSpy:
     """
     spy = _RrSpy()
     for attr in (
-        "init",
-        "save",
-        "connect_grpc",
-        "send_blueprint",
-        "get_global_data_recording",
+        "RecordingStream",
         "set_time",
         "reset_time",
         "Scalars",
@@ -135,12 +143,14 @@ class TestRerunLoggerLifecycle:
 
     def test_save_sink(self, rr_spy: _RrSpy) -> None:
         RerunLogger("run", save_path="out.rrd")
-        assert rr_spy.inits == [("run", None, False)]
+        assert rr_spy.inits == [("run", None)]
         assert rr_spy.saves == ["out.rrd"]
+        assert rr_spy.spawns == 0
 
     def test_spawn_sink(self, rr_spy: _RrSpy) -> None:
         RerunLogger("run", spawn=True)
-        assert rr_spy.inits == [("run", None, True)]
+        assert rr_spy.inits == [("run", None)]
+        assert rr_spy.spawns == 1
         assert rr_spy.saves == []
 
     def test_grpc_sink(self, rr_spy: _RrSpy) -> None:
@@ -150,6 +160,15 @@ class TestRerunLoggerLifecycle:
     def test_blueprint_sent(self, rr_spy: _RrSpy) -> None:
         RerunLogger("run", blueprint=time_series_view(entity_prefix="train"))
         assert len(rr_spy.blueprints) == 1
+
+    def test_loggers_own_distinct_streams(self, rr_spy: _RrSpy) -> None:
+        # Each logger owns a private RecordingStream and never registers a
+        # process-global recording, so two loggers in one process do not
+        # cross-talk -- the footgun of routing through rr.init's global.
+        a = RerunLogger("a", spawn=True)
+        b = RerunLogger("b", spawn=True)
+        assert a.recording is not b.recording
+        assert rr_spy.inits == [("a", None), ("b", None)]
 
     def test_multiple_sinks_raise(self) -> None:
         with pytest.raises(ValueError, match="at most one of"):

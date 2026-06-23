@@ -34,16 +34,13 @@ if TYPE_CHECKING:
 def _finalize_recording(rec: "RecordingStream") -> None:
     """Flush and disconnect a recording, swallowing any failure.
 
-    Backs :class:`RerunLogger`'s :func:`weakref.finalize` fallback, so a sink
-    is still flushed when the caller forgets :meth:`RerunLogger.close`. Kept at
-    module level (not a bound method) so the finalizer holds no reference to the
-    logger. Errors are swallowed rather than warned: this runs at GC or
-    interpreter shutdown, where the warnings machinery may be torn down and
-    there is no loop left to protect.
+    Backs :class:`RerunLogger`'s :func:`weakref.finalize` fallback. Kept at
+    module level so the finalizer holds no reference to the logger.
 
     Args:
         rec: The recording stream to finalize.
     """
+    # Runs at GC/interpreter shutdown, where warnings may be torn down: swallow.
     with contextlib.suppress(Exception):
         rec.flush()
         rec.disconnect()
@@ -52,98 +49,30 @@ def _finalize_recording(rec: "RecordingStream") -> None:
 class RerunLogger:
     """High-level Rerun logger for training metrics.
 
-    Wraps the Rerun recording lifecycle -- initialization, sink selection, an
-    optional dashboard blueprint, rank-aware disabling, and flushing -- around
-    :func:`log_scalars` and :func:`style_series`, so a training loop can log
-    metrics in a single line. Training lives outside vision3d; this is the
-    recommended entry point for wiring vision3d's Rerun logging into it.
+    Wraps the Rerun recording lifecycle (sink selection, an optional dashboard
+    blueprint, rank-aware disabling, flushing) around :func:`log_scalars` and
+    :func:`style_series` so a training loop can log metrics in one line.
 
-    Choose at most one sink:
-
-    * ``save_path`` -- write an ``.rrd`` file (typical for headless or cluster
-      runs; open it later with ``rerun <file>.rrd``).
-    * ``grpc_url`` -- stream to a running Rerun viewer/server.
-    * ``spawn`` -- launch a local viewer and stream to it (interactive use).
-
-    With none of them the recording is buffered in memory only.
-
-    For distributed training, pass ``rank`` (e.g.
-    ``torch.distributed.get_rank()``): the logger becomes a no-op on every
-    non-zero rank and never touches Rerun there, so it can be called
-    unconditionally from shared loop code. ``enabled=False`` disables it
-    everywhere (e.g. for debug runs).
-
-    Logging is **best-effort by default**: an *operational* failure in any
-    logging call (e.g. a dropped connection or a full disk) is caught and
-    suppressed with a warning, so a visualization hiccup never crashes a long
-    training run. The warning fires once per failing operation (e.g. ``log``,
-    ``log_config``) and is then silenced for that operation, so a flood of the
-    same failure stays quiet while a later, different failure still surfaces.
-    Pass ``strict=True`` to let such errors propagate
-    instead. *Input* errors are treated differently: malformed arguments (a
-    non-scalar metric, mismatched per-box list lengths, ...) raise
-    :class:`LoggingInputError` and always propagate, even in best-effort mode,
-    since they signal a caller bug that suppression would only hide.
-
-    Record the run's hyperparameters once with :meth:`log_config` so they
-    travel with the recording -- essential context when comparing runs later.
-
-    Construct the logger and call :meth:`log` -- no other bookkeeping is
-    required. A fallback finalizer flushes and closes the sink at garbage
-    collection or interpreter exit, so the simple form below just works. For a
-    guaranteed flush even when the loop raises (and so a buffered ``.rrd`` is
-    never left truncated), use it as a context manager or call :meth:`close`
-    when done.
-
-    Limitations:
-
-    * **One active logger per process.** Constructing a logger calls
-      ``rerun.init``, which also registers it as Rerun's global recording, so a
-      second logger supersedes the first for bare ``rr.*`` calls and
-      :attr:`recording` access. The logger's own methods always target their
-      own stream, so this only matters if you reach for the global recording
-      directly. For run comparison, log to one recording under different
-      ``namespace`` values rather than creating several loggers.
-    * **Not thread-safe.** Methods assume a single calling thread per rank (the
-      usual training-loop case); do not share one logger across threads (e.g. a
-      multi-worker data pipeline) without external synchronization.
-
-    Example:
-        >>> logger = RerunLogger(  # doctest: +SKIP
-        ...     "bevfusion", save_path="run.rrd", rank=rank
-        ... )
-        >>> logger.log_config({"lr": 1e-3, "batch_size": 4})  # doctest: +SKIP
-        >>> for step, batch in enumerate(loader):  # doctest: +SKIP
-        ...     loss = train_step(batch)
-        ...     logger.log({"loss/total": loss, "lr": lr}, step=step, every=50)
-
-        For a guaranteed flush even if the loop raises, use the context manager:
-
-        >>> with RerunLogger(
-        ...     "bevfusion", save_path="run.rrd"
-        ... ) as logger:  # doctest: +SKIP
-        ...     for step, batch in enumerate(loader):
-        ...         logger.log({"loss/total": train_step(batch)}, step=step)
-
-    Note:
-        Logging a tensor value calls ``.item()``, which synchronizes the GPU.
-        In a hot loop, log every N steps with ``every=`` to avoid stalling on
-        every iteration.
+    Pass at most one sink: ``save_path`` (write an ``.rrd`` file), ``grpc_url``
+    (stream to a running viewer), or ``spawn`` (launch a local viewer); with
+    none the recording is buffered in memory. Pass ``rank`` for distributed
+    training -- the logger is a no-op off rank 0, so it can be called from
+    shared loop code. Logging is best-effort: operational failures are caught
+    and warned once per action, while malformed input raises
+    :class:`LoggingInputError`; pass ``strict=True`` to propagate everything.
+    Use as a context manager or call :meth:`close` for a guaranteed flush. Each
+    logger owns a private recording stream and never becomes Rerun's global
+    default, so several can coexist in one process without cross-talk.
 
     Args:
         name: Rerun application id for the recording.
         save_path: Path to write an ``.rrd`` file to.
         grpc_url: URL of a Rerun gRPC sink to stream to.
         spawn: Launch a local Rerun viewer and stream to it.
-        blueprint: Optional dashboard layout, built from
-            :func:`time_series_view` and :func:`lidar_view`. When ``None``,
-            Rerun auto-arranges views.
+        blueprint: Optional dashboard layout (see :func:`time_series_view`,
+            :func:`lidar_view`). ``None`` lets Rerun auto-arrange views.
         namespace: Entity-path namespace prepended to every metric (e.g.
-            ``"runs/baseline"`` to keep one run's curves together for
-            cross-run comparison). Set once for the whole run, then combined
-            with each call's ``group`` to form the entity prefix passed to
-            :func:`log_scalars` -- distinct from that function's ``prefix``,
-            which is the already-composed full prefix. Empty by default.
+            ``"runs/baseline"``), combined with each call's ``group``.
         rank: Process rank; the logger only records on rank 0.
         enabled: Master switch; ``False`` disables logging entirely.
         strict: If ``True``, let logging errors propagate instead of
@@ -169,9 +98,7 @@ class RerunLogger:
         strict: bool = False,
         recording_id: str | None = None,
     ) -> None:
-        # Validate config before the rank guard so every rank rejects a bad
-        # configuration identically -- it is a pure argument check and must not
-        # depend on which rank happens to run it.
+        # Validate before the rank guard so every rank rejects a bad config.
         if sum((save_path is not None, grpc_url is not None, spawn)) > 1:
             msg = "pass at most one of save_path, grpc_url, spawn"
             raise LoggingInputError(msg)
@@ -184,41 +111,29 @@ class RerunLogger:
         self._finalizer: weakref.finalize[..., object] | None = None
         if not self.enabled:
             return
-        # rr.init also registers this as the global recording (so the docs
-        # scraper and bare rr.* helpers find it), but we capture the stream and
-        # target it explicitly below -- so two loggers never cross-talk and
-        # close() only finalizes this recording's sink.
-        rr.init(name, recording_id=recording_id, spawn=spawn)
-        self._rec = rr.get_global_data_recording()
-        if save_path is not None:
-            rr.save(str(save_path), recording=self._rec)
+        # Own a private stream rather than rr.init, which would register it as
+        # Rerun's global default; make_default stays off so loggers never
+        # cross-talk. Every call below targets this stream explicitly.
+        self._rec = rr.RecordingStream(name, recording_id=recording_id)
+        if spawn:
+            self._rec.spawn()
+        elif save_path is not None:
+            self._rec.save(str(save_path))
         elif grpc_url is not None:
-            rr.connect_grpc(grpc_url, recording=self._rec)
+            self._rec.connect_grpc(grpc_url)
         if blueprint is not None:
-            rr.send_blueprint(blueprint, recording=self._rec)
-        # Fallback finalizer: flush + disconnect the sink if the caller forgets
-        # close() (and never uses the context manager). Without it, a buffered
-        # save_path sink can be left truncated on exit. Runs at GC or interpreter
-        # shutdown; close() detaches it so the sink is finalized exactly once.
-        # Module-level target (not a bound method) so it holds no reference to
-        # self and cannot keep the logger alive.
+            self._rec.send_blueprint(blueprint)
+        # Fallback flush + disconnect if the caller never closes; close()
+        # detaches it so the sink is finalized exactly once.
         self._finalizer = weakref.finalize(self, _finalize_recording, self._rec)
 
     @property
     def recording(self) -> "RecordingStream | None":
         """This logger's recording stream, or ``None`` when disabled.
 
-        Prefer the rank-aware scene methods (:meth:`log_sample`,
-        :meth:`log_boxes_3d`, :meth:`log_point_cloud`, :meth:`log_cameras`)
-        for 3D data: they route into this recording and become no-ops off
-        rank 0, so they can be called unconditionally from shared loop code.
-
-        This property is the escape hatch for raw ``rr.*`` calls that have no
-        method here (e.g. ``rr.log`` of a custom archetype). It is ``None``
-        when the logger is disabled, so guard such calls with ``if
-        logger.recording is not None:`` to keep them off non-zero ranks --
-        passing ``None`` to a bare ``rr.log`` would otherwise fall back to
-        Rerun's global recording.
+        Escape hatch for raw ``rr.*`` calls with no method here. Guard them
+        with ``if logger.recording is not None:`` so they stay off non-zero
+        ranks; prefer the rank-aware scene methods for 3D data.
         """
         return self._rec
 
@@ -233,15 +148,13 @@ class RerunLogger:
     def _run(self, action: str, fn: Callable[[], None]) -> None:
         """Run a logging action, suppressing failures unless ``strict``.
 
-        Keeps a visualization failure from crashing training: the first
-        suppressed failure of each ``action`` emits one warning; repeats of
-        that action are then silenced. Warning per action rather than once for
-        the whole logger means a later, unrelated failure mode (e.g. a blueprint
-        send after scalar logging has been failing) still surfaces once.
+        The first suppressed failure of each ``action`` warns once; repeats are
+        silenced, so a flood stays quiet while a later, different failure still
+        surfaces.
 
         Args:
-            action: Short name of the action, used in the warning message and
-                as the rate-limit key.
+            action: Short name of the action, used in the warning and as the
+                rate-limit key.
             fn: Zero-argument callable performing the Rerun calls.
 
         Raises:
@@ -251,10 +164,7 @@ class RerunLogger:
         try:
             fn()
         except LoggingInputError:
-            # A caller bug (non-scalar metric, mismatched list lengths, ...),
-            # not a transient sink failure. Always surface it so it gets fixed,
-            # even in best-effort mode -- suppressing it would silently drop
-            # data and leave the user debugging a phantom.
+            # Caller bug, not a transient sink failure: always surface it.
             raise
         except Exception:
             # Broad by design: visualization logging must never crash training.
@@ -275,11 +185,8 @@ class RerunLogger:
     ) -> None:
         """Dispatch a scene logger onto this recording, rank-aware and safe.
 
-        The shared body of the scene wrappers (:meth:`log_point_cloud`,
-        :meth:`log_boxes_3d`, :meth:`log_cameras`, :meth:`log_sample`): skip
-        off rank 0, target this logger's recording rather than Rerun's global,
-        and route through :meth:`_run` for best-effort error handling. Keeping
-        it in one place means the four wrappers cannot drift on that policy.
+        Shared body of the scene wrappers: skip off rank 0, target this
+        logger's recording, and route through :meth:`_run`.
 
         Args:
             action: Rate-limit key and warning label for :meth:`_run`.
@@ -306,8 +213,7 @@ class RerunLogger:
         """Log scalar metrics for this run.
 
         Delegates to :func:`log_scalars`, routing each metric to
-        ``{namespace}/{group}/{name}`` so a dashboard
-        (:func:`time_series_view`) groups it by run and section.
+        ``{namespace}/{group}/{name}``.
 
         Args:
             values: Mapping from metric name to scalar value (Python or numpy
@@ -316,13 +222,10 @@ class RerunLogger:
             epoch: Training epoch (``"epoch"`` timeline).
             group: Section under this run, e.g. ``"train"`` or ``"val"``.
             every: If set, only log when the driving counter (``step`` if
-                given, else ``epoch``) is a multiple of it -- a cheap throttle
-                for hot loops. Ignored when neither ``step`` nor ``epoch`` is
-                given.
-            last: Force this call through the ``every`` throttle. Pass
-                ``last=(step == total_steps - 1)`` on the final iteration so a
-                run's end-of-training metrics are never dropped just because
-                the last step is not a multiple of ``every``.
+                given, else ``epoch``) is a multiple of it. Ignored when
+                neither ``step`` nor ``epoch`` is given.
+            last: Force this call through the ``every`` throttle, e.g. on the
+                final iteration so end-of-training metrics are not dropped.
 
         Raises:
             LoggingInputError: If ``every`` is set to less than 1.
@@ -330,9 +233,8 @@ class RerunLogger:
         if not self.enabled:
             return
         if every is not None and every < 1:
-            # Guard the modulo below: every=0 would be a ZeroDivisionError and
-            # negatives never match. A bad throttle is a caller bug, so surface
-            # it as LoggingInputError rather than crashing the training loop.
+            # every=0 would divide by zero in the modulo below; negatives never
+            # match. A bad throttle is a caller bug, not a reason to crash.
             msg = f"every must be >= 1, got {every}"
             raise LoggingInputError(msg)
         counter = step if step is not None else epoch
@@ -357,17 +259,11 @@ class RerunLogger:
     def log_config(self, config: Mapping[str, object]) -> None:
         """Attach the run's hyperparameters/config to the recording.
 
-        Records ``config`` as a Rerun recording property so the run's settings
-        (learning rate, batch size, augmentations, ...) travel with the
-        recording and show in the viewer's properties panel -- the context you
-        need to tell runs apart when comparing them later. Call once at
-        startup.
-
-        Nested mappings (e.g. a Hydra/OmegaConf config) are flattened into
-        dot-separated keys, so ``{"optimizer": {"lr": 1e-3}}`` is recorded as
-        ``optimizer.lr``. Numbers are recorded as numbers (so runs can be
-        sorted or compared on, say, ``lr`` later); everything else falls back
-        to its text representation.
+        Records ``config`` as Rerun recording properties so the run's settings
+        travel with the recording and show in the viewer. Call once at startup.
+        Nested mappings are flattened to dot-separated keys
+        (``{"optimizer": {"lr": 1e-3}}`` -> ``optimizer.lr``); numbers stay
+        numeric, everything else falls back to its text representation.
 
         Args:
             config: Mapping of config name to value. Values may themselves be
@@ -380,13 +276,9 @@ class RerunLogger:
 
         def _send() -> None:
             for key, value in flat.items():
-                # Name the component after the property itself, not a shared
-                # "value": Rerun enforces one type per component name across the
-                # whole recording, so a single shared name would force every
-                # config entry to the first one's type and silently drop the
-                # rest (e.g. strings after a float). ``drop_untyped_nones`` is
-                # passed explicitly so the dynamic ``**`` only has to satisfy
-                # AnyValues' keyword-values parameter.
+                # Name each component after its own key: Rerun enforces one type
+                # per component name, so a shared name would coerce every entry
+                # to the first one's type and drop the rest.
                 values = rr.AnyValues(
                     drop_untyped_nones=True, **{key: _config_value(value)}
                 )
@@ -405,9 +297,8 @@ class RerunLogger:
     ) -> None:
         """Style one of this run's metric series.
 
-        Resolves the entity from this logger's namespace so the run
-        ``namespace`` and ``group`` need not be repeated. See
-        :func:`style_series`.
+        Resolves the entity from this logger's namespace so ``namespace`` and
+        ``group`` need not be repeated. See :func:`style_series`.
 
         Args:
             name: Metric name to style (the same name passed to :meth:`log`).
@@ -429,16 +320,11 @@ class RerunLogger:
     def set_time(self, *, step: int | None = None, epoch: int | None = None) -> None:
         """Move this recording's timeline cursor.
 
-        Call before the scene methods (:meth:`log_point_cloud`,
-        :meth:`log_boxes_3d`, ...) when re-logging 3D data over training, so
-        the geometry lands on the same ``step``/``epoch`` as the scalar curves
-        and plays back in lockstep. No-op when disabled.
-
-        A cursor set here persists: only the timelines you pass are moved, and
-        each subsequent log carries *every* active cursor. After logging on the
-        ``"epoch"`` timeline, switching to ``set_time(step=...)`` still stamps
-        the stale ``"epoch"`` value too; call :meth:`reset_time` first to clear
-        it when changing which timeline drives a sequence of logs.
+        Call before the scene methods when re-logging 3D data over training so
+        the geometry lands on the same ``step``/``epoch`` as the scalar curves.
+        Cursors persist: only the timelines you pass are moved, and each log
+        carries every active cursor, so call :meth:`reset_time` first when
+        changing which timeline drives a sequence of logs. No-op when disabled.
 
         Args:
             step: Sequence value for the ``"step"`` timeline.
@@ -459,11 +345,9 @@ class RerunLogger:
         """Clear all timeline cursors on this recording.
 
         Subsequent logs carry no timeline until the next :meth:`set_time` (or
-        ``step``/``epoch`` on :meth:`log`). Use this when switching which
-        timeline drives a run of logs -- e.g. after logging per-epoch
-        validation metrics, reset before re-logging predictions on the
-        ``"step"`` timeline so they are not stamped with a stale ``epoch``
-        cursor. No-op when disabled.
+        ``step``/``epoch`` on :meth:`log`). Use when switching which timeline
+        drives a run of logs, to avoid stamping a stale cursor. No-op when
+        disabled.
         """
         if not self.enabled:
             return
@@ -480,8 +364,7 @@ class RerunLogger:
         """Rank-aware, best-effort wrapper around :func:`log_point_cloud`.
 
         Routes into this logger's recording and is a no-op when disabled.
-        ``entity`` is an absolute Rerun path (not namespaced by ``namespace``),
-        since 3D scene data is typically shared across a recording.
+        ``entity`` is an absolute Rerun path (not namespaced by ``namespace``).
 
         Args:
             entity: Rerun entity path (e.g. ``"world/lidar"``).
@@ -629,13 +512,13 @@ class RerunLogger:
         """Flush and disconnect this recording's sink (idempotent)."""
         if not self.enabled or self._closed or self._rec is None:
             return
-        self._closed = True
-        if self._finalizer is not None:
-            # We are finalizing explicitly; cancel the GC/exit fallback so the
-            # sink is not disconnected a second time.
-            self._finalizer.detach()
+        # Flip state only after the sink work succeeds, so a failing flush in
+        # strict mode propagates with the finalizer still alive to retry.
         self.flush()
         self._run("close", self._rec.disconnect)
+        self._closed = True
+        if self._finalizer is not None:
+            self._finalizer.detach()
 
     def __enter__(self) -> Self:
         return self
@@ -649,8 +532,7 @@ def _flatten_config(
 ) -> dict[str, object]:
     """Flatten a (possibly nested) config mapping into dot-separated keys.
 
-    ``{"optimizer": {"lr": 1e-3}}`` becomes ``{"optimizer.lr": 1e-3}`` so each
-    leaf can be recorded as its own Rerun property.
+    ``{"optimizer": {"lr": 1e-3}}`` becomes ``{"optimizer.lr": 1e-3}``.
 
     Returns:
         A flat mapping from dotted key to leaf value.
@@ -668,10 +550,8 @@ def _flatten_config(
 def _config_value(value: object) -> int | float | str:
     """Coerce an arbitrary config value to a Rerun-recordable scalar.
 
-    ``int``/``float``/``str`` are the scalar types Rerun records natively as a
-    recording property. Numbers pass through as numbers so runs can be compared
-    on them later; booleans and everything else fall back to a readable text
-    representation.
+    Numbers pass through as numbers so runs can be compared on them later;
+    booleans and everything else fall back to a readable text representation.
 
     Returns:
         ``value`` as an ``int``/``float`` when numeric, else its ``str``.
