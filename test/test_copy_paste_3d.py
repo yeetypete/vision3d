@@ -28,6 +28,34 @@ ALL_FORMATS = [
     BoundingBox3DFormat.XYZLWHYPR,
 ]
 
+# Distributional assertions allow this many standard errors of slack (~2e-9
+# false-failure rate).
+_SIGMA_TOL = 6.0
+_N_SAMPLES = 20000
+
+# Distinct fills for paste-source vs. scene images; assertions use a +/-_FILL_TOL band.
+_PASTE_FILL = 0.9
+_SCENE_FILL = 0.1
+_FILL_TOL = 0.1
+
+# Absolute tolerance for box-centre coincidence checks (scene units).
+_CENTER_ATOL = 1e-4
+
+
+def _uniform_std(lo: float, hi: float) -> float:
+    """Population standard deviation of a uniform distribution on ``[lo, hi]``."""
+    return (hi - lo) / math.sqrt(12.0)
+
+
+def _sample_mean_stderr(std: float, n: int) -> float:
+    """Standard error of the sample mean for ``n`` i.i.d. draws (``std / sqrt(n)``)."""
+    return std / math.sqrt(n)
+
+
+def _sample_std_stderr(std: float, n: int) -> float:
+    """Standard error of the sample std for ``n`` i.i.d. draws (``std / sqrt(2n)``)."""
+    return std / math.sqrt(2 * n)
+
 
 def _make_lidar_batch(
     batch_size: int = 2,
@@ -444,20 +472,22 @@ class TestCameraPaste:
 
     def test_paste_writes_exact_pixel_values(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        cp(*_make_fusion_batch(batch_size=2, num_boxes=3, image_fill=0.9))
+        cp(*_make_fusion_batch(batch_size=2, num_boxes=3, image_fill=_PASTE_FILL))
         out_inputs, out_targets = cp(
-            *_make_fusion_batch(batch_size=1, num_boxes=1, image_fill=0.1)
+            *_make_fusion_batch(batch_size=1, num_boxes=1, image_fill=_SCENE_FILL)
         )
         if out_targets[0]["boxes"].shape[0] > 1:
             images = out_inputs[0]["images"]
-            assert (images > 0.8).any(), "Pasted crop pixels should appear"
-            assert (images < 0.2).any(), "Original pixels should remain"
-            assert ((images > 0.8) | (images < 0.2)).all()
+            is_paste = images > _PASTE_FILL - _FILL_TOL
+            is_scene = images < _SCENE_FILL + _FILL_TOL
+            assert is_paste.any(), "Pasted crop pixels should appear"
+            assert is_scene.any(), "Original pixels should remain"
+            assert (is_paste | is_scene).all()
 
     def test_does_not_mutate_input_images(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
-        cp(*_make_fusion_batch(batch_size=2, num_boxes=3, image_fill=0.9))
-        batch2 = _make_fusion_batch(batch_size=1, num_boxes=1, image_fill=0.1)
+        cp(*_make_fusion_batch(batch_size=2, num_boxes=3, image_fill=_PASTE_FILL))
+        batch2 = _make_fusion_batch(batch_size=1, num_boxes=1, image_fill=_SCENE_FILL)
         original_images = batch2[0][0]["images"].clone()
         cp(*batch2)
         assert torch.equal(batch2[0][0]["images"], original_images)
@@ -520,7 +550,7 @@ class TestOffset:
     def test_scalar_range_broadcasts_to_all_axes(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, offset_range=(-0.5, 0.5))
         assert cp._jitter is True
-        assert cp.offset_range == [(-0.5, 0.5), (-0.5, 0.5), (-0.5, 0.5)]
+        assert cp.offset_range == ((-0.5, 0.5), (-0.5, 0.5), (-0.5, 0.5))
 
     def test_per_axis_range_kept(self) -> None:
         cp = CopyPaste3D(
@@ -528,7 +558,7 @@ class TestOffset:
             offset_range=((-1.0, 2.0), (0.0, 0.0), (-0.5, 0.5)),
         )
         assert cp._jitter is True
-        assert cp.offset_range == [(-1.0, 2.0), (0.0, 0.0), (-0.5, 0.5)]
+        assert cp.offset_range == ((-1.0, 2.0), (0.0, 0.0), (-0.5, 0.5))
 
     @pytest.mark.parametrize("fmt", ALL_FORMATS)
     def test_constant_offset_shifts_pasted_box_xyz(
@@ -603,9 +633,10 @@ class TestOffset:
             target_counts={CAR: 10},
             offset_range=((-2.0, 2.0), (0.0, 0.0), (-0.5, 1.5)),
         )
+        n = _N_SAMPLES
         torch.manual_seed(0)
-        s = cp._sample_offsets(5000, torch.device("cpu"), torch.float32)
-        assert s.shape == (5000, 3)
+        s = cp._sample_offsets(n, torch.device("cpu"), torch.float32)
+        assert s.shape == (n, 3)
         assert s[:, 0].min().item() >= -2.0
         assert s[:, 0].max().item() <= 2.0
         # Degenerate axis stays exactly zero.
@@ -615,26 +646,35 @@ class TestOffset:
 
     def test_uniform_sampling_when_std_none(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, offset_range=(-1.0, 1.0))
+        n = _N_SAMPLES
         torch.manual_seed(0)
-        s = cp._sample_offsets(20000, torch.device("cpu"), torch.float32)[:, 2]
+        s = cp._sample_offsets(n, torch.device("cpu"), torch.float32)[:, 2]
         assert s.min().item() >= -1.0
         assert s.max().item() <= 1.0
-        # Uniform on [-1, 1] has std = 2 / sqrt(12) ≈ 0.577.
-        assert abs(s.std().item() - (2.0 / math.sqrt(12.0))) < 0.03
+        # Sample std should match the uniform population std within a few stderrs.
+        expected_std = _uniform_std(-1.0, 1.0)
+        tol = _SIGMA_TOL * _sample_std_stderr(expected_std, n)
+        assert abs(s.std().item() - expected_std) < tol
 
     def test_truncated_normal_within_bounds_and_concentrated(self) -> None:
+        nominal_std = 0.3
         cp = CopyPaste3D(
-            target_counts={CAR: 10}, offset_range=(-1.0, 1.0), offset_std=0.3
+            target_counts={CAR: 10}, offset_range=(-1.0, 1.0), offset_std=nominal_std
         )
+        n = _N_SAMPLES
         torch.manual_seed(0)
-        s = cp._sample_offsets(20000, torch.device("cpu"), torch.float32)[:, 0]
+        s = cp._sample_offsets(n, torch.device("cpu"), torch.float32)[:, 0]
         # Never escapes the interval.
         assert s.min().item() >= -1.0 - 1e-5
         assert s.max().item() <= 1.0 + 1e-5
-        # Centred on the midpoint.
-        assert abs(s.mean().item()) < 0.02
-        # More concentrated than the uniform baseline (~0.577).
-        assert s.std().item() < 0.4
+        # Centred on the midpoint (true mean 0) within a few stderrs.
+        mean_tol = _SIGMA_TOL * _sample_mean_stderr(nominal_std, n)
+        assert abs(s.mean().item()) < mean_tol
+        # Truncation at +/-1 (= +/-3.3 sigma) is negligible, so the realized std
+        # stays close to the nominal value -- and well under the uniform baseline.
+        std_tol = _SIGMA_TOL * _sample_std_stderr(nominal_std, n)
+        assert abs(s.std().item() - nominal_std) < std_tol
+        assert s.std().item() < _uniform_std(-1.0, 1.0)
 
     def test_per_axis_std_mix(self) -> None:
         # Uniform on x, truncated-normal on z, y disabled.
@@ -643,11 +683,18 @@ class TestOffset:
             offset_range=((-1.0, 1.0), (0.0, 0.0), (-1.0, 1.0)),
             offset_std=(None, None, 0.3),
         )
+        n = _N_SAMPLES
         torch.manual_seed(0)
-        s = cp._sample_offsets(20000, torch.device("cpu"), torch.float32)
+        s = cp._sample_offsets(n, torch.device("cpu"), torch.float32)
         # x is uniform (wide spread), z is concentrated (narrow spread).
-        assert s[:, 0].std().item() > 0.5
-        assert s[:, 2].std().item() < 0.4
+        x_std = _uniform_std(-1.0, 1.0)
+        z_std = 0.3
+        assert abs(s[:, 0].std().item() - x_std) < _SIGMA_TOL * _sample_std_stderr(
+            x_std, n
+        )
+        assert abs(s[:, 2].std().item() - z_std) < _SIGMA_TOL * _sample_std_stderr(
+            z_std, n
+        )
 
     def test_falls_back_to_original_when_jitter_collides(self) -> None:
         # Constant offset, so every jitter attempt lands at the same pose.
@@ -678,7 +725,9 @@ class TestOffset:
 
         out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
         assert out_boxes.shape[0] == 2  # blocker + pasted fallback
-        assert torch.allclose(out_boxes[1, :3].cpu(), db_box[:3].cpu(), atol=1e-4)
+        assert torch.allclose(
+            out_boxes[1, :3].cpu(), db_box[:3].cpu(), atol=_CENTER_ATOL
+        )
 
     def test_does_not_mutate_database_entries(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1, offset_range=(5.0, 5.0))
@@ -715,7 +764,7 @@ class TestOffset:
             # L1 distance to the nearest source centre: a real displacement
             # means it coincides with none of them. (DB boxes live on CPU.)
             dist = (src - box[:3].cpu()).abs().sum(dim=1)
-            assert dist.min().item() > 1e-3
+            assert dist.min().item() > _CENTER_ATOL
 
     def test_camera_paste_with_jitter(self) -> None:
         # The pasted object is re-bound to its jittered box before camera
@@ -728,10 +777,13 @@ class TestOffset:
             min_points=1,
             offset_range=((ox, ox), (oy, oy), (oz, oz)),
         )
-        cp(*_make_fusion_batch(batch_size=2, num_boxes=3, image_fill=0.9))
+        torch.manual_seed(0)
+        cp(*_make_fusion_batch(batch_size=2, num_boxes=3, image_fill=_PASTE_FILL))
         n_original = 1
         out_inputs, out_targets = cp(
-            *_make_fusion_batch(batch_size=1, num_boxes=n_original, image_fill=0.1)
+            *_make_fusion_batch(
+                batch_size=1, num_boxes=n_original, image_fill=_SCENE_FILL
+            )
         )
 
         out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
@@ -742,8 +794,8 @@ class TestOffset:
         # appear over the original fill (0.1), confirming the re-bound box gave
         # a valid in-frame projection.
         images = out_inputs[0]["images"]
-        assert (images > 0.8).any(), "Pasted crop pixels should appear"
-        assert (images < 0.2).any(), "Original pixels should remain"
+        assert (images > _PASTE_FILL - _FILL_TOL).any(), "Pasted crop pixels appear"
+        assert (images < _SCENE_FILL + _FILL_TOL).any(), "Original pixels remain"
 
         # The pasted 3-D centres are shifted by the offset (or, when every
         # jittered pose collided, left at the source pose as documented).

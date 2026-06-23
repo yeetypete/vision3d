@@ -273,7 +273,7 @@ _OffsetRange = _AxisRange | Sequence[_AxisRange]
 _OffsetStd = float | Sequence[float | None] | None
 
 
-def _normalize_offset_range(offset_range: _OffsetRange) -> list[_AxisRange]:
+def _normalize_offset_range(offset_range: _OffsetRange) -> tuple[_AxisRange, ...]:
     """Expand *offset_range* into one ``(min, max)`` pair per x/y/z axis.
 
     Accepts a single ``(min, max)`` pair (broadcast to all three axes) or a
@@ -283,7 +283,7 @@ def _normalize_offset_range(offset_range: _OffsetRange) -> list[_AxisRange]:
         offset_range: Offset range specification.
 
     Returns:
-        List of three ``(min, max)`` float pairs.
+        Tuple of three ``(min, max)`` float pairs.
 
     Raises:
         TypeError: If a per-axis entry is a scalar rather than a pair.
@@ -318,10 +318,10 @@ def _normalize_offset_range(offset_range: _OffsetRange) -> list[_AxisRange]:
         if lo > hi:
             msg = "`offset_range` min must not exceed max."
             raise ValueError(msg)
-    return ranges
+    return tuple(ranges)
 
 
-def _normalize_offset_std(offset_std: _OffsetStd) -> list[float | None]:
+def _normalize_offset_std(offset_std: _OffsetStd) -> tuple[float | None, ...]:
     """Expand *offset_std* into one standard deviation (or ``None``) per axis.
 
     Args:
@@ -329,20 +329,20 @@ def _normalize_offset_std(offset_std: _OffsetStd) -> list[float | None]:
             of per-axis values (each a float or ``None``).
 
     Returns:
-        List of three ``float | None`` values.
+        Tuple of three ``float | None`` values.
 
     Raises:
         ValueError: If a sequence is given with a length other than three.
     """
     if offset_std is None:
-        return [None, None, None]
+        return (None, None, None)
     if isinstance(offset_std, (int, float)):
-        return [offset_std, offset_std, offset_std]
-    seq = list(offset_std)
+        return (offset_std, offset_std, offset_std)
+    seq = tuple(offset_std)
     if len(seq) != 3:
         msg = "`offset_std` should be a float, None, or a 3-tuple."
         raise ValueError(msg)
-    return list(seq)
+    return seq
 
 
 class CopyPaste3D(Transform):
@@ -395,14 +395,6 @@ class CopyPaste3D(Transform):
             values raise the chance of placing a genuinely jittered object in a
             crowded scene. Ignored when jittering is disabled. Default: ``5``.
         p: Probability of applying the augmentation. Default: ``1.0``.
-
-    Note:
-        Where ``offset_std`` is set, the 68-95-99.7 rule applies per axis: ~68%
-        of offsets fall within ±1 std of the midpoint, ~95% within ±2 std, and
-        ~99.7% within ±3 std. This holds only when ``offset_range`` is wide
-        enough not to clip the tails, so choose each range as roughly ±2 to
-        ±3 std (e.g. ``offset_std=0.5`` with ``offset_range=(-1.5, 1.5)``). A
-        narrower range flattens the bell back toward uniform.
     """
 
     def __init__(
