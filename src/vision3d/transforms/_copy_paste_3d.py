@@ -2,7 +2,8 @@
 
 import math
 from collections import defaultdict, deque
-from dataclasses import dataclass, field
+from collections.abc import Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any, override
 
 import numpy as np
@@ -214,6 +215,28 @@ def _hull_mask_from_projected(
     return mask, (x_min, y_min, x_max, y_max), mean_depth
 
 
+def _apply_offset(
+    boxes: Tensor,
+    fmt: BoundingBox3DFormat,
+    offsets: Tensor,
+) -> Tensor:
+    """Return a copy of *boxes* translated by per-box *offsets*.
+
+    Args:
+        boxes: ``[M, K]`` 3-D bounding boxes.
+        fmt: Box format.
+        offsets: ``[M, 3]`` per-box ``(x, y, z)`` offsets in scene units.
+
+    Returns:
+        A new ``[M, K]`` tensor with the box positions shifted.
+    """
+    out = boxes.clone()
+    out[:, :3] += offsets
+    if fmt is BoundingBox3DFormat.XYZXYZ:
+        out[:, 3:6] += offsets  # also shift the max corner
+    return out
+
+
 def _batch_hull_masks(
     boxes: Tensor,
     fmt: BoundingBox3DFormat,
@@ -245,6 +268,83 @@ def _batch_hull_masks(
     ]
 
 
+_AxisRange = tuple[float, float]
+_OffsetRange = _AxisRange | Sequence[_AxisRange]
+_OffsetStd = float | Sequence[float | None] | None
+
+
+def _normalize_offset_range(offset_range: _OffsetRange) -> tuple[_AxisRange, ...]:
+    """Expand *offset_range* into one ``(min, max)`` pair per x/y/z axis.
+
+    Accepts a single ``(min, max)`` pair (broadcast to all three axes) or a
+    sequence of three ``(min, max)`` pairs.
+
+    Args:
+        offset_range: Offset range specification.
+
+    Returns:
+        Tuple of three ``(min, max)`` float pairs.
+
+    Raises:
+        TypeError: If a per-axis entry is a scalar rather than a pair.
+        ValueError: If the shape is neither a pair nor three pairs, or any
+            pair has ``min > max``.
+    """
+    seq = list(offset_range)
+    msg_per_axis = "Each per-axis `offset_range` entry must be a (min, max) pair."
+    if (
+        len(seq) == 2
+        and isinstance(seq[0], (int, float))
+        and isinstance(seq[1], (int, float))
+    ):
+        pair = (seq[0], seq[1])
+        ranges = [pair, pair, pair]
+    elif len(seq) == 3:
+        ranges = []
+        for axis in seq:
+            if isinstance(axis, (int, float)):
+                raise TypeError(msg_per_axis)
+            entry = tuple(axis)
+            if len(entry) != 2:
+                raise ValueError(msg_per_axis)
+            ranges.append((entry[0], entry[1]))
+    else:
+        msg = (
+            "`offset_range` should be a (min, max) pair applied to all axes "
+            "or a 3-tuple of (min, max) pairs."
+        )
+        raise ValueError(msg)
+    for lo, hi in ranges:
+        if lo > hi:
+            msg = "`offset_range` min must not exceed max."
+            raise ValueError(msg)
+    return tuple(ranges)
+
+
+def _normalize_offset_std(offset_std: _OffsetStd) -> tuple[float | None, ...]:
+    """Expand *offset_std* into one standard deviation (or ``None``) per axis.
+
+    Args:
+        offset_std: A single value shared across axes, ``None``, or a 3-tuple
+            of per-axis values (each a float or ``None``).
+
+    Returns:
+        Tuple of three ``float | None`` values.
+
+    Raises:
+        ValueError: If a sequence is given with a length other than three.
+    """
+    if offset_std is None:
+        return (None, None, None)
+    if isinstance(offset_std, (int, float)):
+        return (offset_std, offset_std, offset_std)
+    seq = tuple(offset_std)
+    if len(seq) != 3:
+        msg = "`offset_std` should be a float, None, or a 3-tuple."
+        raise ValueError(msg)
+    return seq
+
+
 class CopyPaste3D(Transform):
     """Batch-level 3D copy-paste data augmentation.
 
@@ -273,6 +373,27 @@ class CopyPaste3D(Transform):
             have to be stored in the database. Default: ``5``.
         max_database_size: Maximum entries per class. None means
             unlimited. Default: ``None``.
+        offset_range: Random position offset applied per pasted object (to its
+            box and points) before the overlap check, so placements stay
+            collision-free at the jittered pose. Either a single ``(min, max)``
+            interval, in scene units, applied independently to the x, y, and z
+            axes, or a 3-tuple of per-axis intervals
+            ``((x_min, x_max), (y_min, y_max), (z_min, z_max))``. ``(0.0, 0.0)``
+            disables jittering. For each object up to ``max_jitter_attempts``
+            offsets are drawn and the first collision-free one is used; if none
+            is collision-free the object falls back to its original (un-jittered)
+            pose. Default: ``(0.0, 0.0)``.
+        offset_std: Standard deviation, in scene units, of the offset
+            distribution. ``None`` (the default) draws offsets uniformly across
+            ``offset_range``; a positive value draws from a normal distribution
+            centred on each range's midpoint and truncated to it. May be a
+            single value shared across axes or a 3-tuple of per-axis values
+            (each a float, or ``None`` to keep that axis uniform).
+            Default: ``None``.
+        max_jitter_attempts: Number of jittered positions to try per object
+            before falling back to its original (un-jittered) pose. Larger
+            values raise the chance of placing a genuinely jittered object in a
+            crowded scene. Ignored when jittering is disabled. Default: ``5``.
         p: Probability of applying the augmentation. Default: ``1.0``.
     """
 
@@ -281,6 +402,9 @@ class CopyPaste3D(Transform):
         target_counts: dict[int, int],
         min_points: int = 5,
         max_database_size: int | None = None,
+        offset_range: _OffsetRange = (0.0, 0.0),
+        offset_std: _OffsetStd = None,
+        max_jitter_attempts: int = 5,
         p: float = 1.0,
     ) -> None:
         super().__init__()
@@ -293,9 +417,27 @@ class CopyPaste3D(Transform):
         if max_database_size is not None and max_database_size < 1:
             msg = "`max_database_size` should be a positive integer or None."
             raise ValueError(msg)
+        if max_jitter_attempts < 1:
+            msg = "`max_jitter_attempts` should be a positive integer."
+            raise ValueError(msg)
+        self.offset_range = _normalize_offset_range(offset_range)
+        self.offset_std = _normalize_offset_std(offset_std)
+        for (lo, hi), std in zip(self.offset_range, self.offset_std):
+            if std is not None and std <= 0:
+                msg = "`offset_std` values should be positive or None."
+                raise ValueError(msg)
+            if std is not None and lo == hi:
+                msg = (
+                    "`offset_std` has no effect on an axis whose `offset_range` "
+                    "is degenerate (min == max); widen the range or use None "
+                    "for that axis."
+                )
+                raise ValueError(msg)
         self.target_counts = target_counts
         self.min_points = min_points
         self.max_database_size = max_database_size
+        self.max_jitter_attempts = max_jitter_attempts
+        self._jitter = any(r != (0.0, 0.0) for r in self.offset_range)
         self.p = p
 
         self._database: dict[int, deque[ObjectEntry]] = defaultdict(
@@ -548,6 +690,121 @@ class CopyPaste3D(Transform):
                 )
         return result
 
+    def _sample_axis_offsets(
+        self,
+        n: int,
+        lo: float,
+        hi: float,
+        std: float | None,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> Tensor:
+        """Draw ``n`` offsets for one axis from ``[lo, hi]``.
+
+        Uniform when ``std`` is ``None``, otherwise a normal distribution
+        centred on the midpoint and truncated to the interval, sampled exactly
+        via the inverse CDF (no rejection loop).
+
+        Args:
+            n: Number of offsets to sample.
+            lo: Interval lower bound.
+            hi: Interval upper bound.
+            std: Standard deviation, or ``None`` for uniform sampling.
+            device: Device for the output tensor.
+            dtype: Dtype for the output tensor.
+
+        Returns:
+            ``[n]`` tensor of offsets.
+        """
+        if lo == hi:
+            return torch.full((n,), lo, device=device, dtype=dtype)
+        if std is None:
+            return torch.empty(n, device=device, dtype=dtype).uniform_(lo, hi)
+
+        # Truncated normal via inverse-CDF: map uniform draws through the
+        # standard-normal CDF restricted to [alpha, beta], then back.
+        mean = (lo + hi) / 2.0
+        alpha = torch.tensor((lo - mean) / std, device=device, dtype=dtype)
+        beta = torch.tensor((hi - mean) / std, device=device, dtype=dtype)
+        lo_cdf = torch.special.ndtr(alpha)
+        hi_cdf = torch.special.ndtr(beta)
+        u = torch.rand(n, device=device, dtype=dtype)
+        p = lo_cdf + u * (hi_cdf - lo_cdf)
+        # Clamp guards against tiny inverse-CDF rounding outside the interval.
+        return (mean + std * torch.special.ndtri(p)).clamp(lo, hi)
+
+    def _sample_offsets(
+        self, n: int, device: torch.device, dtype: torch.dtype
+    ) -> Tensor:
+        """Draw ``n`` per-object ``(x, y, z)`` offsets.
+
+        Each axis is sampled independently from its configured range and
+        standard deviation.
+
+        Args:
+            n: Number of offsets to sample.
+            device: Device for the output tensor.
+            dtype: Dtype for the output tensor.
+
+        Returns:
+            ``[n, 3]`` tensor of offsets.
+        """
+        cols = [
+            self._sample_axis_offsets(n, lo, hi, std, device, dtype)
+            for (lo, hi), std in zip(self.offset_range, self.offset_std)
+        ]
+        return torch.stack(cols, dim=1)
+
+    def _place_candidate(
+        self,
+        box: Tensor,
+        fmt: BoundingBox3DFormat,
+        occupied: Tensor,
+    ) -> tuple[Tensor, Tensor] | None:
+        """Find a collision-free pose for one candidate box.
+
+        When jittering is enabled, up to ``max_jitter_attempts`` jittered
+        offsets are drawn and the first that does not overlap *occupied* is
+        used. The original (zero) offset is always appended as a final
+        fallback, so an object whose jittered poses all collide is still
+        placed at its source position when that position is itself free.
+
+        Args:
+            box: Candidate box ``[K]`` at its source position.
+            fmt: Box format.
+            occupied: Boxes ``[M, K]`` the candidate must not overlap (scene
+                boxes plus objects already pasted this sample).
+
+        Returns:
+            ``(placed_box, offset)`` for the chosen pose, or ``None`` if every
+            attempt (including the original) collides.
+        """
+        device = box.device
+        dtype = box.dtype
+        # Jittered attempts first, the original (zero) offset last as fallback.
+        if self._jitter:
+            jittered = self._sample_offsets(self.max_jitter_attempts, device, dtype)
+            offsets = torch.cat(
+                [jittered, torch.zeros(1, 3, device=device, dtype=dtype)]
+            )
+        else:
+            offsets = torch.zeros(1, 3, device=device, dtype=dtype)
+
+        attempts = _apply_offset(
+            box.unsqueeze(0).expand(offsets.shape[0], -1), fmt, offsets
+        )
+
+        if occupied.shape[0] > 0:
+            collide = box3d_overlap(attempts, occupied, fmt).any(dim=1)
+        else:
+            collide = torch.zeros(offsets.shape[0], dtype=torch.bool, device=device)
+
+        free = (~collide).nonzero(as_tuple=False)
+        if free.numel() == 0:
+            return None
+        k = int(free[0].item())
+        return attempts[k], offsets[k]
+
     def _paste_objects(
         self,
         inputs: dict[str, Any],
@@ -585,38 +842,66 @@ class CopyPaste3D(Transform):
 
             perm = torch.randperm(len(db)).tolist()
             candidates = [db[i] for i in perm[:n_paste]]
-            cand_boxes = torch.stack([c.box for c in candidates]).to(device)
 
-            # Candidates vs existing scene boxes.
-            if all_boxes.shape[0] > 0:
-                safe = ~box3d_overlap(cand_boxes, all_boxes, fmt).any(dim=1)
+            if self._jitter:
+                # Jitter path: place one at a time so each candidate's jittered
+                # pose is checked against both the scene boxes and the objects
+                # already pasted this sample. This costs one overlap kernel per
+                # candidate, which is why it is gated behind ``_jitter``.
+                for entry in candidates:
+                    placed = self._place_candidate(entry.box.to(device), fmt, all_boxes)
+                    if placed is None:
+                        continue
+                    box_k, offset_k = placed
+                    # Re-bind the entry to the placed box so camera projection
+                    # and points stay consistent with the placed 3-D box.
+                    entry = replace(entry, box=box_k.detach().cpu())
+                    pasted_entries.append(entry)
+                    pasted_boxes.append(box_k)
+                    if entry.points is not None and points is not None:
+                        obj_points = entry.points.to(points.device).clone()
+                        obj_points[:, :3] += offset_k.to(obj_points.device)
+                        pasted_points.append(obj_points)
+                    pasted_labels.append(entry.label)
+                    all_boxes = torch.cat([all_boxes, box_k.unsqueeze(0)])
             else:
-                safe = torch.ones(cand_boxes.shape[0], dtype=torch.bool, device=device)
+                # Default fast path: two batched overlap kernels per class
+                # (candidates vs scene, candidates vs each other) followed by
+                # a cheap greedy accept on CPU. No per-candidate GPU sync.
+                cand_boxes = torch.stack([c.box for c in candidates]).to(device)
 
-            # Candidates vs each other.
-            cc = box3d_overlap(cand_boxes, cand_boxes, fmt)
-            cc.fill_diagonal_(False)
+                # Candidates vs existing scene boxes.
+                if all_boxes.shape[0] > 0:
+                    safe = ~box3d_overlap(cand_boxes, all_boxes, fmt).any(dim=1)
+                else:
+                    safe = torch.ones(
+                        cand_boxes.shape[0], dtype=torch.bool, device=device
+                    )
 
-            safe_cpu = safe.cpu()
-            cc_cpu = cc.cpu()
-            accepted_k: list[int] = []
-            for k in range(len(candidates)):
-                if not safe_cpu[k].item():
+                # Candidates vs each other.
+                cc = box3d_overlap(cand_boxes, cand_boxes, fmt)
+                cc.fill_diagonal_(False)
+
+                safe_cpu = safe.cpu()
+                cc_cpu = cc.cpu()
+                accepted_k: list[int] = []
+                for k in range(len(candidates)):
+                    if not safe_cpu[k].item():
+                        continue
+                    if cc_cpu[k, accepted_k].any().item():
+                        continue
+                    accepted_k.append(k)
+
+                if not accepted_k:
                     continue
-                if cc_cpu[k, accepted_k].any().item():
-                    continue
-                accepted_k.append(k)
-
-            if not accepted_k:
-                continue
-            for k in accepted_k:
-                entry = candidates[k]
-                pasted_entries.append(entry)
-                pasted_boxes.append(cand_boxes[k])
-                if entry.points is not None and points is not None:
-                    pasted_points.append(entry.points.to(points.device))
-                pasted_labels.append(entry.label)
-            all_boxes = torch.cat([all_boxes, cand_boxes[accepted_k]])
+                for k in accepted_k:
+                    entry = candidates[k]
+                    pasted_entries.append(entry)
+                    pasted_boxes.append(cand_boxes[k])
+                    if entry.points is not None and points is not None:
+                        pasted_points.append(entry.points.to(points.device))
+                    pasted_labels.append(entry.label)
+                all_boxes = torch.cat([all_boxes, cand_boxes[accepted_k]])
 
         if not pasted_boxes:
             return inputs, targets
