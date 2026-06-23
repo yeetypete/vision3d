@@ -143,9 +143,7 @@ class RerunLogger:
         Returns:
             The ``/``-joined non-empty parts of ``(namespace, group)``.
         """
-        return "/".join(
-            part for part in (self._namespace, group.strip("/")) if part
-        )
+        return "/".join(part for part in (self._namespace, group.strip("/")) if part)
 
     def _run(self, action: str, fn: Callable[[], None]) -> None:
         """Run a logging action, suppressing failures unless ``strict``.
