@@ -52,7 +52,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: ${{ inputs.cache }}
-          cache-local-path: ${{ github.workspace }}/.uv-cache
+          cache-local-path: ${{ runner.temp }}/uv-cache
           cache-suffix: build
       - name: Set BUILD_VERSION
         run: echo "BUILD_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"

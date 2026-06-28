@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: "3.14"
           enable-cache: ${{ inputs.cache }}
-          cache-local-path: ${{ github.workspace }}/.uv-cache
+          cache-local-path: ${{ runner.temp }}/uv-cache
           cache-suffix: test-cpu
       - name: Install project
         run: uv sync --locked --all-extras
