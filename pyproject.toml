@@ -48,7 +48,7 @@ docs = [
 # The `<82` upper bound mirrors torch's own `Requires-Dist: setuptools<82`.
 # Setuptools 82 removed `pkg_resources`, which the torch build path still
 # relies on.
-requires = ["numpy>=2", "setuptools>=77,<82", "torch>=2.10"]
+requires = ["numpy>=2", "setuptools>=77,<83", "torch>=2.10"]
 build-backend = "setuptools.build_meta"
 
 [tool.coverage.run]
