@@ -52,7 +52,7 @@ jobs:
         uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8
         with:
           enable-cache: true
-          cache-local-path: ${{ github.workspace }}/.uv-cache
+          cache-local-path: ${{ runner.temp }}/uv-cache
           cache-suffix: docs
       - name: Install dependencies
         run: uv sync --all-extras --all-groups
