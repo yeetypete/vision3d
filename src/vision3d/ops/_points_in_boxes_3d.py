@@ -33,6 +33,8 @@ def points_in_boxes_3d_indices(
     points: Tensor,
     boxes: Tensor,
     format: BoundingBox3DFormat,
+    *,
+    box_mask: Tensor | None = None,
 ) -> Tensor:
     """Return per-point box assignment.
 
@@ -42,12 +44,19 @@ def points_in_boxes_3d_indices(
         points: Point cloud coordinates ``[N, 3+C]``.
         boxes: 3D bounding boxes ``[M, K]``.
         format: Format of the bounding boxes.
+        box_mask: Optional boolean ``[M]`` mask of eligible boxes. When
+            given, points are assigned only among boxes that are ``True``;
+            a point that falls solely in masked-out boxes is treated as
+            belonging to no box (``-1``).
 
     Returns:
         Integer tensor ``[N]`` with the index of the box each point
-        belongs to, or ``-1`` if the point is not in any box.
+        belongs to, or ``-1`` if the point is not in any (eligible) box.
     """
-    return _first_true_index(points_in_boxes_3d(points, boxes, format))
+    mask = points_in_boxes_3d(points, boxes, format)  # [N, M]
+    if box_mask is not None:
+        mask = mask & box_mask.unsqueeze(0)
+    return _first_true_index(mask)
 
 
 def _first_true_index(mask: Tensor) -> Tensor:

@@ -1,15 +1,17 @@
 """Point cloud transform classes."""
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, override
 
 import torch
 from torch import Tensor
 from torch.utils._pytree import tree_flatten, tree_unflatten
+from torchvision.transforms.v2._utils import (
+    _parse_labels_getter as _tv_parse_labels_getter,
+)
 from torchvision.tv_tensors import TVTensor
 
-from vision3d.ops import points_in_boxes_3d
-from vision3d.ops._points_in_boxes_3d import _first_true_index
+from vision3d.ops import points_in_boxes_3d_indices
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 from ._transform import Transform, _RandomApplyTransform
@@ -178,31 +180,12 @@ def _normalize_range(
     return lo, hi
 
 
-def _default_labels_getter(inputs: Any) -> Any:
-    """Locate the per-box label tensor in a detection-style sample.
-
-    Mirrors torchvision's default ``labels_getter`` heuristic: accepts a
-    mapping holding a ``labels``-like key, or an ``(inputs, targets)`` pair
-    whose second element is such a mapping or a plain label tensor. A key is
-    "label-like" if it equals ``"labels"`` (case-insensitive) or, failing
-    that, merely contains ``"label"``.
+def _no_labels(_: Any) -> None:
+    """Picklable stand-in for ``labels_getter=None`` (always finds nothing).
 
     Returns:
-        The located value, or ``None`` if no label-like entry is present.
+        Always ``None``.
     """
-    if isinstance(inputs, (tuple, list)) and len(inputs) == 2:
-        inputs = inputs[1]
-    if isinstance(inputs, Tensor) and not isinstance(inputs, TVTensor):
-        return inputs
-    if isinstance(inputs, Mapping):
-        keys = [k for k in inputs if isinstance(k, str)]
-        for key in keys:
-            if key.lower() == "labels":
-                return inputs[key]
-        for key in keys:
-            if "label" in key.lower():
-                return inputs[key]
-    return None
 
 
 def _parse_labels_getter(
@@ -210,21 +193,21 @@ def _parse_labels_getter(
 ) -> Callable[[Any], Any]:
     """Resolve the ``labels_getter`` argument into a callable.
 
+    Delegates ``"default"`` (torchvision's ``labels``-key heuristic,
+    :func:`~torchvision.transforms.v2._utils._find_labels_default_heuristic`)
+    and the callable case to torchvision's
+    :func:`~torchvision.transforms.v2._utils._parse_labels_getter`, but
+    resolves ``None`` to the module-level :func:`_no_labels` rather than a
+    lambda so the transform stays picklable (e.g. for ``DataLoader`` workers).
+    A ``labels_getter`` that is not ``"default"``, a callable, or ``None``
+    makes the delegate raise :class:`ValueError`.
+
     Returns:
         A function mapping the input sample to its label tensor (or ``None``).
-
-    Raises:
-        ValueError: If *labels_getter* is not ``"default"``, a callable, or
-            ``None``.
     """
-    if labels_getter == "default":
-        return _default_labels_getter
-    if callable(labels_getter):
-        return labels_getter
     if labels_getter is None:
-        return lambda _: None
-    msg = "`labels_getter` should be 'default', a callable, or None."
-    raise ValueError(msg)
+        return _no_labels
+    return _tv_parse_labels_getter(labels_getter)
 
 
 class ObjectPointsSample(_RandomApplyTransform):
@@ -236,7 +219,7 @@ class ObjectPointsSample(_RandomApplyTransform):
     are left unchanged.
 
     Following the torchvision single-sample convention (see
-    :func:`torchvision.transforms.v2._utils.get_bounding_boxes`), the
+    ``torchvision.transforms.v2._utils.get_bounding_boxes``), the
     transform operates on the first :class:`~vision3d.tensors.PointCloud3D`
     and the first :class:`~vision3d.tensors.BoundingBoxes3D` in the sample;
     every box in that tensor is considered. Each point is assigned to the
@@ -261,7 +244,9 @@ class ObjectPointsSample(_RandomApplyTransform):
             ``keep_ratio``. Default: ``None``.
         keep_ratio: Fraction of each object's points to retain
             (``round(ratio * count)``), as a fixed ratio or a ``(min, max)``
-            range. Mutually exclusive with ``keep``. Default: ``None``.
+            range. Rounding is round-half-to-even, so a small object can round
+            down to ``0`` (e.g. ``keep_ratio=0.5`` drops the sole point of a
+            one-point box). Mutually exclusive with ``keep``. Default: ``None``.
         p_object: Per-object probability of thinning. Default: ``1.0``.
         labels: Class labels to thin; ``None`` thins every object. When set,
             an integer per-box label tensor must be locatable in the sample
@@ -331,14 +316,6 @@ class ObjectPointsSample(_RandomApplyTransform):
         self.labels = tuple(labels) if labels is not None else None
         self.labels_getter = labels_getter
         self.p_object = p_object
-
-        # Cached CPU tensor of the allowed classes; moved to the point cloud's
-        # device (and label dtype) once per call rather than rebuilt each time.
-        self._wanted_labels = (
-            torch.tensor(self.labels, dtype=torch.long)
-            if self.labels is not None
-            else None
-        )
         self._labels_getter = _parse_labels_getter(labels_getter)
 
     def _sample_targets(self, counts: Tensor, device: torch.device) -> Tensor:
@@ -385,16 +362,17 @@ class ObjectPointsSample(_RandomApplyTransform):
         # allowed class. Computed vectorised so nothing below needs per-box
         # host-device syncs.
         eligible = torch.rand(m, device=device) < self.p_object
-        if self._wanted_labels is not None:
+        if self.labels is not None:
             assert labels is not None
-            wanted = self._wanted_labels.to(device=device, dtype=labels.dtype)
+            wanted = torch.tensor(self.labels, device=device, dtype=labels.dtype)
             eligible = eligible & torch.isin(labels.to(device), wanted)
         if not bool(eligible.any()):
             return torch.arange(n, device=device)
 
         # Assign each point to the first *eligible* box containing it.
-        mask = points_in_boxes_3d(points, boxes, boxes.format)  # [N, M]
-        assign = _first_true_index(mask & eligible.unsqueeze(0))  # [N], -1 = none
+        assign = points_in_boxes_3d_indices(
+            points, boxes, boxes.format, box_mask=eligible
+        )  # [N], -1 = none
         fg = (assign >= 0).nonzero(as_tuple=True)[0]  # foreground indices, ascending
         if fg.numel() == 0:
             return torch.arange(n, device=device)
@@ -406,14 +384,18 @@ class ObjectPointsSample(_RandomApplyTransform):
         # Vectorised subsample: order foreground points by (box, random key)
         # so each box's points are contiguous and in random order, then keep
         # the first `target` of each box via an intra-box rank. Background and
-        # untouched objects (target >= count) survive untouched.
-        keys = torch.rand(fg.numel(), device=device)
+        # untouched objects (target >= count) survive untouched. The sort key
+        # is an integer composite -- the box index dominates and a random
+        # permutation breaks ties within a box -- which groups by box with a
+        # random within-box order in a single sort and avoids the float
+        # precision pitfalls of a fractional key.
+        k = fg.numel()
+        keys = fg_assign * k + torch.randperm(k, device=device)
         order = torch.argsort(keys)
-        order = order[torch.argsort(fg_assign[order], stable=True)]
         sorted_assign = fg_assign[order]
         starts = torch.zeros(m, dtype=torch.long, device=device)
         starts[1:] = counts.cumsum(0)[:-1]  # offset of each box's block
-        rank = torch.arange(fg.numel(), device=device) - starts[sorted_assign]
+        rank = torch.arange(k, device=device) - starts[sorted_assign]
         drop = fg[order][rank >= targets[sorted_assign]]
 
         keep_mask = torch.ones(n, dtype=torch.bool, device=device)
@@ -429,7 +411,13 @@ class ObjectPointsSample(_RandomApplyTransform):
         Raises:
             TypeError: If ``labels_getter`` does not yield such a tensor.
         """
-        found = self._labels_getter(inputs)
+        try:
+            found = self._labels_getter(inputs)
+        except (ValueError, IndexError, KeyError):
+            # torchvision's default heuristic raises when it cannot locate a
+            # label-like entry; treat that as "not found" and report it below
+            # with this transform's own message.
+            found = None
         if (
             isinstance(found, Tensor)
             and not isinstance(found, TVTensor)
@@ -437,6 +425,7 @@ class ObjectPointsSample(_RandomApplyTransform):
             and found.shape[0] == num_boxes
             and not torch.is_floating_point(found)
             and not torch.is_complex(found)
+            and found.dtype != torch.bool
         ):
             return found
         msg = (
@@ -455,7 +444,7 @@ class ObjectPointsSample(_RandomApplyTransform):
         :class:`~vision3d.tensors.BoundingBoxes3D`, plus an optional
         integer label tensor. Boxes and labels pass through by identity.
         When ``labels`` filtering is requested but no matching label tensor
-        is found, :meth:`_resolve_labels` raises :class:`TypeError`.
+        is found, ``_resolve_labels`` raises :class:`TypeError`.
 
         Returns:
             The input structure with the point cloud subsampled.

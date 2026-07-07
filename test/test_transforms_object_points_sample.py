@@ -1,5 +1,6 @@
 """Tests for the ObjectPointsSample transform."""
 
+import pickle
 from typing import Any
 
 import pytest
@@ -108,6 +109,14 @@ class TestObjectPointsSampleValidation:
 class TestObjectPointsSampleConvention:
     def test_transform(self) -> None:
         check_transform(ObjectPointsSample(keep=5, p=1.0), make_fusion_sample())
+
+    @pytest.mark.parametrize("labels_getter", ["default", None])
+    def test_picklable(self, labels_getter: str | None) -> None:
+        # The built-in labels_getter modes must survive pickling so the
+        # transform can cross a DataLoader worker boundary; the None case is
+        # backed by a module-level getter rather than an unpicklable lambda.
+        transform = ObjectPointsSample(keep=5, labels_getter=labels_getter)
+        pickle.loads(pickle.dumps(transform))
 
     def test_p_zero_is_identity(self) -> None:
         sample = _controlled_sample()
@@ -237,6 +246,14 @@ class TestObjectPointsSampleBehavior:
         sample["labels"] = torch.tensor([0.0, 1.0])
         with pytest.raises(TypeError, match="label tensor"):
             ObjectPointsSample(keep=0, labels=[0], p=1.0)(sample)
+
+    def test_bool_per_box_tensor_not_treated_as_labels(self) -> None:
+        # A bool per-box tensor must be rejected with the clean TypeError,
+        # not silently coerced into a class filter (torch.isin rejects bool).
+        sample = _controlled_sample()
+        sample["labels"] = torch.tensor([True, False])
+        with pytest.raises(TypeError, match="label tensor"):
+            ObjectPointsSample(keep=0, labels=[1], p=1.0)(sample)
 
     def test_p_object_zero_is_noop(self) -> None:
         torch.manual_seed(0)
