@@ -25,6 +25,10 @@ def points_in_boxes_3d(
         Boolean tensor ``[N, M]`` where entry ``(i, j)`` is True if
         point ``i`` is inside box ``j``.
     """
+    if points.dtype != boxes.dtype:
+        dtype = torch.promote_types(points.dtype, boxes.dtype)
+        points = points.to(dtype)
+        boxes = boxes.to(dtype)
     centers, half_dims, rot = extract_box3d_params(boxes, format)
     return _points_in_rotated_boxes(points[:, :3], centers, half_dims, rot)
 
@@ -172,9 +176,12 @@ def _points_in_rotated_boxes(
     # Relative positions: [N, 1, 3] - [1, M, 3] -> [N, M, 3]
     rel = xyz.unsqueeze(1) - centers.unsqueeze(0)
 
-    # Rotate into box local frame by R^T (inverse rotation)
-    # rel: [N, M, 3], rot^T: [M, 3, 3] -> local: [N, M, 3]
-    # Einstein: local_j = rel_k * R_jk  (R^T has j,k swapped)
+    # extract_box3d_params returns rotation matrices that map local -> world
+    # (world = R @ local, matching box3d_corners). Transpose to R^T to rotate
+    # the world-frame offset back into the box's local frame; without this the
+    # box is effectively rotated by the inverse of its true orientation.
+    rot = rot.transpose(-1, -2)
+    # rel: [N, M, 3], R^T: [M, 3, 3] -> local: [N, M, 3]
     local = torch.einsum("nmk,mjk->nmj", rel, rot)
 
     return (local.abs() <= half_dims.unsqueeze(0)).all(dim=-1)

@@ -39,6 +39,29 @@ class TestPointsInBoxes3D:
         assert mask[0, 0].item() is True  # inside rotated box
         assert mask[1, 0].item() is False  # outside rotated box
 
+    def test_yaw_rotation_asymmetric(self) -> None:
+        # Box l=4, w=1 rotated +30 degrees; its length axis (local +x) points
+        # to world (cos30, sin30). A point 1.8 along that axis is inside
+        # (1.8 < half-length 2); the same distance along the width axis is
+        # outside (1.8 > half-width 0.5), pinning down the box orientation.
+        yaw = math.pi / 6
+        c, s = math.cos(yaw), math.sin(yaw)
+        boxes = torch.tensor([[0.0, 0.0, 0.0, 4.0, 1.0, 2.0, yaw]])
+        along_length = torch.tensor([[1.8 * c, 1.8 * s, 0.0]])
+        along_width = torch.tensor([[-1.8 * s, 1.8 * c, 0.0]])
+        points = torch.cat([along_length, along_width])
+        mask = points_in_boxes_3d(points, boxes, BoundingBox3DFormat.XYZLWHY)
+        assert mask[0, 0].item() is True  # along length -> inside
+        assert mask[1, 0].item() is False  # along width -> outside
+
+    def test_mixed_point_box_dtype(self) -> None:
+        # float64 points (common from numpy) with float32 boxes must not
+        # raise a dtype mismatch inside the op.
+        points = torch.tensor([[0.0, 0.0, 0.0]], dtype=torch.float64)
+        boxes = torch.tensor([[0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0]], dtype=torch.float32)
+        mask = points_in_boxes_3d(points, boxes, BoundingBox3DFormat.XYZLWHY)
+        assert mask[0, 0].item() is True
+
     def test_multiple_boxes(self) -> None:
         points = torch.tensor([[1.0, 0.0, 0.0], [5.0, 0.0, 0.0]])
         boxes = torch.tensor(
