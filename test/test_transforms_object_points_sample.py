@@ -160,6 +160,35 @@ class TestObjectPointsSampleBehavior:
         with pytest.raises(TypeError, match="label tensor"):
             ObjectPointsSample(keep=0, labels=[0], p=1.0)(sample)
 
+    def test_label_filter_without_labels_raises_before_p_gate(self) -> None:
+        # p=0 would skip the transform; the check must still fire.
+        sample = _controlled_sample()
+        del sample["labels"]
+        with pytest.raises(TypeError, match="label tensor"):
+            ObjectPointsSample(keep=0, labels=[0], p=0.0)(sample)
+
+    def test_labels_resolved_by_key_over_decoy(self) -> None:
+        torch.manual_seed(0)
+        base = _controlled_sample()
+        # Decoy integer per-box tensor precedes "labels" in the dict.
+        sample = {
+            "points": base["points"],
+            "boxes": base["boxes"],
+            "num_lidar_pts": torch.tensor([7, 7]),
+            "labels": base["labels"],
+        }
+        out = ObjectPointsSample(keep=0, labels=[0], p=1.0, p_object=1.0)(sample)
+        survivors = _surviving_ids(out["points"])
+        obj1_ids = set(range(_N_OBJ0, _N_OBJ0 + _N_OBJ1))
+        # Class 0 removed via "labels"; the decoy would have thinned nothing.
+        assert survivors == obj1_ids | _bg_ids()
+
+    def test_float_per_box_tensor_not_treated_as_labels(self) -> None:
+        sample = _controlled_sample()
+        sample["labels"] = torch.tensor([0.0, 1.0])
+        with pytest.raises(TypeError, match="label tensor"):
+            ObjectPointsSample(keep=0, labels=[0], p=1.0)(sample)
+
     def test_p_object_zero_is_noop(self) -> None:
         torch.manual_seed(0)
         sample = _controlled_sample()

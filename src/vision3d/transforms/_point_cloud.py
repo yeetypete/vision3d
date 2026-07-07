@@ -1,6 +1,6 @@
 """Point cloud transform classes."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, override
 
 import torch
@@ -195,7 +195,53 @@ def _normalize_keep_ratio(
     return lo, hi
 
 
-class ObjectPointsSample(Transform):
+def _is_label_tensor(obj: Any, num_boxes: int) -> bool:
+    """Return whether *obj* looks like a per-box integer label tensor.
+
+    Args:
+        obj: Candidate object.
+        num_boxes: Expected length.
+
+    Returns:
+        True if *obj* is a plain (non-:class:`~torchvision.tv_tensors.TVTensor`)
+        1D integer tensor of length ``num_boxes``.
+    """
+    return (
+        isinstance(obj, Tensor)
+        and not isinstance(obj, TVTensor)
+        and obj.ndim == 1
+        and obj.shape[0] == num_boxes
+        and not torch.is_floating_point(obj)
+        and not torch.is_complex(obj)
+    )
+
+
+def _find_by_key(obj: Any, key: str) -> Any:
+    """Recursively search *obj* for the first value stored under *key*.
+
+    Walks mappings and sequences (but not tensors) so that both the
+    single-dict (``{"labels": ...}``) and split (``(inputs, targets)``)
+    calling conventions are covered.
+
+    Returns:
+        The first matching value, or ``None`` if *key* is absent.
+    """
+    if isinstance(obj, Mapping):
+        if key in obj:
+            return obj[key]
+        for value in obj.values():
+            found = _find_by_key(value, key)
+            if found is not None:
+                return found
+    elif isinstance(obj, (list, tuple)):
+        for value in obj:
+            found = _find_by_key(value, key)
+            if found is not None:
+                return found
+    return None
+
+
+class ObjectPointsSample(_RandomApplyTransform):
     """Thin the points inside each object to simulate sparse LiDAR returns.
 
     Subsamples the points enclosed by each box down to a per-object target,
@@ -218,9 +264,10 @@ class ObjectPointsSample(Transform):
             (``round(ratio * count)``), as a fixed ratio or a ``(min, max)``
             range. Mutually exclusive with ``keep``. Default: ``None``.
         p_object: Per-object probability of thinning. Default: ``1.0``.
-        labels: Class labels to thin; ``None`` thins every object. Requires
-            an integer label tensor alongside the boxes when set. Default:
-            ``None``.
+        labels: Class labels to thin; ``None`` thins every object. When set,
+            an integer per-box label tensor must accompany the boxes: it is
+            taken from a ``"labels"`` entry in the input when present,
+            otherwise the sole integer per-box tensor. Default: ``None``.
         p: Probability of applying the transform. Default: ``0.5``.
     """
 
@@ -234,15 +281,12 @@ class ObjectPointsSample(Transform):
         labels: Sequence[int] | None = None,
         p: float = 0.5,
     ) -> None:
-        super().__init__()
+        super().__init__(p=p)
         if (keep is None) == (keep_ratio is None):
             msg = "Exactly one of `keep` or `keep_ratio` must be set."
             raise ValueError(msg)
         if not (0.0 <= p_object <= 1.0):
             msg = "`p_object` should be a float in [0.0, 1.0]."
-            raise ValueError(msg)
-        if not (0.0 <= p <= 1.0):
-            msg = "`p` should be a float in [0.0, 1.0]."
             raise ValueError(msg)
 
         self.keep = _normalize_keep(keep) if keep is not None else None
@@ -251,23 +295,29 @@ class ObjectPointsSample(Transform):
         )
         self.labels = tuple(labels) if labels is not None else None
         self.p_object = p_object
-        self.p = p
 
         self._label_set = set(self.labels) if self.labels is not None else None
 
-    def _sample_target(self, count: int) -> int:
+    def _sample_target(self, count: int, device: torch.device) -> int:
         """Draw the number of points to retain for an object of ``count`` points.
+
+        All draws use ``device`` so the whole transform shares a single RNG
+        stream (seeding that device's generator makes it reproducible).
 
         Returns:
             Target point count, clamped to ``[0, count]``.
         """
         if self.keep is not None:
             lo, hi = self.keep
-            target = int(torch.randint(lo, hi + 1, ()).item())
+            target = int(torch.randint(lo, hi + 1, (), device=device).item())
         else:
             assert self.keep_ratio is not None
             lo, hi = self.keep_ratio
-            ratio = lo if lo == hi else float(torch.empty(()).uniform_(lo, hi).item())
+            ratio = (
+                lo
+                if lo == hi
+                else float(torch.empty((), device=device).uniform_(lo, hi).item())
+            )
             target = round(ratio * count)
         return max(0, min(target, count))
 
@@ -299,7 +349,7 @@ class ObjectPointsSample(Transform):
             count = idx.numel()
             if count == 0:
                 continue
-            target = self._sample_target(count)
+            target = self._sample_target(count, device)
             if target >= count:
                 continue
             survivors = torch.randperm(count, device=device)[:target]
@@ -308,6 +358,24 @@ class ObjectPointsSample(Transform):
             keep_mask[idx[drop]] = False
 
         return keep_mask.nonzero(as_tuple=True)[0]
+
+    def _find_labels(
+        self, inputs: Any, flat_inputs: list[Any], num_boxes: int
+    ) -> Tensor | None:
+        """Locate the per-box integer label tensor for the class filter.
+
+        Prefers a value stored under a ``"labels"`` key (searched through any
+        mappings in the input) and falls back to the sole integer per-box
+        tensor. Non-integer per-box tensors (e.g. float ``scores``) are never
+        treated as labels.
+
+        Returns:
+            The label tensor, or ``None`` if none is present.
+        """
+        keyed = _find_by_key(inputs, "labels")
+        if _is_label_tensor(keyed, num_boxes):
+            return keyed
+        return next((o for o in flat_inputs if _is_label_tensor(o, num_boxes)), None)
 
     @override
     def forward(self, *inputs: Any) -> Any:
@@ -329,33 +397,31 @@ class ObjectPointsSample(Transform):
         flat_inputs, spec = tree_flatten(inputs)
         self.check_inputs(flat_inputs)
 
-        if torch.rand(1) >= self.p:
-            return inputs
-
         points_idx = next(
             (i for i, o in enumerate(flat_inputs) if isinstance(o, PointCloud3D)), None
         )
         boxes = next((o for o in flat_inputs if isinstance(o, BoundingBoxes3D)), None)
+
+        # Validate labels before the random gate so a missing-labels
+        # misconfiguration is reported deterministically, not just when the
+        # transform happens to fire.
+        labels = None
+        if self._label_set is not None and boxes is not None and boxes.shape[0] > 0:
+            labels = self._find_labels(inputs, flat_inputs, boxes.shape[0])
+            if labels is None:
+                msg = (
+                    f"{type(self).__name__}() with `labels` set requires an "
+                    f"integer label tensor of length {boxes.shape[0]} alongside "
+                    f"the boxes."
+                )
+                raise TypeError(msg)
+
+        if torch.rand(1) >= self.p:
+            return inputs
+
         if points_idx is None or boxes is None or boxes.shape[0] == 0:
             return inputs
         points = flat_inputs[points_idx]
-
-        labels = None
-        for o in flat_inputs:
-            if (
-                isinstance(o, Tensor)
-                and not isinstance(o, TVTensor)
-                and o.ndim == 1
-                and o.shape[0] == boxes.shape[0]
-            ):
-                labels = o
-                break
-        if self._label_set is not None and labels is None:
-            msg = (
-                f"{type(self).__name__}() with `labels` set requires an integer "
-                f"label tensor of length {boxes.shape[0]} alongside the boxes."
-            )
-            raise TypeError(msg)
 
         indices = self._keep_indices(points, boxes, labels)
 
