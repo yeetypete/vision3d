@@ -152,6 +152,27 @@ class TestEdgeCases:
         out_inputs, _ = ObjectMinPointsFilter(min_points=2)(inputs, targets)
         assert torch.equal(out_inputs["images"], inputs["images"])
 
+    def test_mixed_point_box_dtype(self) -> None:
+        # float64 points (e.g. loaded from a numpy float64 array) with
+        # float32 boxes must not raise a dtype mismatch.
+        inputs, targets = _sample_with_counts()
+        pts = inputs["points"].as_subclass(torch.Tensor).double()
+        inputs["points"] = PointCloud3D(pts)
+        targets["boxes"] = BoundingBoxes3D(
+            targets["boxes"].as_subclass(torch.Tensor).float(),
+            format=targets["boxes"].format,
+        )
+        _, out = ObjectMinPointsFilter(min_points=2)(inputs, targets)
+        assert out["boxes"].shape[0] == 1
+        assert out["labels"].tolist() == [0]
+
+    def test_pair_inputs_dict_not_aliased(self) -> None:
+        # The returned inputs dict is a fresh copy (matches RangeFilter3D),
+        # so downstream mutation cannot corrupt the caller's sample.
+        inputs, targets = _sample_with_counts()
+        out_inputs, _ = ObjectMinPointsFilter(min_points=2)(inputs, targets)
+        assert out_inputs is not inputs
+
 
 class TestValidation:
     def test_negative_raises(self) -> None:

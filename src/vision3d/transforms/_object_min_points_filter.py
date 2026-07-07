@@ -8,10 +8,10 @@ from torch import Tensor
 from vision3d.ops import points_in_boxes_3d
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
-from ._transform import Transform
+from ._box_filter import _BoxFilterTransform
 
 
-class ObjectMinPointsFilter(Transform):
+class ObjectMinPointsFilter(_BoxFilterTransform):
     """Drop ground-truth boxes that enclose fewer than ``min_points`` points.
 
     Counts the points inside each box and removes boxes whose interior
@@ -69,7 +69,7 @@ class ObjectMinPointsFilter(Transform):
             return self._filter_sample(inputs[0])
         inputs_dict, targets_dict = inputs
         points = inputs_dict.get("points")
-        return inputs_dict, self._filter_targets(targets_dict, points)
+        return dict(inputs_dict), self._filter_targets(targets_dict, points)
 
     def _filter_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
         out = dict(sample)
@@ -83,20 +83,9 @@ class ObjectMinPointsFilter(Transform):
         self._apply_box_mask(out, points)
         return out
 
-    def _apply_box_mask(self, d: dict[str, Any], points: PointCloud3D | None) -> None:
-        """Filter boxes and labels in-place by interior point count."""
-        if "boxes" not in d:
-            return
-        boxes = d["boxes"]
-        keep = self._box_keep_mask(boxes, points)
-        d["boxes"] = BoundingBoxes3D(
-            boxes.as_subclass(Tensor)[keep], format=boxes.format
-        )
-        if "labels" in d:
-            d["labels"] = d["labels"][keep]
-
+    @override
     def _box_keep_mask(
-        self, boxes: BoundingBoxes3D, points: PointCloud3D | None
+        self, boxes: BoundingBoxes3D, points: PointCloud3D | None = None
     ) -> Tensor:
         """Compute the boolean keep-mask over boxes.
 
@@ -107,7 +96,10 @@ class ObjectMinPointsFilter(Transform):
         """
         raw = boxes.as_subclass(Tensor)
         m = raw.shape[0]
-        if m == 0 or points is None:
+        # ``min_points == 0`` keeps every box, so skip the point-in-box
+        # computation entirely; likewise when there are no boxes or no
+        # point cloud to count against.
+        if m == 0 or points is None or self.min_points == 0:
             return torch.ones(m, dtype=torch.bool, device=raw.device)
         pts = points.as_subclass(Tensor)
         # [N, M] membership; summing over points gives per-box counts. An
