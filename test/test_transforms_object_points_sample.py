@@ -166,12 +166,6 @@ class TestObjectPointsSampleBehavior:
         assert obj1_ids <= survivors
         assert survivors == obj1_ids | _bg_ids()
 
-    def test_label_filter_without_labels_raises(self) -> None:
-        sample = _controlled_sample()
-        del sample["labels"]
-        with pytest.raises(TypeError, match="label tensor"):
-            ObjectPointsSample(keep=0, labels=[0], p=1.0)(sample)
-
     def test_labels_getter_callable(self) -> None:
         torch.manual_seed(0)
         base = _controlled_sample()

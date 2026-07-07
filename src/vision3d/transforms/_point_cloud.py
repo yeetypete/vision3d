@@ -173,7 +173,8 @@ def _normalize_range(
     if not (minimum <= lo <= maximum and minimum <= hi <= maximum):
         raise ValueError(bounds_msg)
     if lo > hi:
-        raise ValueError(f"`{name}` min must not exceed max.")
+        msg = f"`{name}` min must not exceed max."
+        raise ValueError(msg)
     return lo, hi
 
 
