@@ -92,6 +92,14 @@ class TestObjectPointsSampleValidation:
         with pytest.raises(TypeError, match="int"):
             ObjectPointsSample(keep=True)
 
+    def test_bad_labels_getter(self) -> None:
+        with pytest.raises(ValueError, match="labels_getter"):
+            ObjectPointsSample(keep=5, labels=[0], labels_getter="bogus")
+
+    def test_labels_getter_none_with_labels_raises(self) -> None:
+        with pytest.raises(ValueError, match="labels_getter"):
+            ObjectPointsSample(keep=5, labels=[0], labels_getter=None)
+
 
 class TestObjectPointsSampleConvention:
     def test_transform(self) -> None:
@@ -159,6 +167,49 @@ class TestObjectPointsSampleBehavior:
         del sample["labels"]
         with pytest.raises(TypeError, match="label tensor"):
             ObjectPointsSample(keep=0, labels=[0], p=1.0)(sample)
+
+    def test_labels_getter_callable(self) -> None:
+        torch.manual_seed(0)
+        base = _controlled_sample()
+        # Labels stored under a non-standard key; a callable getter finds them.
+        sample = {
+            "points": base["points"],
+            "boxes": base["boxes"],
+            "gt": {"class_ids": base["labels"]},
+        }
+        out = ObjectPointsSample(
+            keep=0,
+            labels=[0],
+            p=1.0,
+            p_object=1.0,
+            labels_getter=lambda s: s["gt"]["class_ids"],
+        )(sample)
+        obj1_ids = set(range(_N_OBJ0, _N_OBJ0 + _N_OBJ1))
+        assert _surviving_ids(out["points"]) == obj1_ids | _bg_ids()
+
+    def test_overlapping_boxes_thinned_with_eligible_box(self) -> None:
+        # A point inside both a filtered-out box (lower index) and a targeted
+        # box must still be thinned with the targeted box, not escape via the
+        # first-box-wins tie-break.
+        torch.manual_seed(0)
+        boxes = BoundingBoxes3D(
+            torch.tensor(
+                [
+                    [0.0, 0.0, 0.0, 4.0, 4.0, 4.0, 0.0],  # box0 (label 0)
+                    [1.0, 0.0, 0.0, 4.0, 4.0, 4.0, 0.0],  # box1 (label 1), overlaps
+                ]
+            ),
+            format=FMT,
+        )
+        # Ten points in the shared overlap region (inside both boxes).
+        xs = torch.linspace(-0.9, 1.9, 10)
+        xyz = torch.stack([xs, torch.zeros(10), torch.zeros(10)], dim=1)
+        ids = torch.arange(10, dtype=torch.float32).unsqueeze(1)
+        points = PointCloud3D(torch.cat([xyz, ids], dim=1))
+        sample = {"points": points, "boxes": boxes, "labels": torch.tensor([0, 1])}
+        out = ObjectPointsSample(keep=2, labels=[1], p=1.0, p_object=1.0)(sample)
+        # Targeting label 1 down to 2 points removes 8 of the overlap points.
+        assert out["points"].shape[0] == 2
 
     def test_label_filter_without_labels_raises_before_p_gate(self) -> None:
         # p=0 would skip the transform; the check must still fire.
