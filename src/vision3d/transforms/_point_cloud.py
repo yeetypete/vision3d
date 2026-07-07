@@ -9,6 +9,7 @@ from torch.utils._pytree import tree_flatten, tree_unflatten
 from torchvision.tv_tensors import TVTensor
 
 from vision3d.ops import points_in_boxes_3d
+from vision3d.ops._points_in_boxes_3d import _first_true_index
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 from ._transform import Transform, _RandomApplyTransform
@@ -123,75 +124,56 @@ class PointJitter(_RandomApplyTransform):
         return self._call_kernel(jitter_points, inpt, noise=params["noise"])
 
 
-def _normalize_keep(keep: int | tuple[int, int]) -> tuple[int, int]:
-    """Expand *keep* into a ``(min, max)`` integer range.
+def _normalize_range(
+    value: Any,
+    name: str,
+    *,
+    scalar_types: type | tuple[type, ...],
+    cast: Callable[[Any], Any],
+    type_desc: str,
+    minimum: float,
+    maximum: float,
+    bounds_msg: str,
+) -> tuple[Any, Any]:
+    """Expand a scalar-or-pair argument into a validated ``(min, max)`` range.
+
+    A scalar becomes a fixed ``(v, v)`` range; a two-element sequence is
+    taken verbatim. Shared by the ``keep`` and ``keep_ratio`` arguments.
 
     Args:
-        keep: A single count (fixed) or a ``(min, max)`` range.
+        value: A single value or a ``(min, max)`` pair.
+        name: Argument name, used in error messages.
+        scalar_types: Accepted scalar type(s) (``bool`` is always rejected).
+        cast: Applied to each value (e.g. ``int`` or ``float``).
+        type_desc: Human-readable type description for the ``TypeError``.
+        minimum: Inclusive lower bound each value must satisfy.
+        maximum: Inclusive upper bound each value must satisfy.
+        bounds_msg: ``ValueError`` message when a value is out of bounds.
 
     Returns:
-        The ``(min, max)`` pair.
+        The validated ``(min, max)`` pair.
 
     Raises:
-        TypeError: If *keep* is not an int or a pair of ints.
-        ValueError: If the range is negative or has ``min > max``.
+        TypeError: If *value* is not a scalar of *scalar_types* or a pair
+            thereof.
+        ValueError: If a value is out of bounds or has ``min > max``.
     """
-    if isinstance(keep, bool):
-        msg = "`keep` should be an int or an (int, int) pair."
-        raise TypeError(msg)
-    if isinstance(keep, int):
-        lo, hi = keep, keep
+    type_msg = f"`{name}` should be {type_desc}."
+    if isinstance(value, bool):
+        raise TypeError(type_msg)
+    if isinstance(value, scalar_types):
+        lo = hi = cast(value)
     else:
-        seq = tuple(keep)
+        seq = tuple(value)
         if len(seq) != 2 or not all(
-            isinstance(v, int) and not isinstance(v, bool) for v in seq
+            isinstance(v, scalar_types) and not isinstance(v, bool) for v in seq
         ):
-            msg = "`keep` should be an int or an (int, int) pair."
-            raise TypeError(msg)
-        lo, hi = seq
-    if lo < 0:
-        msg = "`keep` values should be non-negative."
-        raise ValueError(msg)
+            raise TypeError(type_msg)
+        lo, hi = cast(seq[0]), cast(seq[1])
+    if not (minimum <= lo <= maximum and minimum <= hi <= maximum):
+        raise ValueError(bounds_msg)
     if lo > hi:
-        msg = "`keep` min must not exceed max."
-        raise ValueError(msg)
-    return lo, hi
-
-
-def _normalize_keep_ratio(
-    keep_ratio: float | tuple[float, float],
-) -> tuple[float, float]:
-    """Expand *keep_ratio* into a ``(min, max)`` float range.
-
-    Args:
-        keep_ratio: A single fraction (fixed) or a ``(min, max)`` range.
-
-    Returns:
-        The ``(min, max)`` pair.
-
-    Raises:
-        TypeError: If *keep_ratio* is not a float or a pair of floats.
-        ValueError: If a value is outside ``[0, 1]`` or has ``min > max``.
-    """
-    if isinstance(keep_ratio, bool):
-        msg = "`keep_ratio` should be a float or a (float, float) pair."
-        raise TypeError(msg)
-    if isinstance(keep_ratio, (int, float)):
-        lo, hi = float(keep_ratio), float(keep_ratio)
-    else:
-        seq = tuple(keep_ratio)
-        if len(seq) != 2 or not all(
-            isinstance(v, (int, float)) and not isinstance(v, bool) for v in seq
-        ):
-            msg = "`keep_ratio` should be a float or a (float, float) pair."
-            raise TypeError(msg)
-        lo, hi = seq[0], seq[1]
-    if not (0.0 <= lo <= 1.0 and 0.0 <= hi <= 1.0):
-        msg = "`keep_ratio` values should lie in [0.0, 1.0]."
-        raise ValueError(msg)
-    if lo > hi:
-        msg = "`keep_ratio` min must not exceed max."
-        raise ValueError(msg)
+        raise ValueError(f"`{name}` min must not exceed max.")
     return lo, hi
 
 
@@ -310,19 +292,52 @@ class ObjectPointsSample(_RandomApplyTransform):
         if not (0.0 <= p_object <= 1.0):
             msg = "`p_object` should be a float in [0.0, 1.0]."
             raise ValueError(msg)
+        if labels is not None and len(labels) == 0:
+            msg = "`labels` must be non-empty when set (use None to thin all classes)."
+            raise ValueError(msg)
         if labels is not None and labels_getter is None:
             msg = "`labels_getter` must not be None when `labels` is set."
             raise ValueError(msg)
 
-        self.keep = _normalize_keep(keep) if keep is not None else None
+        self.keep = (
+            _normalize_range(
+                keep,
+                "keep",
+                scalar_types=int,
+                cast=int,
+                type_desc="an int or an (int, int) pair",
+                minimum=0,
+                maximum=float("inf"),
+                bounds_msg="`keep` values should be non-negative.",
+            )
+            if keep is not None
+            else None
+        )
         self.keep_ratio = (
-            _normalize_keep_ratio(keep_ratio) if keep_ratio is not None else None
+            _normalize_range(
+                keep_ratio,
+                "keep_ratio",
+                scalar_types=(int, float),
+                cast=float,
+                type_desc="a float or a (float, float) pair",
+                minimum=0.0,
+                maximum=1.0,
+                bounds_msg="`keep_ratio` values should lie in [0.0, 1.0].",
+            )
+            if keep_ratio is not None
+            else None
         )
         self.labels = tuple(labels) if labels is not None else None
         self.labels_getter = labels_getter
         self.p_object = p_object
 
-        self._label_set = set(self.labels) if self.labels is not None else None
+        # Cached CPU tensor of the allowed classes; moved to the point cloud's
+        # device (and label dtype) once per call rather than rebuilt each time.
+        self._wanted_labels = (
+            torch.tensor(self.labels, dtype=torch.long)
+            if self.labels is not None
+            else None
+        )
         self._labels_getter = _parse_labels_getter(labels_getter)
 
     def _sample_targets(self, counts: Tensor, device: torch.device) -> Tensor:
@@ -346,7 +361,9 @@ class ObjectPointsSample(_RandomApplyTransform):
             else:
                 ratios = torch.empty(m, device=device).uniform_(lo, hi)
             targets = torch.round(ratios * counts.to(ratios.dtype)).to(torch.long)
-        return torch.minimum(targets, counts).clamp_(min=0)
+        # Draws are non-negative (randint lo >= 0; round of a non-negative
+        # product), so capping at the box's own count is the only bound needed.
+        return torch.minimum(targets, counts)
 
     def _keep_indices(
         self, points: PointCloud3D, boxes: BoundingBoxes3D, labels: Tensor | None
@@ -364,44 +381,42 @@ class ObjectPointsSample(_RandomApplyTransform):
         m = boxes.shape[0]
 
         # Per-box eligibility: selected by p_object and (when filtering) an
-        # allowed class. Computed vectorised so the loop below needs no
-        # per-box .item() syncs.
+        # allowed class. Computed vectorised so nothing below needs per-box
+        # host-device syncs.
         eligible = torch.rand(m, device=device) < self.p_object
-        if self._label_set is not None:
+        if self._wanted_labels is not None:
             assert labels is not None
-            wanted = torch.tensor(
-                sorted(self._label_set), device=device, dtype=labels.dtype
-            )
+            wanted = self._wanted_labels.to(device=device, dtype=labels.dtype)
             eligible = eligible & torch.isin(labels.to(device), wanted)
         if not bool(eligible.any()):
             return torch.arange(n, device=device)
 
         # Assign each point to the first *eligible* box containing it.
         mask = points_in_boxes_3d(points, boxes, boxes.format)  # [N, M]
-        mask = mask & eligible.unsqueeze(0)
-        in_any = mask.any(dim=1)
-        assign = mask.to(torch.uint8).argmax(dim=1)  # first True per row
-        assign[~in_any] = -1
+        assign = _first_true_index(mask & eligible.unsqueeze(0))  # [N], -1 = none
+        fg = (assign >= 0).nonzero(as_tuple=True)[0]  # foreground indices, ascending
+        if fg.numel() == 0:
+            return torch.arange(n, device=device)
 
-        counts = torch.bincount(assign[in_any], minlength=m)  # [M]
+        fg_assign = assign[fg]  # box index of each foreground point
+        counts = torch.bincount(fg_assign, minlength=m)  # [M]
         targets = self._sample_targets(counts, device)
 
-        # One sync for the whole loop instead of one per box.
-        counts_list = counts.tolist()
-        targets_list = targets.tolist()
+        # Vectorised subsample: order foreground points by (box, random key)
+        # so each box's points are contiguous and in random order, then keep
+        # the first `target` of each box via an intra-box rank. Background and
+        # untouched objects (target >= count) survive untouched.
+        keys = torch.rand(fg.numel(), device=device)
+        order = torch.argsort(keys)
+        order = order[torch.argsort(fg_assign[order], stable=True)]
+        sorted_assign = fg_assign[order]
+        starts = torch.zeros(m, dtype=torch.long, device=device)
+        starts[1:] = counts.cumsum(0)[:-1]  # offset of each box's block
+        rank = torch.arange(fg.numel(), device=device) - starts[sorted_assign]
+        drop = fg[order][rank >= targets[sorted_assign]]
 
         keep_mask = torch.ones(n, dtype=torch.bool, device=device)
-        for j in range(m):
-            count = counts_list[j]
-            target = targets_list[j]
-            if count == 0 or target >= count:
-                continue
-            idx = (assign == j).nonzero(as_tuple=True)[0]
-            survivors = torch.randperm(count, device=device)[:target]
-            drop = torch.ones(count, dtype=torch.bool, device=device)
-            drop[survivors] = False
-            keep_mask[idx[drop]] = False
-
+        keep_mask[drop] = False
         return keep_mask.nonzero(as_tuple=True)[0]
 
     def _resolve_labels(self, inputs: Any, num_boxes: int) -> Tensor:
@@ -459,7 +474,7 @@ class ObjectPointsSample(_RandomApplyTransform):
         # misconfiguration is reported deterministically, not just when the
         # transform happens to fire.
         labels = None
-        if self._label_set is not None and boxes is not None and boxes.shape[0] > 0:
+        if self.labels is not None and boxes is not None and boxes.shape[0] > 0:
             labels = self._resolve_labels(inputs, boxes.shape[0])
 
         # Gate on the point cloud's device so a single seeded generator drives

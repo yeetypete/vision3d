@@ -100,6 +100,10 @@ class TestObjectPointsSampleValidation:
         with pytest.raises(ValueError, match="labels_getter"):
             ObjectPointsSample(keep=5, labels=[0], labels_getter=None)
 
+    def test_empty_labels_rejected(self) -> None:
+        with pytest.raises(ValueError, match="non-empty"):
+            ObjectPointsSample(keep=5, labels=[])
+
 
 class TestObjectPointsSampleConvention:
     def test_transform(self) -> None:
