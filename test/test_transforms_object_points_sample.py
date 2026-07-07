@@ -93,6 +93,15 @@ class TestObjectPointsSampleValidation:
         with pytest.raises(TypeError, match="int"):
             ObjectPointsSample(keep=True)
 
+    def test_float_keep_reports_prepared_message(self) -> None:
+        # A non-iterable scalar of the wrong type must surface the argument
+        # message, not a cryptic builtin "'float' object is not iterable".
+        # Laundered through Any to exercise the runtime guard that protects
+        # untyped (e.g. config-driven) callers.
+        bad_keep: Any = 2.5
+        with pytest.raises(TypeError, match="`keep` should be an int"):
+            ObjectPointsSample(keep=bad_keep)
+
     def test_bad_labels_getter(self) -> None:
         with pytest.raises(ValueError, match="labels_getter"):
             ObjectPointsSample(keep=5, labels=[0], labels_getter="bogus")
@@ -254,6 +263,23 @@ class TestObjectPointsSampleBehavior:
         sample["labels"] = torch.tensor([True, False])
         with pytest.raises(TypeError, match="label tensor"):
             ObjectPointsSample(keep=0, labels=[1], p=1.0)(sample)
+
+    def test_narrow_label_dtype_out_of_range_class_matches_nothing(self) -> None:
+        # A class id that cannot fit the label tensor's narrow dtype must
+        # match nothing (no-op) rather than crash while materialising `wanted`.
+        sample = _controlled_sample()
+        sample["labels"] = sample["labels"].to(torch.int8)
+        out = ObjectPointsSample(keep=0, labels=[9999], p=1.0, p_object=1.0)(sample)
+        assert torch.equal(out["points"], sample["points"])
+
+    def test_narrow_label_dtype_matching_class_still_thins(self) -> None:
+        # Filtering still works when the requested class does fit the dtype.
+        torch.manual_seed(0)
+        sample = _controlled_sample()
+        sample["labels"] = sample["labels"].to(torch.int8)
+        out = ObjectPointsSample(keep=0, labels=[0], p=1.0, p_object=1.0)(sample)
+        obj1_ids = set(range(_N_OBJ0, _N_OBJ0 + _N_OBJ1))
+        assert _surviving_ids(out["points"]) == obj1_ids | _bg_ids()
 
     def test_p_object_zero_is_noop(self) -> None:
         torch.manual_seed(0)

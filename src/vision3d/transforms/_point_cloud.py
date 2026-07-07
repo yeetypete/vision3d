@@ -166,7 +166,12 @@ def _normalize_range(
     if isinstance(value, scalar_types):
         lo = hi = cast(value)
     else:
-        seq = tuple(value)
+        # A non-iterable scalar of the wrong type (e.g. a float for `keep`)
+        # would make tuple() raise its own opaque message; re-raise ours.
+        try:
+            seq = tuple(value)
+        except TypeError:
+            raise TypeError(type_msg) from None
         if len(seq) != 2 or not all(
             isinstance(v, scalar_types) and not isinstance(v, bool) for v in seq
         ):
@@ -364,8 +369,13 @@ class ObjectPointsSample(_RandomApplyTransform):
         eligible = torch.rand(m, device=device) < self.p_object
         if self.labels is not None:
             assert labels is not None
-            wanted = torch.tensor(self.labels, device=device, dtype=labels.dtype)
-            eligible = eligible & torch.isin(labels.to(device), wanted)
+            # Compare in a wide dtype so a requested class id that cannot fit
+            # the label tensor's (possibly narrow) dtype simply matches nothing
+            # rather than overflowing when materialised.
+            wanted = torch.tensor(self.labels, device=device, dtype=torch.long)
+            eligible = eligible & torch.isin(
+                labels.to(device=device, dtype=torch.long), wanted
+            )
         if not bool(eligible.any()):
             return torch.arange(n, device=device)
 
