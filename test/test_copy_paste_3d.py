@@ -829,6 +829,178 @@ class TestDeterminism:
         assert run_with_seed(42) == run_with_seed(42)
 
 
+def _box_size(box: torch.Tensor, fmt: BoundingBox3DFormat) -> torch.Tensor:
+    # Axis-aligned extents (dx, dy, dz) of a single box tensor.
+    if fmt is BoundingBox3DFormat.XYZXYZ:
+        return box[3:6] - box[:3]
+    return box[3:6]
+
+
+def _bottom_z(box: torch.Tensor, fmt: BoundingBox3DFormat) -> float:
+    # Lowest Z of a single box (valid for axis-aligned / yaw-only formats).
+    if fmt is BoundingBox3DFormat.XYZXYZ:
+        return box[2].item()
+    return (box[2] - box[5] / 2).item()
+
+
+# Object scaling
+class TestScaling:
+    """Random scaling of pasted objects about the bottom-centre."""
+
+    def test_default_disables_scaling(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10})
+        assert cp._scale is False
+
+    def test_scale_range_enables_scaling(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, scale_range=(0.9, 1.1))
+        assert cp._scale is True
+        assert cp._isotropic_scale is True
+
+    def test_per_dim_scale_range_is_anisotropic(self) -> None:
+        cp = CopyPaste3D(
+            target_counts={CAR: 10},
+            scale_range=((0.9, 1.1), (0.8, 1.2), (1.0, 1.0)),
+        )
+        assert cp._scale is True
+        assert cp._isotropic_scale is False
+        assert cp.scale_range == ((0.9, 1.1), (0.8, 1.2), (1.0, 1.0))
+
+    def test_isotropic_sampling_shares_factor_across_dims(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, scale_range=(0.5, 1.5))
+        torch.manual_seed(0)
+        s = cp._sample_scales(_N_SAMPLES, torch.device("cpu"))
+        assert s.shape == (_N_SAMPLES, 3)
+        assert s.min().item() >= 0.5
+        assert s.max().item() <= 1.5
+        # A single shared factor per object: all three dims are identical.
+        assert torch.equal(s[:, 0], s[:, 1])
+        assert torch.equal(s[:, 0], s[:, 2])
+
+    def test_anisotropic_sampling_per_dim_bounds(self) -> None:
+        cp = CopyPaste3D(
+            target_counts={CAR: 10},
+            scale_range=((0.5, 0.6), (0.9, 1.0), (1.4, 1.5)),
+        )
+        torch.manual_seed(0)
+        s = cp._sample_scales(_N_SAMPLES, torch.device("cpu"))
+        assert s.shape == (_N_SAMPLES, 3)
+        for dim, (lo, hi) in enumerate([(0.5, 0.6), (0.9, 1.0), (1.4, 1.5)]):
+            assert s[:, dim].min().item() >= lo
+            assert s[:, dim].max().item() <= hi
+        # Independent per-dim draws: the columns are not equal.
+        assert not torch.equal(s[:, 0], s[:, 1])
+
+    @pytest.mark.parametrize(
+        "fmt",
+        [
+            BoundingBox3DFormat.XYZLWHY,
+            BoundingBox3DFormat.XYZLWH,
+            BoundingBox3DFormat.XYZXYZ,
+        ],
+    )
+    def test_bottom_stays_fixed_under_scaling(self, fmt: BoundingBox3DFormat) -> None:
+        # For Z-up axis-aligned / yaw-only boxes the height axis is world Z, so
+        # the object's ground contact must not move when it is scaled.
+        factor = 1.7
+        cp = CopyPaste3D(
+            target_counts={CAR: 10}, min_points=1, scale_range=(factor, factor)
+        )
+        cp(*_make_lidar_batch(batch_size=3, num_boxes=3, format=fmt))
+        _, out_targets = cp(*_make_lidar_batch(batch_size=1, num_boxes=1, format=fmt))
+
+        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        pasted = out_boxes[1:]
+        if pasted.shape[0] == 0:
+            pytest.skip("no objects pasted")
+
+        src_bottoms = [_bottom_z(e.box, fmt) for e in cp._database[CAR]]
+        for box in pasted:
+            bottom = _bottom_z(box, fmt)
+            assert any(abs(bottom - sb) < _ATOL for sb in src_bottoms)
+
+    def test_custom_height_axis_anchors_along_that_axis(self) -> None:
+        # With height_axis=0 the bottom-centre anchor is the min-X face, so the
+        # min-X corner of each scaled box must match a source box's min-X.
+        fmt = BoundingBox3DFormat.XYZLWH
+        factor = 2.0
+        cp = CopyPaste3D(
+            target_counts={CAR: 10},
+            min_points=1,
+            scale_range=(factor, factor),
+            height_axis=0,
+        )
+        cp(*_make_lidar_batch(batch_size=3, num_boxes=3, format=fmt))
+        _, out_targets = cp(*_make_lidar_batch(batch_size=1, num_boxes=1, format=fmt))
+
+        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        pasted = out_boxes[1:]
+        if pasted.shape[0] == 0:
+            pytest.skip("no objects pasted")
+
+        # min-X face = cx - l/2, held fixed along the chosen height axis.
+        src_min_x = [(e.box[0] - e.box[3] / 2).item() for e in cp._database[CAR]]
+        for box in pasted:
+            min_x = (box[0] - box[3] / 2).item()
+            assert any(abs(min_x - sx) < _ATOL for sx in src_min_x)
+
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_anisotropic_scale_multiplies_each_dim(
+        self, fmt: BoundingBox3DFormat
+    ) -> None:
+        # Distinct constant factor per dimension so a swapped axis is caught.
+        factors = torch.tensor([1.5, 2.0, 0.5], device="cpu")
+        cp = CopyPaste3D(
+            target_counts={CAR: 10},
+            min_points=1,
+            scale_range=((1.5, 1.5), (2.0, 2.0), (0.5, 0.5)),
+        )
+        cp(*_make_lidar_batch(batch_size=3, num_boxes=3, format=fmt))
+        _, out_targets = cp(*_make_lidar_batch(batch_size=1, num_boxes=1, format=fmt))
+
+        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        pasted = out_boxes[1:]
+        if pasted.shape[0] == 0:
+            pytest.skip("no objects pasted")
+
+        src_sizes = [_box_size(e.box, fmt) for e in cp._database[CAR]]
+        for box in pasted:
+            size = _box_size(box, fmt).cpu()
+            assert any(torch.allclose(size, s * factors, atol=_ATOL) for s in src_sizes)
+
+    @pytest.mark.parametrize("fmt", ALL_FORMATS)
+    def test_anisotropic_points_stay_inside_scaled_box(
+        self, fmt: BoundingBox3DFormat
+    ) -> None:
+        # Per-dim scaling of a (possibly rotated) box must scale its points in
+        # the box's own frame so they remain enclosed.
+        cp = CopyPaste3D(
+            target_counts={CAR: 10},
+            min_points=1,
+            scale_range=((1.6, 1.6), (1.3, 1.3), (0.7, 0.7)),
+        )
+        cp(*_make_lidar_batch(batch_size=3, num_boxes=3, format=fmt))
+        out_inputs, out_targets = cp(
+            *_make_lidar_batch(batch_size=1, num_boxes=1, format=fmt)
+        )
+
+        out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        pasted = BoundingBoxes3D(out_boxes[1:], format=fmt)
+        if pasted.shape[0] == 0:
+            pytest.skip("no objects pasted")
+
+        points = out_inputs[0]["points"]
+        inside = points_in_boxes_3d(points, pasted, fmt)
+        assert (inside.sum(dim=0) >= 1).all()
+
+    def test_does_not_mutate_database_entries_when_scaling(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1, scale_range=(2.0, 2.0))
+        cp(*_make_lidar_batch(batch_size=2, num_boxes=3))
+        before = [e.box.clone() for e in cp._database[CAR]]
+        cp(*_make_lidar_batch(batch_size=1, num_boxes=1))
+        for entry, box in zip(cp._database[CAR], before):
+            assert torch.equal(entry.box, box)
+
+
 # Validation
 class TestValidation:
     def test_p_out_of_range_raises(self) -> None:
@@ -892,6 +1064,28 @@ class TestValidation:
             CopyPaste3D(
                 target_counts={CAR: 10}, offset_range=(5.0, 5.0), offset_std=0.5
             )
+
+    def test_scale_range_non_positive_raises(self) -> None:
+        with pytest.raises(ValueError, match="`scale_range` values should be positive"):
+            CopyPaste3D(target_counts={CAR: 10}, scale_range=(0.0, 1.5))
+
+    def test_scale_range_min_gt_max_raises(self) -> None:
+        with pytest.raises(ValueError, match="`scale_range` min must not exceed max"):
+            CopyPaste3D(target_counts={CAR: 10}, scale_range=(1.5, 0.5))
+
+    def test_scale_range_wrong_length_raises(self) -> None:
+        bad_range: Any = ((0.9, 1.1), (0.8, 1.2))
+        with pytest.raises(ValueError, match="`scale_range` should be a"):
+            CopyPaste3D(target_counts={CAR: 10}, scale_range=bad_range)
+
+    def test_scale_range_per_dim_scalar_entry_raises(self) -> None:
+        bad_range: Any = (1.0, (0.9, 1.1), (0.9, 1.1))
+        with pytest.raises(TypeError, match="must be a \\(min, max\\) pair"):
+            CopyPaste3D(target_counts={CAR: 10}, scale_range=bad_range)
+
+    def test_height_axis_out_of_range_raises(self) -> None:
+        with pytest.raises(ValueError, match="`height_axis` should be 0, 1, or 2"):
+            CopyPaste3D(target_counts={CAR: 10}, height_axis=3)
 
     def test_forward_empty_batch_is_noop(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10})
