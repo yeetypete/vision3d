@@ -34,11 +34,8 @@ def box3d_overlap(
     centers1, half1, rot1 = extract_box3d_params(boxes1, format)
     centers2, half2, rot2 = extract_box3d_params(boxes2, format)
 
-    # extract_box3d_params returns rotation matrices that map local -> world
-    # (world = R @ local), so a box's world-frame axes are the COLUMNS of
-    # ``rot``. The projections below index each axis as a row, so transpose
-    # to expose the columns as rows; without this the boxes are effectively
-    # rotated by the inverse of their true orientation.
+    # Transpose so box axes are rows (see extract_box3d_params), as the
+    # projections below expect.
     rot1 = rot1.transpose(-1, -2)
     rot2 = rot2.transpose(-1, -2)
 

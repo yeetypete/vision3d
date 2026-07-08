@@ -128,7 +128,10 @@ def extract_box3d_params(
 
     Returns:
         ``(centers, half_dims, rot)`` where ``centers`` and ``half_dims`` are
-        ``[M, 3]`` and ``rot`` is ``[M, 3, 3]``.
+        ``[M, 3]`` and ``rot`` is ``[M, 3, 3]``. Each ``rot`` maps local to
+        world coordinates (``world = rot @ local``, matching ``box3d_corners``),
+        so a box's world-frame axes are the *columns* of ``rot``. Transpose
+        for the inverse (world-to-local) mapping.
 
     Raises:
         ValueError: If ``format`` is not a supported format.
@@ -176,10 +179,8 @@ def _points_in_rotated_boxes(
     # Relative positions: [N, 1, 3] - [1, M, 3] -> [N, M, 3]
     rel = xyz.unsqueeze(1) - centers.unsqueeze(0)
 
-    # extract_box3d_params returns rotation matrices that map local -> world
-    # (world = R @ local, matching box3d_corners). Transpose to R^T to rotate
-    # the world-frame offset back into the box's local frame; without this the
-    # box is effectively rotated by the inverse of its true orientation.
+    # Transpose to map the world-frame offset into the box's local frame
+    # (see extract_box3d_params).
     rot = rot.transpose(-1, -2)
     # rel: [N, M, 3], R^T: [M, 3, 3] -> local: [N, M, 3]
     local = torch.einsum("nmk,mjk->nmj", rel, rot)
