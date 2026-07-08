@@ -26,18 +26,29 @@ def box3d_overlap(
     Returns:
         Boolean matrix ``[N, M]`` where True indicates overlap.
     """
+    if boxes1.dtype != boxes2.dtype:
+        dtype = torch.promote_types(boxes1.dtype, boxes2.dtype)
+        boxes1 = boxes1.to(dtype)
+        boxes2 = boxes2.to(dtype)
+
     centers1, half1, rot1 = extract_box3d_params(boxes1, format)
     centers2, half2, rot2 = extract_box3d_params(boxes2, format)
+
+    # Transpose so box axes are rows (see extract_box3d_params), as the
+    # projections below expect.
+    rot1 = rot1.transpose(-1, -2)
+    rot2 = rot2.transpose(-1, -2)
 
     # Pairwise center difference: [N, M, 3]
     diff = centers2.unsqueeze(0) - centers1.unsqueeze(1)
 
-    # Precompute R1^T @ R2 and projections of diff onto each rotation frame.
-    # dot1[n, m, i] = diff[n,m] . rot1[n, :, i]
+    # Projections of diff onto each box's world-frame axes (rows of the
+    # transposed rot are the box axes).
+    # dot1[n, m, i] = diff[n,m] . axis_i(box1)
     dot1 = torch.einsum("nmk,nik->nmi", diff, rot1)  # [N, M, 3]
-    # dot2[n, m, j] = diff[n,m] . rot2[m, :, j]
+    # dot2[n, m, j] = diff[n,m] . axis_j(box2)
     dot2 = torch.einsum("nmk,mjk->nmj", diff, rot2)  # [N, M, 3]
-    # c[n, m, i, j] = rot1[n, :, i] . rot2[m, :, j]
+    # c[n, m, i, j] = axis_i(box1) . axis_j(box2)
     c = torch.einsum("nik,mjk->nmij", rot1, rot2)  # [N, M, 3, 3]
     abs_c = c.abs()
 

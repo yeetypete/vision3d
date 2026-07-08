@@ -25,6 +25,10 @@ def points_in_boxes_3d(
         Boolean tensor ``[N, M]`` where entry ``(i, j)`` is True if
         point ``i`` is inside box ``j``.
     """
+    if points.dtype != boxes.dtype:
+        dtype = torch.promote_types(points.dtype, boxes.dtype)
+        points = points.to(dtype)
+        boxes = boxes.to(dtype)
     centers, half_dims, rot = extract_box3d_params(boxes, format)
     return _points_in_rotated_boxes(points[:, :3], centers, half_dims, rot)
 
@@ -144,7 +148,10 @@ def extract_box3d_params(
 
     Returns:
         ``(centers, half_dims, rot)`` where ``centers`` and ``half_dims`` are
-        ``[M, 3]`` and ``rot`` is ``[M, 3, 3]``.
+        ``[M, 3]`` and ``rot`` is ``[M, 3, 3]``. Each ``rot`` maps local to
+        world coordinates (``world = rot @ local``, matching ``box3d_corners``),
+        so a box's world-frame axes are the *columns* of ``rot``. Transpose
+        for the inverse (world-to-local) mapping.
 
     Raises:
         ValueError: If ``format`` is not a supported format.
@@ -192,9 +199,10 @@ def _points_in_rotated_boxes(
     # Relative positions: [N, 1, 3] - [1, M, 3] -> [N, M, 3]
     rel = xyz.unsqueeze(1) - centers.unsqueeze(0)
 
-    # Rotate into box local frame by R^T (inverse rotation)
-    # rel: [N, M, 3], rot^T: [M, 3, 3] -> local: [N, M, 3]
-    # Einstein: local_j = rel_k * R_jk  (R^T has j,k swapped)
+    # Transpose to map the world-frame offset into the box's local frame
+    # (see extract_box3d_params).
+    rot = rot.transpose(-1, -2)
+    # rel: [N, M, 3], R^T: [M, 3, 3] -> local: [N, M, 3]
     local = torch.einsum("nmk,mjk->nmj", rel, rot)
 
     return (local.abs() <= half_dims.unsqueeze(0)).all(dim=-1)
