@@ -64,6 +64,7 @@ napoleon_use_ivar = True
 # purpose, so suppress the unresolved cross-reference.
 nitpick_ignore = [
     ("py:class", "vision3d.transforms._transform._RandomApplyTransform"),
+    ("py:class", "vision3d.transforms._box_filter._BoxFilterTransform"),
     ("py:class", "vision3d.transforms.v2._Refuse3DAwareMixin"),
     ("py:class", "torchvision.transforms.v2._transform._RandomApplyTransform"),
 ]
