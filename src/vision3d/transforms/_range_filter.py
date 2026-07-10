@@ -32,7 +32,9 @@ class RangeFilter3D(Transform):
             sync with boxes. ``"default"`` finds it under a case-insensitive
             ``"labels"`` key; pass a callable for a custom location, or
             ``None`` to filter boxes without touching any labels. Default:
-            ``"default"``.
+            ``"default"``. A callable must return the label tensor(s) stored
+            in the sample, not a copy or view — labels are matched to their
+            leaf by identity.
     """
 
     def __init__(
@@ -56,6 +58,11 @@ class RangeFilter3D(Transform):
 
         Returns:
             Filtered sample in the same structure as the input.
+
+        Raises:
+            ValueError: If the sample holds more than one box set, or if
+                ``labels_getter`` returns a tensor that is not stored in the
+                sample (e.g. a copy or view).
         """
         inputs = inputs if len(inputs) > 1 else inputs[0]
         flat_inputs, spec = tree_flatten(inputs)
@@ -70,6 +77,14 @@ class RangeFilter3D(Transform):
             labels = self._labels_getter(inputs)
             if labels is not None:
                 labels = (labels,) if isinstance(labels, Tensor) else labels
+                leaf_ids = {id(leaf) for leaf in flat_inputs}
+                for label in labels:
+                    if id(label) not in leaf_ids:
+                        msg = (
+                            "`labels_getter` must return the label tensor(s) "
+                            "stored in the sample, not a copy or view"
+                        )
+                        raise ValueError(msg)
                 label_ids = {id(label) for label in labels}
 
         flat_outputs = [

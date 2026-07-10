@@ -188,6 +188,28 @@ class TestEdgeCases:
         with pytest.raises(ValueError, match="6 elements"):
             RangeFilter3D(point_cloud_range=(0.0, 0.0, 0.0))
 
+    def test_no_boxes_passes_through_non_point_leaves(self) -> None:
+        points = PointCloud3D(torch.tensor([[0.0, 0, 0, 1], [50.0, 0, 0, 1]]))
+        image = torch.randn(2, 3, 16, 24)
+        sample = {"points": points, "images": image, "frame_id": 7}
+        out = RangeFilter3D(point_cloud_range=_RANGE)(sample)
+        assert out["points"].shape[0] == 1
+        assert torch.equal(out["images"], image)
+        assert out["frame_id"] == 7
+
+    def test_multiple_box_sets_raises(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        targets = {
+            "boxes": targets["boxes"],
+            "pred_boxes": BoundingBoxes3D(
+                targets["boxes"].as_subclass(torch.Tensor).clone(),
+                format=targets["boxes"].format,
+            ),
+            "labels": targets["labels"],
+        }
+        with pytest.raises(ValueError, match="multiple BoundingBoxes3D"):
+            RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
+
 
 class TestLabelsGetter:
     def test_default_getter_is_case_insensitive(self) -> None:
@@ -229,3 +251,19 @@ class TestLabelsGetter:
     def test_invalid_labels_getter_raises(self) -> None:
         with pytest.raises(ValueError, match="labels_getter"):
             RangeFilter3D(point_cloud_range=_RANGE, labels_getter=123)  # type: ignore[arg-type]
+
+    def test_getter_returning_copy_raises(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        f = RangeFilter3D(
+            point_cloud_range=_RANGE,
+            labels_getter=lambda s: s[1]["labels"].clone(),
+        )
+        with pytest.raises(ValueError, match="copy or view"):
+            f(inputs, targets)
+
+    def test_default_getter_ignores_non_tensor_labels(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        targets = {"boxes": targets["boxes"], "labels": ["a", "b", "c"]}
+        _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
+        assert out_targets["boxes"].shape[0] == 2
+        assert out_targets["labels"] == ["a", "b", "c"]

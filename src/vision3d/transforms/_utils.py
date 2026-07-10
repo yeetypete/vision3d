@@ -9,19 +9,28 @@ from vision3d.tensors import BoundingBoxes3D
 
 
 def _find_boxes(flat_inputs: list[Any]) -> BoundingBoxes3D | None:
-    """Return the first ``BoundingBoxes3D`` leaf, or ``None`` if absent.
+    """Return the sole ``BoundingBoxes3D`` leaf, or ``None`` if absent.
 
     Args:
         flat_inputs: Leaves from :func:`torch.utils._pytree.tree_flatten`.
 
     Returns:
-        The first :class:`~vision3d.tensors.BoundingBoxes3D` in
+        The single :class:`~vision3d.tensors.BoundingBoxes3D` in
         ``flat_inputs``, or ``None`` when the sample carries no boxes.
+
+    Raises:
+        ValueError: If the sample holds more than one ``BoundingBoxes3D``
+            leaf, since a single keep-mask cannot be applied unambiguously
+            across box sets of differing length.
     """
-    for inpt in flat_inputs:
-        if isinstance(inpt, BoundingBoxes3D):
-            return inpt
-    return None
+    boxes = [inpt for inpt in flat_inputs if isinstance(inpt, BoundingBoxes3D)]
+    if len(boxes) > 1:
+        msg = (
+            "found multiple BoundingBoxes3D leaves in the sample; "
+            "RangeFilter3D supports exactly one box set"
+        )
+        raise ValueError(msg)
+    return boxes[0] if boxes else None
 
 
 def _default_labels_getter(inputs: Any) -> Tensor | None:
@@ -46,7 +55,7 @@ def _default_labels_getter(inputs: Any) -> Tensor | None:
     if isinstance(candidate, dict):
         for key, value in candidate.items():
             if isinstance(key, str) and key.lower() == "labels":
-                return value
+                return value if isinstance(value, Tensor) else None
     return None
 
 
