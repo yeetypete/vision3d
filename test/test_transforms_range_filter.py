@@ -187,3 +187,45 @@ class TestEdgeCases:
     def test_invalid_range_raises(self) -> None:
         with pytest.raises(ValueError, match="6 elements"):
             RangeFilter3D(point_cloud_range=(0.0, 0.0, 0.0))
+
+
+class TestLabelsGetter:
+    def test_default_getter_is_case_insensitive(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        targets = {"boxes": targets["boxes"], "Labels": targets["labels"]}
+        _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
+        assert out_targets["Labels"].tolist() == [0, 1]
+
+    def test_custom_labels_getter(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        targets = {"boxes": targets["boxes"], "gt_labels": targets["labels"]}
+        f = RangeFilter3D(
+            point_cloud_range=_RANGE, labels_getter=lambda s: s[1]["gt_labels"]
+        )
+        _, out_targets = f(inputs, targets)
+        assert out_targets["gt_labels"].tolist() == [0, 1]
+
+    def test_none_getter_filters_boxes_but_not_labels(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        f = RangeFilter3D(point_cloud_range=_RANGE, labels_getter=None)
+        _, out_targets = f(inputs, targets)
+        assert out_targets["boxes"].shape[0] == 2
+        assert out_targets["labels"].shape[0] == 3
+
+    def test_non_standard_dict_structure(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        sample = {
+            "lidar": inputs["points"],
+            "gt_boxes": targets["boxes"],
+            "labels": targets["labels"],
+            "frame_id": 7,
+        }
+        out = RangeFilter3D(point_cloud_range=_RANGE)(sample)
+        assert out["lidar"].shape[0] == 2
+        assert out["gt_boxes"].shape[0] == 2
+        assert out["labels"].tolist() == [0, 1]
+        assert out["frame_id"] == 7
+
+    def test_invalid_labels_getter_raises(self) -> None:
+        with pytest.raises(ValueError, match="labels_getter"):
+            RangeFilter3D(point_cloud_range=_RANGE, labels_getter=123)  # type: ignore[arg-type]

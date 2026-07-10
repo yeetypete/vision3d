@@ -1,22 +1,25 @@
 """Range-based filtering for points and boxes."""
 
+from collections.abc import Callable
 from typing import Any, override
 
 import torch
 from torch import Tensor
+from torch.utils._pytree import tree_flatten, tree_unflatten
 
 from vision3d.ops import extract_box3d_params
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 from ._transform import Transform
+from ._utils import _find_boxes, _parse_labels_getter
 
 
 class RangeFilter3D(Transform):
     """Drop points and boxes outside an axis-aligned 3D region.
 
-    Points are filtered by their xyz coordinates; boxes are filtered
-    by their **center** (format-agnostic). Labels in ``targets`` are
-    filtered in sync with boxes.
+    Points are filtered by their xyz coordinates; boxes are filtered by
+    their **center** (format-agnostic), and any per-box ``labels`` are
+    filtered in sync.
 
     **Must** be applied after spatial augmentations (rotate / scale /
     translate can push data out of the sensor range) and before the
@@ -25,59 +28,75 @@ class RangeFilter3D(Transform):
     Args:
         point_cloud_range: Axis-aligned bounds
             ``(x_min, y_min, z_min, x_max, y_max, z_max)``.
+        labels_getter: How to locate the per-box label tensor filtered in
+            sync with boxes. ``"default"`` finds it under a case-insensitive
+            ``"labels"`` key; pass a callable for a custom location, or
+            ``None`` to filter boxes without touching any labels. Default:
+            ``"default"``.
     """
 
-    def __init__(self, point_cloud_range: tuple[float, ...]) -> None:
+    def __init__(
+        self,
+        point_cloud_range: tuple[float, ...],
+        labels_getter: str | Callable[[Any], Any] | None = "default",
+    ) -> None:
         super().__init__()
         if len(point_cloud_range) != 6:
             msg = "point_cloud_range must have 6 elements (x_min, y_min, z_min, x_max, y_max, z_max)"
             raise ValueError(msg)
         self.point_cloud_range = tuple(point_cloud_range)
+        self.labels_getter = labels_getter
+        self._labels_getter = _parse_labels_getter(labels_getter)
 
     @override
     def forward(self, *inputs: Any) -> Any:
         """Filter points and boxes outside the configured range.
 
-        Accepts both a single sample dict and an
-        ``(inputs, targets)`` pair.
+        Accepts both a single sample dict and an ``(inputs, targets)`` pair.
 
         Returns:
             Filtered sample in the same structure as the input.
         """
-        if len(inputs) == 1:
-            return self._filter_sample(inputs[0])
-        inputs_dict, targets_dict = inputs
-        return self._filter_inputs(inputs_dict), self._filter_targets(targets_dict)
+        inputs = inputs if len(inputs) > 1 else inputs[0]
+        flat_inputs, spec = tree_flatten(inputs)
 
-    def _filter_inputs(self, inputs: dict[str, Any]) -> dict[str, Any]:
-        out = dict(inputs)
-        if "points" in out:
-            out["points"] = self._filter_points(out["points"])
-        return out
+        boxes = _find_boxes(flat_inputs)
+        box_keep = None if boxes is None else self._box_keep_mask(boxes)
 
-    def _filter_targets(self, targets: dict[str, Any]) -> dict[str, Any]:
-        out = dict(targets)
-        self._apply_box_mask(out)
-        return out
+        # Labels are matched to their leaf by identity, so the keep-mask
+        # applies wherever they live; needs boxes to define the mask.
+        label_ids: set[int] = set()
+        if boxes is not None:
+            labels = self._labels_getter(inputs)
+            if labels is not None:
+                labels = (labels,) if isinstance(labels, Tensor) else labels
+                label_ids = {id(label) for label in labels}
 
-    def _filter_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
-        out = dict(sample)
-        if "points" in out:
-            out["points"] = self._filter_points(out["points"])
-        self._apply_box_mask(out)
-        return out
+        flat_outputs = [
+            self._filter_leaf(inpt, box_keep, label_ids) for inpt in flat_inputs
+        ]
+        return tree_unflatten(flat_outputs, spec)
 
-    def _apply_box_mask(self, d: dict[str, Any]) -> None:
-        """Filter boxes and labels in-place by center range."""
-        if "boxes" not in d:
-            return
-        boxes = d["boxes"]
-        keep = self._box_keep_mask(boxes)
-        d["boxes"] = BoundingBoxes3D(
-            boxes.as_subclass(Tensor)[keep], format=boxes.format
-        )
-        if "labels" in d:
-            d["labels"] = d["labels"][keep]
+    def _filter_leaf(
+        self, inpt: Any, box_keep: Tensor | None, label_ids: set[int]
+    ) -> Any:
+        """Filter a single flattened leaf according to its type.
+
+        Returns:
+            The point cloud filtered by coordinate, boxes/labels filtered
+            by the box keep-mask, or ``inpt`` unchanged.
+        """
+        if isinstance(inpt, PointCloud3D):
+            return self._filter_points(inpt)
+        if box_keep is None:
+            return inpt
+        if isinstance(inpt, BoundingBoxes3D):
+            return BoundingBoxes3D(
+                inpt.as_subclass(Tensor)[box_keep], format=inpt.format
+            )
+        if id(inpt) in label_ids:
+            return inpt[box_keep]
+        return inpt
 
     def _filter_points(self, points: PointCloud3D) -> PointCloud3D:
         pts = points.as_subclass(Tensor)
