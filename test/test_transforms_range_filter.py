@@ -258,8 +258,14 @@ class TestLabelsGetter:
             point_cloud_range=_RANGE,
             labels_getter=lambda s: s[1]["labels"].clone(),
         )
-        with pytest.raises(ValueError, match="copy or view"):
+        with pytest.raises(ValueError, match="leaves of the sample"):
             f(inputs, targets)
+
+    def test_mismatched_label_length_raises(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        targets = {"boxes": targets["boxes"], "labels": torch.tensor([0, 1])}
+        with pytest.raises(ValueError, match="labels must be per-box"):
+            RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
 
     def test_default_getter_ignores_non_tensor_labels(self) -> None:
         inputs, targets = _make_two_dict_sample()

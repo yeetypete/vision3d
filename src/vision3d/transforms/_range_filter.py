@@ -19,7 +19,8 @@ class RangeFilter3D(Transform):
 
     Points are filtered by their xyz coordinates; boxes are filtered by
     their **center** (format-agnostic), and any per-box ``labels`` are
-    filtered in sync.
+    filtered in sync. The sample must hold at most one ``BoundingBoxes3D``
+    set (a single keep-mask cannot span box sets of differing length).
 
     **Must** be applied after spatial augmentations (rotate / scale /
     translate can push data out of the sensor range) and before the
@@ -60,9 +61,10 @@ class RangeFilter3D(Transform):
             Filtered sample in the same structure as the input.
 
         Raises:
-            ValueError: If the sample holds more than one box set, or if
-                ``labels_getter`` returns a tensor that is not stored in the
-                sample (e.g. a copy or view).
+            ValueError: If the sample holds more than one box set; if
+                ``labels_getter`` returns a tensor that is not a leaf of the
+                sample (e.g. a copy, view, or nested tensor); or if a returned
+                label tensor's length does not match the number of boxes.
         """
         inputs = inputs if len(inputs) > 1 else inputs[0]
         flat_inputs, spec = tree_flatten(inputs)
@@ -71,21 +73,29 @@ class RangeFilter3D(Transform):
         box_keep = None if boxes is None else self._box_keep_mask(boxes)
 
         # Labels are matched to their leaf by identity, so the keep-mask
-        # applies wherever they live; needs boxes to define the mask.
+        # applies wherever they live. Validate the getter unconditionally so
+        # a bad getter surfaces even when the sample carries no boxes.
         label_ids: set[int] = set()
-        if boxes is not None:
-            labels = self._labels_getter(inputs)
-            if labels is not None:
-                labels = (labels,) if isinstance(labels, Tensor) else labels
-                leaf_ids = {id(leaf) for leaf in flat_inputs}
-                for label in labels:
-                    if id(label) not in leaf_ids:
-                        msg = (
-                            "`labels_getter` must return the label tensor(s) "
-                            "stored in the sample, not a copy or view"
-                        )
-                        raise ValueError(msg)
-                label_ids = {id(label) for label in labels}
+        labels = self._labels_getter(inputs)
+        if labels is not None:
+            labels = (labels,) if isinstance(labels, Tensor) else labels
+            leaf_ids = {id(leaf) for leaf in flat_inputs}
+            for label in labels:
+                if id(label) not in leaf_ids:
+                    msg = (
+                        "`labels_getter` must return label tensor(s) that are "
+                        "leaves of the sample, not a copy, view, or nested "
+                        "tensor"
+                    )
+                    raise ValueError(msg)
+                if boxes is not None and len(label) != boxes.shape[0]:
+                    msg = (
+                        f"`labels_getter` returned a label tensor of length "
+                        f"{len(label)}, but the sample has {boxes.shape[0]} "
+                        "boxes; labels must be per-box"
+                    )
+                    raise ValueError(msg)
+            label_ids = {id(label) for label in labels}
 
         flat_outputs = [
             self._filter_leaf(inpt, box_keep, label_ids) for inpt in flat_inputs
