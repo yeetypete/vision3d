@@ -273,3 +273,23 @@ class TestLabelsGetter:
         _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
         assert out_targets["boxes"].shape[0] == 2
         assert out_targets["labels"] == ["a", "b", "c"]
+
+    def test_custom_getter_returning_non_tensor_raises(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        f = RangeFilter3D(
+            point_cloud_range=_RANGE, labels_getter=lambda s: "not a tensor"
+        )
+        with pytest.raises(ValueError, match="tuple/list of"):
+            f(inputs, targets)
+
+    def test_custom_getter_returning_list_of_non_tensors_raises(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        f = RangeFilter3D(point_cloud_range=_RANGE, labels_getter=lambda s: [1, 2, 3])
+        with pytest.raises(ValueError, match="tuple/list of"):
+            f(inputs, targets)
+
+    def test_scalar_label_tensor_raises(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        targets = {"boxes": targets["boxes"], "labels": torch.tensor(0)}
+        with pytest.raises(ValueError, match="0-dim"):
+            RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
