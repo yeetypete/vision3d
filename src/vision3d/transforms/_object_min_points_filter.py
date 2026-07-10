@@ -8,10 +8,11 @@ from torch import Tensor
 from vision3d.ops import points_in_boxes_3d
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
-from ._box_filter import _BoxFilterTransform
+from ._transform import Transform
+from ._utils import _filter_boxes_and_labels
 
 
-class ObjectMinPointsFilter(_BoxFilterTransform):
+class ObjectMinPointsFilter(Transform):
     """Drop ground-truth boxes that enclose fewer than ``min_points`` points.
 
     Counts the points inside each box and removes boxes whose interior
@@ -73,18 +74,21 @@ class ObjectMinPointsFilter(_BoxFilterTransform):
 
     def _filter_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
         out = dict(sample)
-        self._apply_box_mask(out, out.get("points"))
+        if "boxes" in out:
+            keep = self._keep_mask(out["boxes"], out.get("points"))
+            _filter_boxes_and_labels(out, keep)
         return out
 
     def _filter_targets(
         self, targets: dict[str, Any], points: PointCloud3D | None
     ) -> dict[str, Any]:
         out = dict(targets)
-        self._apply_box_mask(out, points)
+        if "boxes" in out:
+            keep = self._keep_mask(out["boxes"], points)
+            _filter_boxes_and_labels(out, keep)
         return out
 
-    @override
-    def _box_keep_mask(
+    def _keep_mask(
         self, boxes: BoundingBoxes3D, points: PointCloud3D | None = None
     ) -> Tensor:
         """Compute the boolean keep-mask over boxes.

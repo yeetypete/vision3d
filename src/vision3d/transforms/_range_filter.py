@@ -8,10 +8,11 @@ from torch import Tensor
 from vision3d.ops import extract_box3d_params
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
-from ._box_filter import _BoxFilterTransform
+from ._transform import Transform
+from ._utils import _filter_boxes_and_labels
 
 
-class RangeFilter3D(_BoxFilterTransform):
+class RangeFilter3D(Transform):
     """Drop points and boxes outside an axis-aligned 3D region.
 
     Points are filtered by their xyz coordinates; boxes are filtered
@@ -57,14 +58,16 @@ class RangeFilter3D(_BoxFilterTransform):
 
     def _filter_targets(self, targets: dict[str, Any]) -> dict[str, Any]:
         out = dict(targets)
-        self._apply_box_mask(out)
+        if "boxes" in out:
+            _filter_boxes_and_labels(out, self._keep_mask(out["boxes"]))
         return out
 
     def _filter_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
         out = dict(sample)
         if "points" in out:
             out["points"] = self._filter_points(out["points"])
-        self._apply_box_mask(out)
+        if "boxes" in out:
+            _filter_boxes_and_labels(out, self._keep_mask(out["boxes"]))
         return out
 
     def _filter_points(self, points: PointCloud3D) -> PointCloud3D:
@@ -78,10 +81,7 @@ class RangeFilter3D(_BoxFilterTransform):
         keep = ((pts[:, :3] >= min_bound) & (pts[:, :3] < max_bound)).all(dim=-1)
         return PointCloud3D(pts[keep])
 
-    @override
-    def _box_keep_mask(
-        self, boxes: BoundingBoxes3D, points: PointCloud3D | None = None
-    ) -> Tensor:
+    def _keep_mask(self, boxes: BoundingBoxes3D) -> Tensor:
         raw = boxes.as_subclass(Tensor)
         centers, _, _ = extract_box3d_params(raw, boxes.format)
         min_bound = torch.tensor(

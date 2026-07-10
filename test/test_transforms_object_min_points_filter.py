@@ -48,29 +48,16 @@ def _sample_with_counts(
 
 
 class TestBoxFiltering:
-    def test_keeps_boxes_meeting_threshold(self) -> None:
+    @pytest.mark.parametrize(
+        ("min_points", "expected_labels"),
+        [(0, [0, 1, 2]), (1, [0, 1]), (2, [0]), (99, [])],
+    )
+    def test_threshold(self, min_points: int, expected_labels: list[int]) -> None:
+        # Per-box counts: box 0 -> 3, box 1 -> 1, box 2 -> 0.
         inputs, targets = _sample_with_counts()
-        _, out = ObjectMinPointsFilter(min_points=2)(inputs, targets)
-        assert out["boxes"].shape[0] == 1
-        assert out["labels"].tolist() == [0]
-
-    def test_min_points_one_keeps_nonempty_boxes(self) -> None:
-        inputs, targets = _sample_with_counts()
-        _, out = ObjectMinPointsFilter(min_points=1)(inputs, targets)
-        assert out["boxes"].shape[0] == 2
-        assert out["labels"].tolist() == [0, 1]
-
-    def test_min_points_zero_keeps_all(self) -> None:
-        inputs, targets = _sample_with_counts()
-        _, out = ObjectMinPointsFilter(min_points=0)(inputs, targets)
-        assert out["boxes"].shape[0] == 3
-        assert out["labels"].tolist() == [0, 1, 2]
-
-    def test_high_threshold_drops_all(self) -> None:
-        inputs, targets = _sample_with_counts()
-        _, out = ObjectMinPointsFilter(min_points=99)(inputs, targets)
-        assert out["boxes"].shape[0] == 0
-        assert out["labels"].shape[0] == 0
+        _, out = ObjectMinPointsFilter(min_points=min_points)(inputs, targets)
+        assert out["labels"].tolist() == expected_labels
+        assert out["boxes"].shape[0] == len(expected_labels)
 
     def test_overlap_point_counts_for_each_box(self) -> None:
         # A single point inside two overlapping boxes is counted once for
