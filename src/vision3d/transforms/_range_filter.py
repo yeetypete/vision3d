@@ -67,6 +67,13 @@ class RangeFilter3D(Transform):
                 tensor); or if a returned label tensor's length does not match
                 the number of boxes.
         """
+        # Unlike most transforms, forward is hand-rolled rather than routed
+        # through the base per-leaf ``transform()`` loop. Points and boxes have
+        # distinguishing tensor types and would dispatch fine, but labels are
+        # plain tensors with no distinguishing type, so they can only be located
+        # via ``labels_getter`` against the nested structure -- which is gone
+        # once the tree is flattened for the base loop. The base hooks
+        # (check_inputs, make_params) do not fire here.
         if not inputs:
             msg = "RangeFilter3D.forward requires at least one input sample"
             raise ValueError(msg)
