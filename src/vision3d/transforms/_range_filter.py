@@ -61,11 +61,15 @@ class RangeFilter3D(Transform):
             Filtered sample in the same structure as the input.
 
         Raises:
-            ValueError: If the sample holds more than one box set; if
-                ``labels_getter`` returns a tensor that is not a leaf of the
-                sample (e.g. a copy, view, or nested tensor); or if a returned
-                label tensor's length does not match the number of boxes.
+            ValueError: If called with no inputs; if the sample holds more
+                than one box set; if ``labels_getter`` returns a tensor that
+                is not a leaf of the sample (e.g. a copy, view, or nested
+                tensor); or if a returned label tensor's length does not match
+                the number of boxes.
         """
+        if not inputs:
+            msg = "RangeFilter3D.forward requires at least one input sample"
+            raise ValueError(msg)
         inputs = inputs if len(inputs) > 1 else inputs[0]
         flat_inputs, spec = tree_flatten(inputs)
 
