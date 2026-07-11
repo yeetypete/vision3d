@@ -11,7 +11,7 @@ from vision3d.ops import extract_box3d_params
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 from ._transform import Transform
-from ._utils import _find_boxes, _parse_labels_getter
+from ._utils import _find_boxes, _parse_labels_getter, _resolve_label_ids
 
 
 class RangeFilter3D(Transform):
@@ -79,40 +79,11 @@ class RangeFilter3D(Transform):
         # Labels are matched to their leaf by identity, so the keep-mask
         # applies wherever they live. Validate the getter unconditionally so
         # a bad getter surfaces even when the sample carries no boxes.
-        label_ids: set[int] = set()
-        labels = self._labels_getter(inputs)
-        if labels is not None:
-            if isinstance(labels, Tensor):
-                labels = (labels,)
-            elif isinstance(labels, (tuple, list)) and all(
-                isinstance(label, Tensor) for label in labels
-            ):
-                labels = tuple(labels)
-            else:
-                msg = (
-                    "`labels_getter` must return a tensor, a tuple/list of "
-                    f"tensors, or None, but got {type(labels).__name__}"
-                )
-                raise ValueError(msg)
-            leaf_ids = {id(leaf) for leaf in flat_inputs}
-            for label in labels:
-                if id(label) not in leaf_ids:
-                    msg = (
-                        "`labels_getter` must return label tensor(s) that are "
-                        "leaves of the sample, not a copy, view, or nested "
-                        "tensor"
-                    )
-                    raise ValueError(msg)
-                n_label = label.shape[0] if label.ndim else 0
-                if boxes is not None and n_label != boxes.shape[0]:
-                    got = "0-dim" if not label.ndim else f"length {n_label}"
-                    msg = (
-                        f"`labels_getter` returned a {got} label tensor, but "
-                        f"the sample has {boxes.shape[0]} boxes; labels must "
-                        "be per-box"
-                    )
-                    raise ValueError(msg)
-            label_ids = {id(label) for label in labels}
+        label_ids = _resolve_label_ids(
+            self._labels_getter(inputs),
+            flat_inputs,
+            None if boxes is None else boxes.shape[0],
+        )
 
         flat_outputs = [
             self._filter_leaf(inpt, box_keep, label_ids) for inpt in flat_inputs

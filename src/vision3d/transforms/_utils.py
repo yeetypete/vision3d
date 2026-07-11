@@ -33,6 +33,66 @@ def _find_boxes(flat_inputs: list[Any]) -> BoundingBoxes3D | None:
     return boxes[0] if boxes else None
 
 
+def _resolve_label_ids(
+    labels: Any, flat_inputs: list[Any], n_boxes: int | None
+) -> set[int]:
+    """Validate a ``labels_getter`` result and return the label leaves' ids.
+
+    Labels are matched to their sample leaf by identity so a box keep-mask can
+    be applied wherever they live. This normalises the getter's return value,
+    checks that each label tensor is an actual leaf of the sample (not a copy,
+    view, or nested tensor), and — when the sample carries boxes — that each is
+    per-box.
+
+    Args:
+        labels: The raw return value of a ``labels_getter``: a tensor, a
+            tuple/list of tensors, or ``None``.
+        flat_inputs: Leaves from :func:`torch.utils._pytree.tree_flatten`.
+        n_boxes: Number of boxes in the sample, or ``None`` when the sample
+            carries no boxes (in which case per-box length is not checked).
+
+    Returns:
+        The set of ``id()`` values of the label tensors, or an empty set when
+        ``labels`` is ``None``.
+
+    Raises:
+        ValueError: If ``labels`` is not a tensor, tuple/list of tensors, or
+            ``None``; if a returned tensor is not a leaf of the sample; or if a
+            returned tensor's length does not match ``n_boxes``.
+    """
+    if labels is None:
+        return set()
+    if isinstance(labels, Tensor):
+        labels = (labels,)
+    elif isinstance(labels, (tuple, list)) and all(
+        isinstance(label, Tensor) for label in labels
+    ):
+        labels = tuple(labels)
+    else:
+        msg = (
+            "`labels_getter` must return a tensor, a tuple/list of "
+            f"tensors, or None, but got {type(labels).__name__}"
+        )
+        raise ValueError(msg)
+    leaf_ids = {id(leaf) for leaf in flat_inputs}
+    for label in labels:
+        if id(label) not in leaf_ids:
+            msg = (
+                "`labels_getter` must return label tensor(s) that are "
+                "leaves of the sample, not a copy, view, or nested tensor"
+            )
+            raise ValueError(msg)
+        n_label = label.shape[0] if label.ndim else 0
+        if n_boxes is not None and n_label != n_boxes:
+            got = "0-dim" if not label.ndim else f"length {n_label}"
+            msg = (
+                f"`labels_getter` returned a {got} label tensor, but the "
+                f"sample has {n_boxes} boxes; labels must be per-box"
+            )
+            raise ValueError(msg)
+    return {id(label) for label in labels}
+
+
 def _default_labels_getter(inputs: Any) -> Tensor | None:
     """Locate a per-box ``labels`` tensor by a case-insensitive ``"labels"`` key.
 
