@@ -20,8 +20,8 @@ def _find_boxes(flat_inputs: list[Any]) -> BoundingBoxes3D | None:
 
     Raises:
         ValueError: If the sample holds more than one ``BoundingBoxes3D``
-            leaf, since a single keep-mask cannot be applied unambiguously
-            across box sets of differing length.
+            leaf, since callers that operate on a single box set cannot tell
+            which one to use.
     """
     boxes = [inpt for inpt in flat_inputs if isinstance(inpt, BoundingBoxes3D)]
     if len(boxes) > 1:
@@ -38,11 +38,11 @@ def _resolve_label_ids(
 ) -> set[int]:
     """Validate a ``labels_getter`` result and return the label leaves' ids.
 
-    Labels are matched to their sample leaf by identity so a box keep-mask can
-    be applied wherever they live. This normalises the getter's return value,
-    checks that each label tensor is an actual leaf of the sample (not a copy,
-    view, or nested tensor), and — when the sample carries boxes — that each is
-    per-box.
+    Labels are matched to their sample leaf by identity, so a caller can locate
+    each label tensor among the flattened leaves regardless of where it lives.
+    This normalises the getter's return value, checks that each label tensor is
+    an actual leaf of the sample (not a copy, view, or nested tensor), and, when
+    the sample carries boxes, that each label tensor is per-box.
 
     Args:
         labels: The raw return value of a ``labels_getter``: a tensor, a
@@ -57,7 +57,7 @@ def _resolve_label_ids(
 
     Raises:
         ValueError: If ``labels`` is not a tensor, tuple/list of tensors, or
-            ``None``; if a returned tensor is not a leaf of the sample; or if a
+            ``None``. If a returned tensor is not a leaf of the sample. If a
             returned tensor's length does not match ``n_boxes``.
     """
     if labels is None:
@@ -93,18 +93,24 @@ def _resolve_label_ids(
     return {id(label) for label in labels}
 
 
-def _default_labels_getter(inputs: Any) -> Tensor | None:
+def _default_labels_getter(inputs: Any) -> Tensor:
     """Locate a per-box ``labels`` tensor by a case-insensitive ``"labels"`` key.
 
-    Mirrors torchvision's default ``labels_getter``: the sample is a dict, or a
+    Mirrors torchvision's default ``labels_getter``. The sample is a dict, or a
     two-tuple whose second element is the targets dict (or a bare labels
-    tensor). Returns ``None`` when nothing matches, so labels stay optional.
+    tensor). Raises if no labels tensor can be found, so a silent no-op never
+    hides a mislabelled sample. Callers that have no labels to sync should pass
+    ``labels_getter=None`` instead of relying on this heuristic.
 
     Args:
         inputs: The sample passed to ``forward`` (a dict, or a two-tuple).
 
     Returns:
-        The labels tensor, or ``None`` if the sample has no labels.
+        The labels tensor found in the sample.
+
+    Raises:
+        ValueError: If no case-insensitive ``"labels"`` key is found, or the
+            key exists but its value is not a tensor.
     """
     candidate: Any = inputs
     if isinstance(inputs, (tuple, list)) and len(inputs) == 2:
@@ -115,8 +121,22 @@ def _default_labels_getter(inputs: Any) -> Tensor | None:
     if isinstance(candidate, dict):
         for key, value in candidate.items():
             if isinstance(key, str) and key.lower() == "labels":
-                return value if isinstance(value, Tensor) else None
-    return None
+                if not isinstance(value, Tensor):
+                    msg = (
+                        "the default `labels_getter` found a 'labels' key whose "
+                        f"value is a {type(value).__name__}, not a tensor. Pass "
+                        "a callable as `labels_getter` to locate the labels, or "
+                        "`labels_getter=None` if the sample has no labels."
+                    )
+                    raise ValueError(msg)
+                return value
+    msg = (
+        "the default `labels_getter` could not find a labels tensor in the "
+        "sample, expected a case-insensitive 'labels' key holding a tensor. "
+        "Pass a callable as `labels_getter` to locate the labels, or "
+        "`labels_getter=None` if the sample has no labels."
+    )
+    raise ValueError(msg)
 
 
 def _parse_labels_getter(

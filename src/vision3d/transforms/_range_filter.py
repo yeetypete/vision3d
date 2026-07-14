@@ -29,13 +29,17 @@ class RangeFilter3D(Transform):
     Args:
         point_cloud_range: Axis-aligned bounds
             ``(x_min, y_min, z_min, x_max, y_max, z_max)``.
-        labels_getter: How to locate the per-box label tensor filtered in
-            sync with boxes. ``"default"`` finds it under a case-insensitive
-            ``"labels"`` key; pass a callable for a custom location, or
-            ``None`` to filter boxes without touching any labels. Default:
-            ``"default"``. A callable must return the label tensor(s) stored
-            in the sample, not a copy or view — labels are matched to their
-            leaf by identity.
+        labels_getter: How to locate the per-box label tensor(s) that are
+            filtered in sync with the boxes. Pass a callable that takes the
+            sample and returns the label tensor stored in it, a tuple or list
+            of such tensors (when several label tensors track the same boxes),
+            or ``None``. The returned tensors must be the exact objects stored
+            in the sample, not copies or views, since labels are matched to
+            their leaf by identity. Alternatively, pass the string
+            ``"default"`` (the default) to use the built-in heuristic, which
+            finds the labels under a case-insensitive ``"labels"`` key and
+            raises if the sample has boxes but no such tensor, or pass ``None``
+            to filter the boxes without touching any labels.
     """
 
     def __init__(
@@ -61,11 +65,12 @@ class RangeFilter3D(Transform):
             Filtered sample in the same structure as the input.
 
         Raises:
-            ValueError: If called with no inputs; if the sample holds more
-                than one box set; if ``labels_getter`` returns a tensor that
-                is not a leaf of the sample (e.g. a copy, view, or nested
-                tensor); or if a returned label tensor's length does not match
-                the number of boxes.
+            ValueError: If called with no inputs. If the sample holds more
+                than one box set. If the sample has boxes but the default
+                ``labels_getter`` cannot find a labels tensor. If
+                ``labels_getter`` returns a tensor that is not a leaf of the
+                sample (e.g. a copy, view, or nested tensor). If a returned
+                label tensor's length does not match the number of boxes.
         """
         # Unlike most transforms, forward is hand-rolled rather than routed
         # through the base per-leaf ``transform()`` loop. Points and boxes have
@@ -81,16 +86,20 @@ class RangeFilter3D(Transform):
         flat_inputs, spec = tree_flatten(inputs)
 
         boxes = _find_boxes(flat_inputs)
-        box_keep = None if boxes is None else self._box_keep_mask(boxes)
 
-        # Labels are matched to their leaf by identity, so the keep-mask
-        # applies wherever they live. Validate the getter unconditionally so
-        # a bad getter surfaces even when the sample carries no boxes.
-        label_ids = _resolve_label_ids(
-            self._labels_getter(inputs),
-            flat_inputs,
-            None if boxes is None else boxes.shape[0],
-        )
+        # Labels are filtered in sync with the boxes, so we only consult the
+        # ``labels_getter`` when the sample carries boxes. This keeps a
+        # points-only sample working under the default getter without forcing
+        # ``labels_getter=None``. The label tensors are matched to their leaf by
+        # identity, so the keep-mask applies wherever they live.
+        if boxes is None:
+            box_keep = None
+            label_ids: set[int] = set()
+        else:
+            box_keep = self._box_keep_mask(boxes)
+            label_ids = _resolve_label_ids(
+                self._labels_getter(inputs), flat_inputs, boxes.shape[0]
+            )
 
         flat_outputs = [
             self._filter_leaf(inpt, box_keep, label_ids) for inpt in flat_inputs

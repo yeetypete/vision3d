@@ -227,6 +227,22 @@ class TestLabelsGetter:
         _, out_targets = f(inputs, targets)
         assert out_targets["gt_labels"].tolist() == [0, 1]
 
+    def test_custom_getter_returning_tuple_of_tensors(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        targets = {
+            "boxes": targets["boxes"],
+            "labels": targets["labels"],
+            "attributes": torch.tensor([10, 11, 12]),
+        }
+        f = RangeFilter3D(
+            point_cloud_range=_RANGE,
+            labels_getter=lambda s: (s[1]["labels"], s[1]["attributes"]),
+        )
+        _, out_targets = f(inputs, targets)
+        assert out_targets["boxes"].shape[0] == 2
+        assert out_targets["labels"].tolist() == [0, 1]
+        assert out_targets["attributes"].tolist() == [10, 11]
+
     def test_none_getter_filters_boxes_but_not_labels(self) -> None:
         inputs, targets = _make_two_dict_sample()
         f = RangeFilter3D(point_cloud_range=_RANGE, labels_getter=None)
@@ -267,12 +283,24 @@ class TestLabelsGetter:
         with pytest.raises(ValueError, match="labels must be per-box"):
             RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
 
-    def test_default_getter_ignores_non_tensor_labels(self) -> None:
+    def test_default_getter_non_tensor_labels_raises(self) -> None:
         inputs, targets = _make_two_dict_sample()
         targets = {"boxes": targets["boxes"], "labels": ["a", "b", "c"]}
-        _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
-        assert out_targets["boxes"].shape[0] == 2
-        assert out_targets["labels"] == ["a", "b", "c"]
+        with pytest.raises(ValueError, match="not a tensor"):
+            RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
+
+    def test_default_getter_missing_labels_with_boxes_raises(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        targets = {"boxes": targets["boxes"]}
+        with pytest.raises(ValueError, match="could not find a labels tensor"):
+            RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
+
+    def test_default_getter_missing_labels_without_boxes_ok(self) -> None:
+        points = PointCloud3D(torch.tensor([[0.0, 0, 0, 1], [50.0, 0, 0, 1]]))
+        sample = {"points": points, "frame_id": 7}
+        out = RangeFilter3D(point_cloud_range=_RANGE)(sample)
+        assert out["points"].shape[0] == 1
+        assert out["frame_id"] == 7
 
     def test_custom_getter_returning_non_tensor_raises(self) -> None:
         inputs, targets = _make_two_dict_sample()
