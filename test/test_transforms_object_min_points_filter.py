@@ -161,6 +161,112 @@ class TestEdgeCases:
         assert out_inputs is not inputs
 
 
+class TestStructureAgnostic:
+    def test_non_standard_dict_keys(self) -> None:
+        # Boxes and points live under non-"boxes"/"points" keys; they are
+        # located by leaf type, not by key name.
+        inputs, targets = _sample_with_counts()
+        sample = {
+            "lidar": inputs["points"],
+            "gt_boxes": targets["boxes"],
+            "labels": targets["labels"],
+            "frame_id": 7,
+        }
+        out = ObjectMinPointsFilter(min_points=1)(sample)
+        assert out["lidar"].shape[0] == 6
+        assert out["gt_boxes"].shape[0] == 2
+        assert out["labels"].tolist() == [0, 1]
+        assert out["frame_id"] == 7
+
+    def test_multiple_box_sets_raises(self) -> None:
+        inputs, targets = _sample_with_counts()
+        targets = {
+            "boxes": targets["boxes"],
+            "pred_boxes": BoundingBoxes3D(
+                targets["boxes"].as_subclass(torch.Tensor).clone(),
+                format=targets["boxes"].format,
+            ),
+            "labels": targets["labels"],
+        }
+        with pytest.raises(ValueError, match="multiple BoundingBoxes3D"):
+            ObjectMinPointsFilter(min_points=1)(inputs, targets)
+
+    def test_multiple_point_clouds_raises(self) -> None:
+        inputs, targets = _sample_with_counts()
+        inputs = {
+            "points": inputs["points"],
+            "extra_points": PointCloud3D(
+                inputs["points"].as_subclass(torch.Tensor).clone()
+            ),
+        }
+        with pytest.raises(ValueError, match="multiple PointCloud3D"):
+            ObjectMinPointsFilter(min_points=1)(inputs, targets)
+
+
+class TestLabelsGetter:
+    def test_default_getter_is_case_insensitive(self) -> None:
+        inputs, targets = _sample_with_counts()
+        targets = {"boxes": targets["boxes"], "Labels": targets["labels"]}
+        _, out = ObjectMinPointsFilter(min_points=1)(inputs, targets)
+        assert out["Labels"].tolist() == [0, 1]
+
+    def test_custom_labels_getter(self) -> None:
+        inputs, targets = _sample_with_counts()
+        targets = {"boxes": targets["boxes"], "gt_labels": targets["labels"]}
+        f = ObjectMinPointsFilter(
+            min_points=1, labels_getter=lambda s: s[1]["gt_labels"]
+        )
+        _, out = f(inputs, targets)
+        assert out["gt_labels"].tolist() == [0, 1]
+
+    def test_custom_getter_returning_tuple_of_tensors(self) -> None:
+        inputs, targets = _sample_with_counts()
+        targets = {
+            "boxes": targets["boxes"],
+            "labels": targets["labels"],
+            "attributes": torch.tensor([10, 11, 12]),
+        }
+        f = ObjectMinPointsFilter(
+            min_points=1,
+            labels_getter=lambda s: (s[1]["labels"], s[1]["attributes"]),
+        )
+        _, out = f(inputs, targets)
+        assert out["boxes"].shape[0] == 2
+        assert out["labels"].tolist() == [0, 1]
+        assert out["attributes"].tolist() == [10, 11]
+
+    def test_none_getter_filters_boxes_but_not_labels(self) -> None:
+        inputs, targets = _sample_with_counts()
+        f = ObjectMinPointsFilter(min_points=1, labels_getter=None)
+        _, out = f(inputs, targets)
+        assert out["boxes"].shape[0] == 2
+        assert out["labels"].shape[0] == 3
+
+    def test_default_getter_missing_labels_with_boxes_raises(self) -> None:
+        inputs, targets = _sample_with_counts()
+        targets = {"boxes": targets["boxes"]}
+        with pytest.raises(ValueError, match="could not find a labels tensor"):
+            ObjectMinPointsFilter(min_points=1)(inputs, targets)
+
+    def test_getter_returning_copy_raises(self) -> None:
+        inputs, targets = _sample_with_counts()
+        f = ObjectMinPointsFilter(
+            min_points=1, labels_getter=lambda s: s[1]["labels"].clone()
+        )
+        with pytest.raises(ValueError, match="leaves of the sample"):
+            f(inputs, targets)
+
+    def test_mismatched_label_length_raises(self) -> None:
+        inputs, targets = _sample_with_counts()
+        targets = {"boxes": targets["boxes"], "labels": torch.tensor([0, 1])}
+        with pytest.raises(ValueError, match="labels must be per-box"):
+            ObjectMinPointsFilter(min_points=1)(inputs, targets)
+
+    def test_invalid_labels_getter_raises(self) -> None:
+        with pytest.raises(ValueError, match="labels_getter"):
+            ObjectMinPointsFilter(min_points=1, labels_getter=123)  # type: ignore[arg-type]
+
+
 class TestValidation:
     def test_negative_raises(self) -> None:
         with pytest.raises(ValueError, match="non-negative"):

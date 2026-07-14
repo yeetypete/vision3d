@@ -5,7 +5,7 @@ from typing import Any
 
 from torch import Tensor
 
-from vision3d.tensors import BoundingBoxes3D
+from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 
 def _find_boxes(flat_inputs: list[Any]) -> BoundingBoxes3D | None:
@@ -27,10 +27,35 @@ def _find_boxes(flat_inputs: list[Any]) -> BoundingBoxes3D | None:
     if len(boxes) > 1:
         msg = (
             "found multiple BoundingBoxes3D leaves in the sample; "
-            "RangeFilter3D supports exactly one box set"
+            "this transform supports exactly one box set"
         )
         raise ValueError(msg)
     return boxes[0] if boxes else None
+
+
+def _find_points(flat_inputs: list[Any]) -> PointCloud3D | None:
+    """Return the sole ``PointCloud3D`` leaf, or ``None`` if absent.
+
+    Args:
+        flat_inputs: Leaves from :func:`torch.utils._pytree.tree_flatten`.
+
+    Returns:
+        The single :class:`~vision3d.tensors.PointCloud3D` in ``flat_inputs``,
+        or ``None`` when the sample carries no point cloud.
+
+    Raises:
+        ValueError: If the sample holds more than one ``PointCloud3D`` leaf,
+            since callers that operate on a single point cloud cannot tell
+            which one to use.
+    """
+    points = [inpt for inpt in flat_inputs if isinstance(inpt, PointCloud3D)]
+    if len(points) > 1:
+        msg = (
+            "found multiple PointCloud3D leaves in the sample; "
+            "this transform supports exactly one point cloud"
+        )
+        raise ValueError(msg)
+    return points[0] if points else None
 
 
 def _resolve_label_ids(

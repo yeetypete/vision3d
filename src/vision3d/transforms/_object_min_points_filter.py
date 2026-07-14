@@ -1,25 +1,30 @@
 """Minimum-points filtering for ground-truth boxes."""
 
+from collections.abc import Callable
 from typing import Any, override
 
 import torch
 from torch import Tensor
+from torch.utils._pytree import tree_flatten, tree_unflatten
 
 from vision3d.ops import points_in_boxes_3d
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 from ._transform import Transform
-from ._utils import _filter_boxes_and_labels
+from ._utils import _find_boxes, _find_points, _parse_labels_getter, _resolve_label_ids
 
 
 class ObjectMinPointsFilter(Transform):
     """Drop ground-truth boxes that enclose fewer than ``min_points`` points.
 
     Counts the points inside each box and removes boxes whose interior
-    point count is strictly below ``min_points``; labels in ``targets`` are
+    point count is strictly below ``min_points``; any per-box ``labels`` are
     filtered in sync. The point cloud and every other sample entry pass
-    through unchanged. Counting is format-agnostic (incl. 9-DoF); a point in
-    the overlap of several boxes is counted once for **each** box it lies in.
+    through unchanged. The sample must hold at most one ``BoundingBoxes3D``
+    set and at most one ``PointCloud3D`` (a single keep-mask cannot span box
+    sets of differing length, and counting needs one unambiguous point cloud).
+    Counting is format-agnostic (incl. 9-DoF); a point in the overlap of
+    several boxes is counted once for **each** box it lies in.
 
     Boxes with too few points carry little geometric evidence, so training
     against them mostly injects noise. This is the analog of mmdetection3d's
@@ -42,9 +47,24 @@ class ObjectMinPointsFilter(Transform):
             survive. A box is dropped when its count is strictly less than
             this. ``0`` keeps every box; ``1`` keeps every box with at least
             one point.
+        labels_getter: How to locate the per-box label tensor(s) that are
+            filtered in sync with the boxes. Pass a callable that takes the
+            sample and returns the label tensor stored in it, a tuple or list
+            of such tensors (when several label tensors track the same boxes),
+            or ``None``. The returned tensors must be the exact objects stored
+            in the sample, not copies or views, since labels are matched to
+            their leaf by identity. Alternatively, pass the string
+            ``"default"`` (the default) to use the built-in heuristic, which
+            finds the labels under a case-insensitive ``"labels"`` key and
+            raises if the sample has boxes but no such tensor, or pass ``None``
+            to filter the boxes without touching any labels.
     """
 
-    def __init__(self, min_points: int) -> None:
+    def __init__(
+        self,
+        min_points: int,
+        labels_getter: str | Callable[[Any], Any] | None = "default",
+    ) -> None:
         super().__init__()
         if isinstance(min_points, bool) or not isinstance(min_points, int):
             msg = "`min_points` should be a non-negative int."
@@ -53,43 +73,73 @@ class ObjectMinPointsFilter(Transform):
             msg = "`min_points` should be a non-negative int."
             raise ValueError(msg)
         self.min_points = min_points
+        self.labels_getter = labels_getter
+        self._labels_getter = _parse_labels_getter(labels_getter)
 
     @override
     def forward(self, *inputs: Any) -> Any:
         """Filter boxes with too few interior points.
 
         Accepts both a single sample dict and an ``(inputs, targets)`` pair.
-        Boxes (and synced labels) live in the sample/targets dict; the point
-        cloud is read from wherever it appears (the same dict, or the
-        ``inputs`` dict of a pair) and is never modified.
+        The point cloud is read from wherever it appears (the same dict, or
+        the ``inputs`` dict of a pair) and is never modified.
 
         Returns:
             Filtered sample in the same structure as the input.
+
+        Raises:
+            ValueError: If called with no inputs. If the sample holds more
+                than one box set or more than one point cloud. If the sample
+                has boxes but the default ``labels_getter`` cannot find a
+                labels tensor. If ``labels_getter`` returns a tensor that is
+                not a leaf of the sample (e.g. a copy, view, or nested
+                tensor). If a returned label tensor's length does not match
+                the number of boxes.
         """
-        if len(inputs) == 1:
-            return self._filter_sample(inputs[0])
-        inputs_dict, targets_dict = inputs
-        points = inputs_dict.get("points")
-        return dict(inputs_dict), self._filter_targets(targets_dict, points)
+        # Hand-rolled rather than routed through the base per-leaf
+        # ``transform()`` loop, for the same reason as RangeFilter3D: labels are
+        # plain tensors with no distinguishing type, so they can only be located
+        # via ``labels_getter`` against the nested structure, which it flattens away.
+        if not inputs:
+            msg = "ObjectMinPointsFilter.forward requires at least one input sample"
+            raise ValueError(msg)
+        inputs = inputs if len(inputs) > 1 else inputs[0]
+        flat_inputs, spec = tree_flatten(inputs)
 
-    def _filter_sample(self, sample: dict[str, Any]) -> dict[str, Any]:
-        out = dict(sample)
-        if "boxes" in out:
-            keep = self._keep_mask(out["boxes"], out.get("points"))
-            _filter_boxes_and_labels(out, keep)
-        return out
+        boxes = _find_boxes(flat_inputs)
+        # No boxes means nothing to filter; return the sample untouched (still
+        # rebuilt from the flattened leaves so the structure round-trips).
+        if boxes is None:
+            return tree_unflatten(list(flat_inputs), spec)
 
-    def _filter_targets(
-        self, targets: dict[str, Any], points: PointCloud3D | None
-    ) -> dict[str, Any]:
-        out = dict(targets)
-        if "boxes" in out:
-            keep = self._keep_mask(out["boxes"], points)
-            _filter_boxes_and_labels(out, keep)
-        return out
+        box_keep = self._box_keep_mask(boxes, _find_points(flat_inputs))
+        label_ids = _resolve_label_ids(
+            self._labels_getter(inputs), flat_inputs, boxes.shape[0]
+        )
 
-    def _keep_mask(
-        self, boxes: BoundingBoxes3D, points: PointCloud3D | None = None
+        flat_outputs = [
+            self._filter_leaf(inpt, box_keep, label_ids) for inpt in flat_inputs
+        ]
+        return tree_unflatten(flat_outputs, spec)
+
+    def _filter_leaf(self, inpt: Any, box_keep: Tensor, label_ids: set[int]) -> Any:
+        """Filter a single flattened leaf according to its type.
+
+        Returns:
+            Boxes/labels filtered by the box keep-mask, or ``inpt`` unchanged.
+            The point cloud passes through untouched -- it is only read to
+            count interior points, never filtered.
+        """
+        if isinstance(inpt, BoundingBoxes3D):
+            return BoundingBoxes3D(
+                inpt.as_subclass(Tensor)[box_keep], format=inpt.format
+            )
+        if id(inpt) in label_ids:
+            return inpt[box_keep]
+        return inpt
+
+    def _box_keep_mask(
+        self, boxes: BoundingBoxes3D, points: PointCloud3D | None
     ) -> Tensor:
         """Compute the boolean keep-mask over boxes.
 
