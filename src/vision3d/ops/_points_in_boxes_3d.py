@@ -37,6 +37,8 @@ def points_in_boxes_3d_indices(
     points: Tensor,
     boxes: Tensor,
     format: BoundingBox3DFormat,
+    *,
+    box_mask: Tensor | None = None,
 ) -> Tensor:
     """Return per-point box assignment.
 
@@ -46,21 +48,39 @@ def points_in_boxes_3d_indices(
         points: Point cloud coordinates ``[N, 3+C]``.
         boxes: 3D bounding boxes ``[M, K]``.
         format: Format of the bounding boxes.
+        box_mask: Optional boolean ``[M]`` mask of eligible boxes. When
+            given, points are assigned only among boxes that are ``True``;
+            a point that falls solely in masked-out boxes is treated as
+            belonging to no box (``-1``).
 
     Returns:
         Integer tensor ``[N]`` with the index of the box each point
-        belongs to, or ``-1`` if the point is not in any box.
+        belongs to, or ``-1`` if the point is not in any (eligible) box.
     """
     mask = points_in_boxes_3d(points, boxes, format)  # [N, M]
-    n = points.shape[0]
+    if box_mask is not None:
+        mask = mask & box_mask.unsqueeze(0)
+    return _first_true_index(mask)
+
+
+def _first_true_index(mask: Tensor) -> Tensor:
+    """Return the first True column per row of a boolean mask.
+
+    Args:
+        mask: Boolean tensor ``[N, M]``.
+
+    Returns:
+        Long tensor ``[N]`` giving the lowest column index that is True in
+        each row, or ``-1`` for all-False rows.
+    """
+    n = mask.shape[0]
     if mask.shape[1] == 0:
-        return torch.full((n,), -1, dtype=torch.long, device=points.device)
-    # First True along dim=1; if none, returns M (out of bounds)
-    first_box = mask.to(torch.uint8).argmax(dim=1)
-    # Points not in any box: all False along dim=1
-    in_any = mask.any(dim=1)
-    first_box[~in_any] = -1
-    return first_box
+        return torch.full((n,), -1, dtype=torch.long, device=mask.device)
+    # First True along dim=1 (argmax returns the first max); all-False rows
+    # would spuriously map to column 0, so overwrite them with -1.
+    first = mask.to(torch.uint8).argmax(dim=1)
+    first[~mask.any(dim=1)] = -1
+    return first
 
 
 def _build_rotation_matrix(
