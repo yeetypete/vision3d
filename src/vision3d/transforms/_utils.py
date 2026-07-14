@@ -58,6 +58,30 @@ def _find_points(flat_inputs: list[Any]) -> PointCloud3D | None:
     return points[0] if points else None
 
 
+def _filter_boxes_and_labels(inpt: Any, box_keep: Tensor, label_ids: set[int]) -> Any:
+    """Apply a box keep-mask to a boxes leaf or a per-box label leaf.
+
+    Shared by the filtering transforms so the box/label branch of their
+    per-leaf dispatch stays in one place.
+
+    Args:
+        inpt: A single leaf from :func:`torch.utils._pytree.tree_flatten`.
+        box_keep: 1D boolean keep-mask ``[M]`` over the boxes.
+        label_ids: ``id()`` values of the label leaves to filter in sync,
+            as returned by :func:`_resolve_label_ids`.
+
+    Returns:
+        The box set or per-box label tensor filtered by ``box_keep`` when
+        ``inpt`` is the ``BoundingBoxes3D`` leaf or one of the label leaves in
+        ``label_ids``; otherwise ``inpt`` unchanged.
+    """
+    if isinstance(inpt, BoundingBoxes3D):
+        return BoundingBoxes3D(inpt.as_subclass(Tensor)[box_keep], format=inpt.format)
+    if id(inpt) in label_ids:
+        return inpt[box_keep]
+    return inpt
+
+
 def _resolve_label_ids(
     labels: Any, flat_inputs: list[Any], n_boxes: int | None
 ) -> set[int]:

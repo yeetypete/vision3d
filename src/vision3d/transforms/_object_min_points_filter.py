@@ -11,7 +11,13 @@ from vision3d.ops import points_in_boxes_3d
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 from ._transform import Transform
-from ._utils import _find_boxes, _find_points, _parse_labels_getter, _resolve_label_ids
+from ._utils import (
+    _filter_boxes_and_labels,
+    _find_boxes,
+    _find_points,
+    _parse_labels_getter,
+    _resolve_label_ids,
+)
 
 
 class ObjectMinPointsFilter(Transform):
@@ -41,6 +47,10 @@ class ObjectMinPointsFilter(Transform):
     When the sample has no ``points`` entry, no box has a defined count and
     every box is kept. A present-but-empty point cloud instead counts as
     zero points per box (so boxes are dropped unless ``min_points`` is 0).
+
+    Only the boxes and the located ``labels`` are filtered; any additional
+    per-box annotations (e.g. velocities) must be passed via ``labels_getter``
+    to stay in sync, or they will be left at their pre-filter length.
 
     Args:
         min_points: Minimum number of interior points a box must contain to
@@ -117,26 +127,12 @@ class ObjectMinPointsFilter(Transform):
             self._labels_getter(inputs), flat_inputs, boxes.shape[0]
         )
 
+        # The point cloud is not a box/label leaf, so it passes through the
+        # shared helper untouched -- it is only read to count interior points.
         flat_outputs = [
-            self._filter_leaf(inpt, box_keep, label_ids) for inpt in flat_inputs
+            _filter_boxes_and_labels(inpt, box_keep, label_ids) for inpt in flat_inputs
         ]
         return tree_unflatten(flat_outputs, spec)
-
-    def _filter_leaf(self, inpt: Any, box_keep: Tensor, label_ids: set[int]) -> Any:
-        """Filter a single flattened leaf according to its type.
-
-        Returns:
-            Boxes/labels filtered by the box keep-mask, or ``inpt`` unchanged.
-            The point cloud passes through untouched -- it is only read to
-            count interior points, never filtered.
-        """
-        if isinstance(inpt, BoundingBoxes3D):
-            return BoundingBoxes3D(
-                inpt.as_subclass(Tensor)[box_keep], format=inpt.format
-            )
-        if id(inpt) in label_ids:
-            return inpt[box_keep]
-        return inpt
 
     def _box_keep_mask(
         self, boxes: BoundingBoxes3D, points: PointCloud3D | None
