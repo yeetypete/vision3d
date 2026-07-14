@@ -11,7 +11,12 @@ from vision3d.ops import extract_box3d_params
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 from ._transform import Transform
-from ._utils import _find_boxes, _parse_labels_getter, _resolve_label_ids
+from ._utils import (
+    _filter_boxes_and_labels,
+    _find_boxes,
+    _parse_labels_getter,
+    _resolve_label_ids,
+)
 
 
 class RangeFilter3D(Transform):
@@ -119,13 +124,7 @@ class RangeFilter3D(Transform):
             return self._filter_points(inpt)
         if box_keep is None:
             return inpt
-        if isinstance(inpt, BoundingBoxes3D):
-            return BoundingBoxes3D(
-                inpt.as_subclass(Tensor)[box_keep], format=inpt.format
-            )
-        if id(inpt) in label_ids:
-            return inpt[box_keep]
-        return inpt
+        return _filter_boxes_and_labels(inpt, box_keep, label_ids)
 
     def _filter_points(self, points: PointCloud3D) -> PointCloud3D:
         pts = points.as_subclass(Tensor)
