@@ -263,8 +263,9 @@ class TestLabelsGetter:
             ObjectMinPointsFilter(min_points=1)(inputs, targets)
 
     def test_invalid_labels_getter_raises(self) -> None:
+        bad_getter: Any = 123
         with pytest.raises(ValueError, match="labels_getter"):
-            ObjectMinPointsFilter(min_points=1, labels_getter=123)  # type: ignore[arg-type]
+            ObjectMinPointsFilter(min_points=1, labels_getter=bad_getter)
 
 
 class TestValidation:
@@ -273,9 +274,11 @@ class TestValidation:
             ObjectMinPointsFilter(min_points=-1)
 
     def test_non_int_raises(self) -> None:
+        bad_min_points: Any = 1.5
         with pytest.raises(TypeError, match="non-negative"):
-            ObjectMinPointsFilter(min_points=1.5)  # type: ignore[arg-type]
+            ObjectMinPointsFilter(min_points=bad_min_points)
 
     def test_bool_raises(self) -> None:
+        bad_min_points: Any = True
         with pytest.raises(TypeError, match="non-negative"):
-            ObjectMinPointsFilter(min_points=True)  # type: ignore[arg-type]
+            ObjectMinPointsFilter(min_points=bad_min_points)

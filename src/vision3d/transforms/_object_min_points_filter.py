@@ -127,8 +127,6 @@ class ObjectMinPointsFilter(Transform):
             self._labels_getter(inputs), flat_inputs, boxes.shape[0]
         )
 
-        # The point cloud is not a box/label leaf, so it passes through the
-        # shared helper untouched -- it is only read to count interior points.
         flat_outputs = [
             _filter_boxes_and_labels(inpt, box_keep, label_ids) for inpt in flat_inputs
         ]
