@@ -212,6 +212,8 @@ type (`BoundingBoxes3D`, `PointCloud3D`, `CameraImages`, `CameraIntrinsics`,
 **Caveat for us, not upstream:** `@shaped_array` runs at import, so adopting it
 makes `shape_extensions` a hard runtime dependency of vision3d.
 
+**Depends on item 2** — see [Sequencing](#sequencing).
+
 ---
 
 ## 4. Wrong-shape bugs
@@ -343,6 +345,58 @@ Vendoring `torch-stubs` into a project and putting it on `search-path` adds 451
 diagnostics *from the `.pyi` files themselves* (254 in `torch-stubs/`, 197 in
 `torch-stubs/nn/`), because they are then inside the project tree. Needs
 `project-excludes`, and matches #3863.
+
+---
+
+## Sequencing
+
+Land item 1 whenever — it is a self-contained stub change.
+
+Items 2 and 3 should go up as a **stacked pair, 2 then 3**. They touch
+different files (`alt/class/class_metadata.rs` and `solver/subset.rs`) so the
+patches do not conflict, but item 3 is not honestly testable without item 2.
+
+The guard in item 3 sits directly below a base-class check:
+
+```rust
+self.is_subset_eq(&got_base.to_type(), &want_base.to_type())?;
+```
+
+For `PC[[N, 3]] -> Tensor[[N, 3]]` that asks whether `PC` relates to
+`torch.Tensor`. Today that relation holds only vacuously. `is_any()` classifies
+an unresolvable base as *any*:
+
+```rust
+BaseClassParseResult::InvalidBase(..)
+| BaseClassParseResult::InvalidExpr(..)
+| BaseClassParseResult::InvalidType(..)     // "Invalid base class: Tensor"
+| BaseClassParseResult::AnyType => true,
+```
+
+so `TVTensor`'s unresolvable `torch.Tensor` base makes the whole class gradual.
+Confirmed: `wants_tvtensor("a string")` reports 0 errors. Every
+`TVTensor <: torch.Tensor` result is therefore satisfied by gradualness rather
+than a real MRO edge.
+
+Consequences:
+
+- Relaxing the guard alone would likely *appear* to work, but only because the
+  base check passes vacuously. That rests on the bug, and could change once
+  item 2 lands.
+- The natural test case for item 3 is a shape-parameterised
+  `class MyTensor(torch.Tensor)`, which is still `Invalid base class: Tensor`
+  until item 2 lands. Testing via `@shaped_array` on a class whose `Tensor`
+  relationship is fake does not exercise the relation the patch claims to
+  enable.
+
+Item 2 first therefore gives item 3 both a sound hierarchy and a real test.
+
+**Confidence.** The dependency is inferred, not proven — the gradual
+degradation masks the MRO from outside the compiler, so it cannot be
+distinguished from a genuine edge by probing alone. The `is_any()` source above
+is the strongest evidence. To confirm, patch item 2 locally and re-run the
+item 3 repro: if the guard error still fires against a now-sound hierarchy,
+item 3 is the only remaining blocker.
 
 ---
 
