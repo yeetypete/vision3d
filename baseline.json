@@ -1217,192 +1217,192 @@
       "column": 12,
       "concise_description": "No attribute `from_numpy` in module `torch`",
       "description": "No attribute `from_numpy` in module `torch`",
-      "line": 129,
+      "line": 134,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 28,
-      "stop_line": 129
+      "stop_line": 134
     },
     {
       "code": -2,
       "column": 30,
       "concise_description": "item() only works on 0-dimensional tensors, got 1D tensor",
       "description": "item() only works on 0-dimensional tensors, got 1D tensor",
-      "line": 467,
+      "line": 472,
       "name": "invalid-argument",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 32,
-      "stop_line": 467
+      "stop_line": 472
     },
     {
       "code": -2,
       "column": 41,
       "concise_description": "Unexpected keyword argument `device` in function `torch.full`",
       "description": "Unexpected keyword argument `device` in function `torch.full`",
-      "line": 720,
+      "line": 725,
       "name": "unexpected-keyword",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 47,
-      "stop_line": 720
+      "stop_line": 725
     },
     {
       "code": -2,
       "column": 56,
       "concise_description": "Unexpected keyword argument `dtype` in function `torch.full`",
       "description": "Unexpected keyword argument `dtype` in function `torch.full`",
-      "line": 720,
+      "line": 725,
       "name": "unexpected-keyword",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 61,
-      "stop_line": 720
+      "stop_line": 725
     },
     {
       "code": -2,
       "column": 18,
-      "concise_description": "Module `torch.special` exists, but was not imported explicitly. You are relying on other modules to load it.",
-      "description": "Module `torch.special` exists, but was not imported explicitly. You are relying on other modules to load it.",
-      "line": 729,
-      "name": "implicit-import",
-      "path": "src/vision3d/transforms/_copy_paste_3d.py",
-      "severity": "warn",
-      "stop_column": 31,
-      "stop_line": 729
-    },
-    {
-      "code": -2,
-      "column": 18,
-      "concise_description": "Module `torch.special` exists, but was not imported explicitly. You are relying on other modules to load it.",
-      "description": "Module `torch.special` exists, but was not imported explicitly. You are relying on other modules to load it.",
-      "line": 730,
-      "name": "implicit-import",
-      "path": "src/vision3d/transforms/_copy_paste_3d.py",
-      "severity": "warn",
-      "stop_column": 31,
-      "stop_line": 730
-    },
-    {
-      "code": -2,
-      "column": 30,
       "concise_description": "Module `torch.special` exists, but was not imported explicitly. You are relying on other modules to load it.",
       "description": "Module `torch.special` exists, but was not imported explicitly. You are relying on other modules to load it.",
       "line": 734,
       "name": "implicit-import",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "warn",
-      "stop_column": 43,
+      "stop_column": 31,
       "stop_line": 734
+    },
+    {
+      "code": -2,
+      "column": 18,
+      "concise_description": "Module `torch.special` exists, but was not imported explicitly. You are relying on other modules to load it.",
+      "description": "Module `torch.special` exists, but was not imported explicitly. You are relying on other modules to load it.",
+      "line": 735,
+      "name": "implicit-import",
+      "path": "src/vision3d/transforms/_copy_paste_3d.py",
+      "severity": "warn",
+      "stop_column": 31,
+      "stop_line": 735
+    },
+    {
+      "code": -2,
+      "column": 30,
+      "concise_description": "Module `torch.special` exists, but was not imported explicitly. You are relying on other modules to load it.",
+      "description": "Module `torch.special` exists, but was not imported explicitly. You are relying on other modules to load it.",
+      "line": 739,
+      "name": "implicit-import",
+      "path": "src/vision3d/transforms/_copy_paste_3d.py",
+      "severity": "warn",
+      "stop_column": 43,
+      "stop_line": 739
     },
     {
       "code": -2,
       "column": 23,
       "concise_description": "Object of class `Tensor` has no attribute `any`",
       "description": "Object of class `Tensor` has no attribute `any`",
-      "line": 798,
+      "line": 803,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 65,
-      "stop_line": 798
+      "stop_line": 803
     },
     {
       "code": -2,
       "column": 17,
       "concise_description": "Unary `~` is not supported on `Tensor[tuple[Unknown, ...]]`",
       "description": "Unary `~` is not supported on `Tensor[tuple[Unknown, ...]]`\n  Object of class `Tensor` has no attribute `__invert__`",
-      "line": 802,
+      "line": 807,
       "name": "unsupported-operation",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 25,
-      "stop_line": 802
+      "stop_line": 807
     },
     {
       "code": -2,
       "column": 20,
       "concise_description": "No attribute `randperm` in module `torch`",
       "description": "No attribute `randperm` in module `torch`",
-      "line": 843,
+      "line": 848,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 34,
-      "stop_line": 843
+      "stop_line": 848
     },
     {
       "code": -2,
       "column": 29,
       "concise_description": "Object of class `Tensor` has no attribute `any`",
       "description": "Object of class `Tensor` has no attribute `any`",
-      "line": 875,
+      "line": 880,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 74,
-      "stop_line": 875
+      "stop_line": 880
     },
     {
       "code": -2,
       "column": 17,
       "concise_description": "Object of class `Tensor` has no attribute `fill_diagonal_`",
       "description": "Object of class `Tensor` has no attribute `fill_diagonal_`",
-      "line": 883,
+      "line": 888,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 34,
-      "stop_line": 883
+      "stop_line": 888
     },
     {
       "code": -2,
       "column": 24,
       "concise_description": "Object of class `Tensor` has no attribute `any`",
       "description": "Object of class `Tensor` has no attribute `any`",
-      "line": 891,
+      "line": 896,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 49,
-      "stop_line": 891
+      "stop_line": 896
     },
     {
       "code": -2,
       "column": 27,
       "concise_description": "Object of class `Tensor` has no attribute `any`",
       "description": "Object of class `Tensor` has no attribute `any`",
-      "line": 915,
+      "line": 920,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 83,
-      "stop_line": 915
+      "stop_line": 920
     },
     {
       "code": -2,
       "column": 30,
-      "concise_description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`",
-      "description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
-      "line": 1056,
+      "concise_description": "`&` is not supported between `Tensor[[int, int]]` and `Tensor[tuple[Unknown, ...]]`",
+      "description": "`&` is not supported between `Tensor[[int, int]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
+      "line": 1061,
       "name": "unsupported-operation",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 56,
-      "stop_line": 1056
+      "stop_line": 1061
     },
     {
       "code": -2,
       "column": 26,
-      "concise_description": "Unary `~` is not supported on `Tensor[tuple[Unknown, ...]]`",
-      "description": "Unary `~` is not supported on `Tensor[tuple[Unknown, ...]]`\n  Object of class `Tensor` has no attribute `__invert__`",
-      "line": 1088,
+      "concise_description": "Unary `~` is not supported on `Tensor[[int, int]]`",
+      "description": "Unary `~` is not supported on `Tensor[[int, int]]`\n  Object of class `Tensor` has no attribute `__invert__`",
+      "line": 1093,
       "name": "unsupported-operation",
       "path": "src/vision3d/transforms/_copy_paste_3d.py",
       "severity": "error",
       "stop_column": 84,
-      "stop_line": 1088
+      "stop_line": 1093
     },
     {
       "code": -2,
@@ -1553,132 +1553,132 @@
       "column": 28,
       "concise_description": "Unexpected keyword argument `dtype` in function `torch.eye`",
       "description": "Unexpected keyword argument `dtype` in function `torch.eye`",
-      "line": 213,
+      "line": 220,
       "name": "unexpected-keyword",
       "path": "src/vision3d/transforms/functional/_camera.py",
       "severity": "error",
       "stop_column": 33,
-      "stop_line": 213
+      "stop_line": 220
     },
     {
       "code": -2,
       "column": 43,
       "concise_description": "Unexpected keyword argument `device` in function `torch.eye`",
       "description": "Unexpected keyword argument `device` in function `torch.eye`",
-      "line": 213,
+      "line": 220,
       "name": "unexpected-keyword",
       "path": "src/vision3d/transforms/functional/_camera.py",
       "severity": "error",
       "stop_column": 49,
-      "stop_line": 213
+      "stop_line": 220
     },
     {
       "code": -2,
       "column": 26,
       "concise_description": "Unexpected keyword argument `dtype` in function `torch.eye`",
       "description": "Unexpected keyword argument `dtype` in function `torch.eye`",
-      "line": 215,
+      "line": 222,
       "name": "unexpected-keyword",
       "path": "src/vision3d/transforms/functional/_camera.py",
       "severity": "error",
       "stop_column": 31,
-      "stop_line": 215
+      "stop_line": 222
     },
     {
       "code": -2,
       "column": 41,
       "concise_description": "Unexpected keyword argument `device` in function `torch.eye`",
       "description": "Unexpected keyword argument `device` in function `torch.eye`",
-      "line": 215,
+      "line": 222,
       "name": "unexpected-keyword",
       "path": "src/vision3d/transforms/functional/_camera.py",
       "severity": "error",
       "stop_column": 47,
-      "stop_line": 215
+      "stop_line": 222
     },
     {
       "code": -2,
       "column": 5,
       "concise_description": "Object of class `Tensor` has no attribute `neg_`",
       "description": "Object of class `Tensor` has no attribute `neg_`",
-      "line": 64,
+      "line": 72,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/functional/_geometry.py",
       "severity": "error",
       "stop_column": 24,
-      "stop_line": 64
+      "stop_line": 72
     },
     {
       "code": -2,
       "column": 30,
       "concise_description": "Object of class `Tensor` has no attribute `neg_`",
       "description": "Object of class `Tensor` has no attribute `neg_`",
-      "line": 93,
+      "line": 103,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/functional/_geometry.py",
       "severity": "error",
       "stop_column": 53,
-      "stop_line": 93
+      "stop_line": 103
     },
     {
       "code": -2,
       "column": 9,
       "concise_description": "Object of class `Tensor` has no attribute `neg_`",
       "description": "Object of class `Tensor` has no attribute `neg_`",
-      "line": 99,
+      "line": 109,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/functional/_geometry.py",
       "severity": "error",
       "stop_column": 27,
-      "stop_line": 99
+      "stop_line": 109
     },
     {
       "code": -2,
       "column": 17,
       "concise_description": "Object of class `Tensor` has no attribute `neg_`",
       "description": "Object of class `Tensor` has no attribute `neg_`",
-      "line": 102,
+      "line": 112,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/functional/_geometry.py",
       "severity": "error",
       "stop_column": 33,
-      "stop_line": 102
+      "stop_line": 112
     },
     {
       "code": -2,
       "column": 17,
       "concise_description": "Object of class `Tensor` has no attribute `neg_`",
       "description": "Object of class `Tensor` has no attribute `neg_`",
-      "line": 105,
+      "line": 115,
       "name": "missing-attribute",
       "path": "src/vision3d/transforms/functional/_geometry.py",
       "severity": "error",
       "stop_column": 41,
-      "stop_line": 105
+      "stop_line": 115
     },
     {
       "code": -2,
       "column": 22,
       "concise_description": "Unexpected keyword argument `dtype` in function `torch.eye`",
       "description": "Unexpected keyword argument `dtype` in function `torch.eye`",
-      "line": 309,
+      "line": 328,
       "name": "unexpected-keyword",
       "path": "src/vision3d/transforms/functional/_geometry.py",
       "severity": "error",
       "stop_column": 27,
-      "stop_line": 309
+      "stop_line": 328
     },
     {
       "code": -2,
       "column": 30,
       "concise_description": "Unexpected keyword argument `dtype` in function `torch.eye`",
       "description": "Unexpected keyword argument `dtype` in function `torch.eye`",
-      "line": 458,
+      "line": 486,
       "name": "unexpected-keyword",
       "path": "src/vision3d/transforms/functional/_geometry.py",
       "severity": "error",
       "stop_column": 35,
-      "stop_line": 458
+      "stop_line": 486
     },
     {
       "code": -2,
@@ -1731,26 +1731,26 @@
     {
       "code": -2,
       "column": 46,
-      "concise_description": "Argument `Tensor` is not assignable to parameter `iter2` with type `Iterable[@_]` in function `zip.__new__`",
-      "description": "Argument `Tensor` is not assignable to parameter `iter2` with type `Iterable[@_]` in function `zip.__new__`\n  Protocol `Iterable` requires attribute `__iter__`",
-      "line": 56,
+      "concise_description": "Argument `Tensor[[S, 4, 4]]` is not assignable to parameter `iter2` with type `Iterable[@_]` in function `zip.__new__`",
+      "description": "Argument `Tensor[[S, 4, 4]]` is not assignable to parameter `iter2` with type `Iterable[@_]` in function `zip.__new__`\n  Protocol `Iterable` requires attribute `__iter__`",
+      "line": 63,
       "name": "bad-argument-type",
       "path": "src/vision3d/transforms/functional/_sweeps.py",
       "severity": "error",
       "stop_column": 56,
-      "stop_line": 56
+      "stop_line": 63
     },
     {
       "code": -2,
       "column": 58,
-      "concise_description": "Argument `Tensor` is not assignable to parameter `iter3` with type `Iterable[@_]` in function `zip.__new__`",
-      "description": "Argument `Tensor` is not assignable to parameter `iter3` with type `Iterable[@_]` in function `zip.__new__`\n  Protocol `Iterable` requires attribute `__iter__`",
-      "line": 56,
+      "concise_description": "Argument `Tensor[[S]]` is not assignable to parameter `iter3` with type `Iterable[@_]` in function `zip.__new__`",
+      "description": "Argument `Tensor[[S]]` is not assignable to parameter `iter3` with type `Iterable[@_]` in function `zip.__new__`\n  Protocol `Iterable` requires attribute `__iter__`",
+      "line": 63,
       "name": "bad-argument-type",
       "path": "src/vision3d/transforms/functional/_sweeps.py",
       "severity": "error",
       "stop_column": 70,
-      "stop_line": 56
+      "stop_line": 63
     },
     {
       "code": -2,
@@ -5003,6 +5003,18 @@
       "severity": "warn",
       "stop_column": 22,
       "stop_line": 73
+    },
+    {
+      "code": -2,
+      "column": 17,
+      "concise_description": "Argument `Tensor[[2, 4]]` is not assignable to parameter `transforms` with type `Tensor[[@_, 4, 4]]` in function `vision3d.transforms.functional._sweeps.accumulate_sweeps`",
+      "description": "Argument `Tensor[[2, 4]]` is not assignable to parameter `transforms` with type `Tensor[[@_, 4, 4]]` in function `vision3d.transforms.functional._sweeps.accumulate_sweeps`\n  Tensor rank mismatch: expected 3 dimensions, got 2 dimensions",
+      "line": 89,
+      "name": "bad-argument-type",
+      "path": "test/test_transforms_sweeps.py",
+      "severity": "error",
+      "stop_column": 45,
+      "stop_line": 89
     },
     {
       "code": -2,
