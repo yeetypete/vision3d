@@ -1,10 +1,12 @@
 """3D copy-paste data augmentation with lazy object database."""
 
+from __future__ import annotations
+
 import math
 from collections import defaultdict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 import numpy as np
 import torch
@@ -31,6 +33,9 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 from vision3d.transforms._transform import Transform
+
+if TYPE_CHECKING:
+    from shape_extensions import Int, IntVar
 
 
 @dataclass
@@ -106,12 +111,12 @@ def _convex_hull_2d(
     return lower[:-1] + upper[:-1]
 
 
-def _fill_convex_polygon(
+def _fill_convex_polygon[H: IntVar, W: IntVar](
     vertices: list[tuple[float, float]],
-    height: int,
-    width: int,
+    height: Int[H],
+    width: Int[W],
     device: torch.device,
-) -> Tensor:
+) -> Tensor[[H, W]]:
     """Rasterise a convex polygon into a boolean mask using Pillow.
 
     Args:
@@ -129,15 +134,15 @@ def _fill_convex_polygon(
     return torch.from_numpy(mask_np.copy()).bool().to(device)
 
 
-_HullMaskResult = tuple[Tensor, tuple[int, int, int, int], float]
+_HullMaskResult = tuple["Tensor[[int, int]]", tuple[int, int, int, int], float]
 
 
-def _project_boxes_to_camera(
-    boxes: Tensor,
+def _project_boxes_to_camera[M: IntVar, K: IntVar](
+    boxes: Tensor[[M, K]],
     fmt: BoundingBox3DFormat,
-    extrinsic: Tensor,
-    intrinsic: Tensor,
-) -> tuple[Tensor, Tensor]:
+    extrinsic: Tensor[[4, 4]],
+    intrinsic: Tensor[[3, 3]],
+) -> tuple[Tensor[[M, 8, 2]], Tensor[[M, 8]]]:
     """Project all box corners into a single camera at once.
 
     Args:
@@ -158,8 +163,8 @@ def _project_boxes_to_camera(
 
 
 def _hull_mask_from_projected(
-    uv: Tensor,
-    depth: Tensor,
+    uv: Tensor[[8, 2]],
+    depth: Tensor[[8]],
     img_h: int,
     img_w: int,
 ) -> _HullMaskResult | None:
@@ -215,11 +220,11 @@ def _hull_mask_from_projected(
     return mask, (x_min, y_min, x_max, y_max), mean_depth
 
 
-def _apply_offset(
-    boxes: Tensor,
+def _apply_offset[M: IntVar, K: IntVar](
+    boxes: Tensor[[M, K]],
     fmt: BoundingBox3DFormat,
-    offsets: Tensor,
-) -> Tensor:
+    offsets: Tensor[[M, 3]],
+) -> Tensor[[M, K]]:
     """Return a copy of *boxes* translated by per-box *offsets*.
 
     Args:
@@ -237,11 +242,11 @@ def _apply_offset(
     return out
 
 
-def _batch_hull_masks(
-    boxes: Tensor,
+def _batch_hull_masks[M: IntVar, K: IntVar](
+    boxes: Tensor[[M, K]],
     fmt: BoundingBox3DFormat,
-    extrinsic: Tensor,
-    intrinsic: Tensor,
+    extrinsic: Tensor[[4, 4]],
+    intrinsic: Tensor[[3, 3]],
     img_h: int,
     img_w: int,
 ) -> list[_HullMaskResult | None]:
@@ -690,15 +695,15 @@ class CopyPaste3D(Transform):
                 )
         return result
 
-    def _sample_axis_offsets(
+    def _sample_axis_offsets[N: IntVar](
         self,
-        n: int,
+        n: Int[N],
         lo: float,
         hi: float,
         std: float | None,
         device: torch.device,
         dtype: torch.dtype,
-    ) -> Tensor:
+    ) -> Tensor[[N]]:
         """Draw ``n`` offsets for one axis from ``[lo, hi]``.
 
         Uniform when ``std`` is ``None``, otherwise a normal distribution
@@ -733,9 +738,9 @@ class CopyPaste3D(Transform):
         # Clamp guards against tiny inverse-CDF rounding outside the interval.
         return (mean + std * torch.special.ndtri(p)).clamp(lo, hi)
 
-    def _sample_offsets(
-        self, n: int, device: torch.device, dtype: torch.dtype
-    ) -> Tensor:
+    def _sample_offsets[N: IntVar](
+        self, n: Int[N], device: torch.device, dtype: torch.dtype
+    ) -> Tensor[[N, 3]]:
         """Draw ``n`` per-object ``(x, y, z)`` offsets.
 
         Each axis is sampled independently from its configured range and
@@ -755,12 +760,12 @@ class CopyPaste3D(Transform):
         ]
         return torch.stack(cols, dim=1)
 
-    def _place_candidate(
+    def _place_candidate[M: IntVar, K: IntVar](
         self,
-        box: Tensor,
+        box: Tensor[[K]],
         fmt: BoundingBox3DFormat,
-        occupied: Tensor,
-    ) -> tuple[Tensor, Tensor] | None:
+        occupied: Tensor[[M, K]],
+    ) -> tuple[Tensor[[K]], Tensor[[3]]] | None:
         """Find a collision-free pose for one candidate box.
 
         When jittering is enabled, up to ``max_jitter_attempts`` jittered

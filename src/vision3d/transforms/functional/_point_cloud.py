@@ -1,13 +1,19 @@
 """Functional kernels for point cloud transforms."""
 
-from torch import Tensor
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from vision3d.tensors import PointCloud3D
 
 from ._registry import register_kernel
 
+if TYPE_CHECKING:
+    from shape_extensions import IntTuple, IntVar
+    from torch import Tensor
 
-def shuffle_points(inpt: Tensor, *, perm: Tensor) -> Tensor:
+
+def shuffle_points[S: IntTuple](inpt: Tensor[S], *, perm: Tensor[[int]]) -> Tensor[S]:
     """Dispatcher entry point for point shuffling.
 
     Returns:
@@ -16,7 +22,9 @@ def shuffle_points(inpt: Tensor, *, perm: Tensor) -> Tensor:
     return inpt
 
 
-def shuffle_points_point_cloud(points: Tensor, *, perm: Tensor) -> Tensor:
+def shuffle_points_point_cloud[N: IntVar, C: IntVar](
+    points: Tensor[[N, C]], *, perm: Tensor[[N]]
+) -> Tensor[[N, C]]:
     """Permute point order.
 
     Args:
@@ -30,11 +38,13 @@ def shuffle_points_point_cloud(points: Tensor, *, perm: Tensor) -> Tensor:
 
 
 @register_kernel(shuffle_points, PointCloud3D)
-def _shuffle_points_kernel(points: Tensor, *, perm: Tensor) -> Tensor:
+def _shuffle_points_kernel[N: IntVar, C: IntVar](
+    points: Tensor[[N, C]], *, perm: Tensor[[N]]
+) -> Tensor[[N, C]]:
     return shuffle_points_point_cloud(points, perm=perm)
 
 
-def sample_points(inpt: Tensor, *, indices: Tensor) -> Tensor:
+def sample_points[S: IntTuple](inpt: Tensor[S], *, indices: Tensor[[int]]) -> Tensor[S]:
     """Dispatcher entry point for point sampling.
 
     Returns:
@@ -43,7 +53,9 @@ def sample_points(inpt: Tensor, *, indices: Tensor) -> Tensor:
     return inpt
 
 
-def sample_points_point_cloud(points: Tensor, *, indices: Tensor) -> Tensor:
+def sample_points_point_cloud[N: IntVar, M: IntVar, C: IntVar](
+    points: Tensor[[N, C]], *, indices: Tensor[[M]]
+) -> Tensor[[M, C]]:
     """Select points by index.
 
     Args:
@@ -58,11 +70,15 @@ def sample_points_point_cloud(points: Tensor, *, indices: Tensor) -> Tensor:
 
 
 @register_kernel(sample_points, PointCloud3D)
-def _sample_points_kernel(points: Tensor, *, indices: Tensor) -> Tensor:
+def _sample_points_kernel[N: IntVar, M: IntVar, C: IntVar](
+    points: Tensor[[N, C]], *, indices: Tensor[[M]]
+) -> Tensor[[M, C]]:
     return sample_points_point_cloud(points, indices=indices)
 
 
-def jitter_points(inpt: Tensor, *, noise: Tensor) -> Tensor:
+def jitter_points[S: IntTuple](
+    inpt: Tensor[S], *, noise: Tensor[[int, 3]]
+) -> Tensor[S]:
     """Dispatcher entry point for point jittering.
 
     Returns:
@@ -71,7 +87,9 @@ def jitter_points(inpt: Tensor, *, noise: Tensor) -> Tensor:
     return inpt
 
 
-def jitter_points_point_cloud(points: Tensor, *, noise: Tensor) -> Tensor:
+def jitter_points_point_cloud[N: IntVar, C: IntVar](
+    points: Tensor[[N, C]], *, noise: Tensor[[N, 3]]
+) -> Tensor[[N, C]]:
     """Add noise to point xyz coordinates.
 
     Args:
@@ -88,5 +106,7 @@ def jitter_points_point_cloud(points: Tensor, *, noise: Tensor) -> Tensor:
 
 
 @register_kernel(jitter_points, PointCloud3D)
-def _jitter_points_kernel(points: Tensor, *, noise: Tensor) -> Tensor:
+def _jitter_points_kernel[N: IntVar, C: IntVar](
+    points: Tensor[[N, C]], *, noise: Tensor[[N, 3]]
+) -> Tensor[[N, C]]:
     return jitter_points_point_cloud(points, noise=noise)

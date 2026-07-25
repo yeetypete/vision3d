@@ -1,16 +1,23 @@
 """Functional kernel for temporal lidar sweep accumulation."""
 
-from collections.abc import Sequence
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import torch
-from torch import Tensor
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from shape_extensions import IntVar
+    from torch import Tensor
 
 
-def accumulate_sweeps(
-    sweeps: Sequence[Tensor],
-    transforms: Tensor,
-    time_offsets: Tensor,
-) -> Tensor:
+def accumulate_sweeps[S: IntVar, C: IntVar](
+    sweeps: Sequence[Tensor[[int, C]]],
+    transforms: Tensor[[S, 4, 4]],
+    time_offsets: Tensor[[S]],
+) -> Tensor[[int, C + 1]]:
     """Accumulate and time-stamp a set of lidar sweeps.
 
     Each sweep is mapped into a common target frame by its own rigid

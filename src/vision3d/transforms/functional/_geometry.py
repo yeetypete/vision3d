@@ -1,12 +1,14 @@
 """Functional kernels for 3D geometric transforms."""
 
+from __future__ import annotations
+
 import math
+from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
 from torchvision.transforms.v2 import functional as _F
 from torchvision.transforms.v2.functional import register_kernel as _register_kernel
-from torchvision.tv_tensors import TVTensor
 
 from vision3d.tensors import (
     BoundingBox3DFormat,
@@ -17,6 +19,10 @@ from vision3d.tensors import (
 )
 
 from ._registry import register_kernel
+
+if TYPE_CHECKING:
+    from shape_extensions import Elements, IntTuple, IntVar
+    from torchvision.tv_tensors import TVTensor
 
 # Axis indices for flip
 AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
@@ -32,7 +38,7 @@ _FLIP_NEGATE_YPR: dict[str, list[int]] = {
 }
 
 
-def flip_3d(inpt: Tensor, *, axis: str) -> Tensor:
+def flip_3d[S: IntTuple](inpt: Tensor[S], *, axis: str) -> Tensor[S]:
     """Flip a tensor along a 3D spatial axis.
 
     This is the dispatcher entry point. Type-specific kernels are registered
@@ -48,7 +54,9 @@ def flip_3d(inpt: Tensor, *, axis: str) -> Tensor:
     return inpt
 
 
-def flip_3d_point_cloud(points: Tensor, *, axis: str) -> Tensor:
+def flip_3d_point_cloud[Bs: IntTuple, C: IntVar](
+    points: Tensor[[*Elements[Bs], C]], *, axis: str
+) -> Tensor[[*Elements[Bs], C]]:
     """Flip point cloud coordinates along ``axis``.
 
     Args:
@@ -66,13 +74,15 @@ def flip_3d_point_cloud(points: Tensor, *, axis: str) -> Tensor:
 
 
 @register_kernel(flip_3d, PointCloud3D)
-def _flip_3d_point_cloud_kernel(points: Tensor, *, axis: str) -> Tensor:
+def _flip_3d_point_cloud_kernel[Bs: IntTuple, C: IntVar](
+    points: Tensor[[*Elements[Bs], C]], *, axis: str
+) -> Tensor[[*Elements[Bs], C]]:
     return flip_3d_point_cloud(points, axis=axis)
 
 
-def flip_3d_bounding_boxes(
-    boxes: Tensor, *, format: BoundingBox3DFormat, axis: str
-) -> Tensor:
+def flip_3d_bounding_boxes[Bs: IntTuple, C: IntVar](
+    boxes: Tensor[[*Elements[Bs], C]], *, format: BoundingBox3DFormat, axis: str
+) -> Tensor[[*Elements[Bs], C]]:
     """Flip 3D bounding boxes along ``axis``.
 
     Args:
@@ -191,7 +201,7 @@ def vertical_flip_bounding_boxes_3d(inpt: BoundingBoxes3D) -> BoundingBoxes3D:
     return wrap(out, like=inpt)
 
 
-def translate_3d(inpt: Tensor, *, offset: Tensor) -> Tensor:
+def translate_3d[S: IntTuple](inpt: Tensor[S], *, offset: Tensor[[3]]) -> Tensor[S]:
     """Translate a tensor by a 3D offset.
 
     Dispatcher entry point. Type-specific kernels are registered below.
@@ -206,7 +216,9 @@ def translate_3d(inpt: Tensor, *, offset: Tensor) -> Tensor:
     return inpt
 
 
-def translate_3d_point_cloud(points: Tensor, *, offset: Tensor) -> Tensor:
+def translate_3d_point_cloud[Bs: IntTuple, C: IntVar](
+    points: Tensor[[*Elements[Bs], C]], *, offset: Tensor[[3]]
+) -> Tensor[[*Elements[Bs], C]]:
     """Translate point cloud coordinates by ``offset``.
 
     Args:
@@ -222,13 +234,18 @@ def translate_3d_point_cloud(points: Tensor, *, offset: Tensor) -> Tensor:
 
 
 @register_kernel(translate_3d, PointCloud3D)
-def _translate_3d_point_cloud_kernel(points: Tensor, *, offset: Tensor) -> Tensor:
+def _translate_3d_point_cloud_kernel[Bs: IntTuple, C: IntVar](
+    points: Tensor[[*Elements[Bs], C]], *, offset: Tensor[[3]]
+) -> Tensor[[*Elements[Bs], C]]:
     return translate_3d_point_cloud(points, offset=offset)
 
 
-def translate_3d_bounding_boxes(
-    boxes: Tensor, *, format: BoundingBox3DFormat, offset: Tensor
-) -> Tensor:
+def translate_3d_bounding_boxes[Bs: IntTuple, C: IntVar](
+    boxes: Tensor[[*Elements[Bs], C]],
+    *,
+    format: BoundingBox3DFormat,
+    offset: Tensor[[3]],
+) -> Tensor[[*Elements[Bs], C]]:
     """Translate 3D bounding boxes by ``offset``.
 
     Args:
@@ -261,7 +278,9 @@ def _translate_3d_bounding_boxes_dispatch(
     return wrap(output, like=inpt)
 
 
-def translate_3d_camera_extrinsics(extrinsics: Tensor, *, offset: Tensor) -> Tensor:
+def translate_3d_camera_extrinsics[Bs: IntTuple](
+    extrinsics: Tensor[[*Elements[Bs], 4, 4]], *, offset: Tensor[[3]]
+) -> Tensor[[*Elements[Bs], 4, 4]]:
     """Update camera extrinsics after translating the lidar frame.
 
     The lidar-to-camera extrinsic translation changes because the lidar
@@ -282,13 +301,13 @@ def translate_3d_camera_extrinsics(extrinsics: Tensor, *, offset: Tensor) -> Ten
 
 
 @register_kernel(translate_3d, CameraExtrinsics)
-def _translate_3d_camera_extrinsics_kernel(
-    extrinsics: Tensor, *, offset: Tensor
-) -> Tensor:
+def _translate_3d_camera_extrinsics_kernel[Bs: IntTuple](
+    extrinsics: Tensor[[*Elements[Bs], 4, 4]], *, offset: Tensor[[3]]
+) -> Tensor[[*Elements[Bs], 4, 4]]:
     return translate_3d_camera_extrinsics(extrinsics, offset=offset)
 
 
-def _rotation_matrix(axis: Tensor, angle: float) -> Tensor:
+def _rotation_matrix(axis: Tensor[[3]], angle: float) -> Tensor[[3, 3]]:
     """Build a 3x3 rotation matrix from an axis and angle (radians).
 
     Uses Rodrigues' rotation formula.
@@ -313,7 +332,9 @@ def _rotation_matrix(axis: Tensor, angle: float) -> Tensor:
     return R
 
 
-def rotate_3d(inpt: Tensor, *, rotation_matrix: Tensor) -> Tensor:
+def rotate_3d[S: IntTuple](
+    inpt: Tensor[S], *, rotation_matrix: Tensor[[3, 3]]
+) -> Tensor[S]:
     """Rotate a tensor by a 3x3 rotation matrix.
 
     Dispatcher entry point. Type-specific kernels are registered below.
@@ -328,7 +349,9 @@ def rotate_3d(inpt: Tensor, *, rotation_matrix: Tensor) -> Tensor:
     return inpt
 
 
-def rotate_3d_point_cloud(points: Tensor, *, rotation_matrix: Tensor) -> Tensor:
+def rotate_3d_point_cloud[Bs: IntTuple, C: IntVar](
+    points: Tensor[[*Elements[Bs], C]], *, rotation_matrix: Tensor[[3, 3]]
+) -> Tensor[[*Elements[Bs], C]]:
     """Rotate point cloud coordinates by ``rotation_matrix``.
 
     Args:
@@ -344,13 +367,18 @@ def rotate_3d_point_cloud(points: Tensor, *, rotation_matrix: Tensor) -> Tensor:
 
 
 @register_kernel(rotate_3d, PointCloud3D)
-def _rotate_3d_point_cloud_kernel(points: Tensor, *, rotation_matrix: Tensor) -> Tensor:
+def _rotate_3d_point_cloud_kernel[Bs: IntTuple, C: IntVar](
+    points: Tensor[[*Elements[Bs], C]], *, rotation_matrix: Tensor[[3, 3]]
+) -> Tensor[[*Elements[Bs], C]]:
     return rotate_3d_point_cloud(points, rotation_matrix=rotation_matrix)
 
 
-def rotate_3d_bounding_boxes(
-    boxes: Tensor, *, format: BoundingBox3DFormat, rotation_matrix: Tensor
-) -> Tensor:
+def rotate_3d_bounding_boxes[Bs: IntTuple, C: IntVar](
+    boxes: Tensor[[*Elements[Bs], C]],
+    *,
+    format: BoundingBox3DFormat,
+    rotation_matrix: Tensor[[3, 3]],
+) -> Tensor[[*Elements[Bs], C]]:
     """Rotate 3D bounding boxes by ``rotation_matrix``.
 
     Only rotated formats are supported:
@@ -421,7 +449,7 @@ def _rotate_3d_bounding_boxes_dispatch(
     return wrap(output, like=inpt)
 
 
-def _is_z_rotation(rotation_matrix: Tensor) -> bool:
+def _is_z_rotation(rotation_matrix: Tensor[[3, 3]]) -> bool:
     """Check if a rotation matrix is a pure rotation around Z.
 
     A pure Z rotation has the form ``[[c, -s, 0], [s, c, 0], [0, 0, 1]]``.
@@ -438,9 +466,9 @@ def _is_z_rotation(rotation_matrix: Tensor) -> bool:
     )
 
 
-def rotate_3d_camera_extrinsics(
-    extrinsics: Tensor, *, rotation_matrix: Tensor
-) -> Tensor:
+def rotate_3d_camera_extrinsics[Bs: IntTuple](
+    extrinsics: Tensor[[*Elements[Bs], 4, 4]], *, rotation_matrix: Tensor[[3, 3]]
+) -> Tensor[[*Elements[Bs], 4, 4]]:
     """Update camera extrinsics after rotating the lidar frame.
 
     The lidar-to-camera extrinsic ``E`` satisfies ``p_cam = E @ p_lidar``.
@@ -462,13 +490,13 @@ def rotate_3d_camera_extrinsics(
 
 
 @register_kernel(rotate_3d, CameraExtrinsics)
-def _rotate_3d_camera_extrinsics_kernel(
-    extrinsics: Tensor, *, rotation_matrix: Tensor
-) -> Tensor:
+def _rotate_3d_camera_extrinsics_kernel[Bs: IntTuple](
+    extrinsics: Tensor[[*Elements[Bs], 4, 4]], *, rotation_matrix: Tensor[[3, 3]]
+) -> Tensor[[*Elements[Bs], 4, 4]]:
     return rotate_3d_camera_extrinsics(extrinsics, rotation_matrix=rotation_matrix)
 
 
-def scale_3d(inpt: Tensor, *, factor: float) -> Tensor:
+def scale_3d[S: IntTuple](inpt: Tensor[S], *, factor: float) -> Tensor[S]:
     """Scale a tensor by a uniform factor.
 
     Dispatcher entry point. Type-specific kernels are registered below.
@@ -483,7 +511,9 @@ def scale_3d(inpt: Tensor, *, factor: float) -> Tensor:
     return inpt
 
 
-def scale_3d_point_cloud(points: Tensor, *, factor: float) -> Tensor:
+def scale_3d_point_cloud[Bs: IntTuple, C: IntVar](
+    points: Tensor[[*Elements[Bs], C]], *, factor: float
+) -> Tensor[[*Elements[Bs], C]]:
     """Scale point cloud coordinates by ``factor``.
 
     Args:
@@ -498,9 +528,9 @@ def scale_3d_point_cloud(points: Tensor, *, factor: float) -> Tensor:
     return points
 
 
-def scale_3d_bounding_boxes(
-    boxes: Tensor, *, format: BoundingBox3DFormat, factor: float
-) -> Tensor:
+def scale_3d_bounding_boxes[Bs: IntTuple, C: IntVar](
+    boxes: Tensor[[*Elements[Bs], C]], *, format: BoundingBox3DFormat, factor: float
+) -> Tensor[[*Elements[Bs], C]]:
     """Scale 3D bounding boxes by ``factor``.
 
     Scales both position and dimensions. Rotation angles are unchanged.
@@ -525,7 +555,9 @@ def scale_3d_bounding_boxes(
 
 
 @register_kernel(scale_3d, PointCloud3D)
-def _scale_3d_point_cloud_kernel(points: Tensor, *, factor: float) -> Tensor:
+def _scale_3d_point_cloud_kernel[Bs: IntTuple, C: IntVar](
+    points: Tensor[[*Elements[Bs], C]], *, factor: float
+) -> Tensor[[*Elements[Bs], C]]:
     return scale_3d_point_cloud(points, factor=factor)
 
 
@@ -539,7 +571,9 @@ def _scale_3d_bounding_boxes_dispatch(
     return wrap(output, like=inpt)
 
 
-def scale_3d_camera_extrinsics(extrinsics: Tensor, *, factor: float) -> Tensor:
+def scale_3d_camera_extrinsics[Bs: IntTuple](
+    extrinsics: Tensor[[*Elements[Bs], 4, 4]], *, factor: float
+) -> Tensor[[*Elements[Bs], 4, 4]]:
     """Update camera extrinsics after scaling the lidar frame.
 
     Args:
@@ -555,5 +589,7 @@ def scale_3d_camera_extrinsics(extrinsics: Tensor, *, factor: float) -> Tensor:
 
 
 @register_kernel(scale_3d, CameraExtrinsics)
-def _scale_3d_camera_extrinsics_kernel(extrinsics: Tensor, *, factor: float) -> Tensor:
+def _scale_3d_camera_extrinsics_kernel[Bs: IntTuple](
+    extrinsics: Tensor[[*Elements[Bs], 4, 4]], *, factor: float
+) -> Tensor[[*Elements[Bs], 4, 4]]:
     return scale_3d_camera_extrinsics(extrinsics, factor=factor)

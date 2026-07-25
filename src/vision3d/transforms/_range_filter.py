@@ -107,7 +107,7 @@ class RangeFilter3D(Transform):
         return tree_unflatten(flat_outputs, spec)
 
     def _filter_leaf(
-        self, inpt: Any, box_keep: Tensor | None, label_ids: set[int]
+        self, inpt: Any, box_keep: "Tensor[[int]] | None", label_ids: set[int]
     ) -> Any:
         """Filter a single flattened leaf according to its type.
 
@@ -138,7 +138,7 @@ class RangeFilter3D(Transform):
         keep = ((pts[:, :3] >= min_bound) & (pts[:, :3] < max_bound)).all(dim=-1)
         return PointCloud3D(pts[keep])
 
-    def _box_keep_mask(self, boxes: BoundingBoxes3D) -> Tensor:
+    def _box_keep_mask(self, boxes: BoundingBoxes3D) -> "Tensor[[int]]":
         raw = boxes.as_subclass(Tensor)
         centers, _, _ = extract_box3d_params(raw, boxes.format)
         min_bound = torch.tensor(

@@ -1,6 +1,8 @@
 """Kernels that update camera TVTensors under torchvision v2 image-space transforms."""
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 import torch
 from torch import Tensor
@@ -15,6 +17,9 @@ from torchvision.transforms.v2.functional._geometry import (
 )
 
 from vision3d.tensors import CameraExtrinsics, CameraIntrinsics, wrap
+
+if TYPE_CHECKING:
+    from shape_extensions import Elements, IntTuple
 
 
 @_register_kernel(_F.resize, CameraIntrinsics)
@@ -198,7 +203,9 @@ def vertical_flip_camera_intrinsics(inpt: CameraIntrinsics) -> CameraIntrinsics:
     return wrap(K, like=inpt)
 
 
-def _flip_camera_extrinsics(E: Tensor, *, world_axis: int, image_axis: int) -> Tensor:
+def _flip_camera_extrinsics[Bs: IntTuple](
+    E: Tensor[[*Elements[Bs], 4, 4]], *, world_axis: int, image_axis: int
+) -> Tensor[[*Elements[Bs], 4, 4]]:
     """Build ``M_img · E · M_world`` for a world-axis reflection paired with a camera-frame reflection.
 
     Args:
