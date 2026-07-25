@@ -15,8 +15,9 @@ distance ``2`` m, ``barrier`` orientation period of :math:`\pi`, and the
 attribute/velocity/orientation skips for ``barrier`` and ``traffic_cone``).
 """
 
+from __future__ import annotations
+
 import math
-from collections.abc import Iterable
 from dataclasses import dataclass
 from statistics import fmean
 from typing import TYPE_CHECKING, TypedDict
@@ -25,10 +26,14 @@ import numpy as np
 import torch
 from torch import Tensor
 
-from vision3d.metrics._types import Prediction3D, Target3D
 from vision3d.ops import extract_box3d_params
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from shape_extensions import IntVar
+
+    from vision3d.metrics._types import Prediction3D, Target3D
     from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
 
 # The five true-positive error metrics, in the order nuScenes reports them.
@@ -79,7 +84,7 @@ class NuScenesDetectionScoreResult(TypedDict):
 
 
 @dataclass
-class _BoxData:
+class _BoxData[N: IntVar]:
     """Per-frame box attributes as CPU float64 / int64 tensors.
 
     Attributes:
@@ -92,13 +97,13 @@ class _BoxData:
         score: ``[N]`` confidence scores (empty for ground truth).
     """
 
-    center: Tensor
-    size: Tensor
-    yaw: Tensor
-    velocity: Tensor
-    attribute: Tensor
-    label: Tensor
-    score: Tensor
+    center: Tensor[[N, 2]]
+    size: Tensor[[N, 3]]
+    yaw: Tensor[[N]]
+    velocity: Tensor[[N, 2]]
+    attribute: Tensor[[N]]
+    label: Tensor[[N]]
+    score: Tensor[[int]]
 
 
 class NuScenesDetectionScore:
@@ -187,7 +192,7 @@ class NuScenesDetectionScore:
         self.tp_metrics = tuple(tp_metrics)
         self.orientation_periods = dict(orientation_periods or {})
         self.skip_tp_metrics = {c: set(m) for c, m in (skip_tp_metrics or {}).items()}
-        self._frames: list[tuple[_BoxData, _BoxData]] = []
+        self._frames: list[tuple[_BoxData[int], _BoxData[int]]] = []
 
     @classmethod
     def from_class_names(
@@ -199,7 +204,7 @@ class NuScenesDetectionScore:
         min_precision: float = 0.1,
         mean_ap_weight: float = 5.0,
         tp_metrics: tuple[str, ...] = TP_METRICS,
-    ) -> "NuScenesDetectionScore":
+    ) -> NuScenesDetectionScore:
         """Build the metric from class names using the nuScenes presets.
 
         Class IDs are assigned by position (``class_names[i] -> i``). For the
@@ -424,7 +429,7 @@ def _no_predictions_md() -> _MetricData:
 
 
 def _accumulate(
-    frames: list[tuple[_BoxData, _BoxData]],
+    frames: list[tuple[_BoxData[int], _BoxData[int]]],
     class_id: int,
     dist_th: float,
     orientation_period: float,
@@ -593,7 +598,9 @@ def _calc_tp(md: _MetricData, min_recall: float, metric_name: str) -> float:
     return float(errors[first_ind : last_ind + 1].mean())
 
 
-def _interp(x: Tensor, xp: Tensor, fp: Tensor, right: float | None = None) -> Tensor:
+def _interp[N: IntVar, M: IntVar](
+    x: Tensor[[N]], xp: Tensor[[M]], fp: Tensor[[M]], right: float | None = None
+) -> Tensor[[N]]:
     """1-D linear interpolation: a thin tensor wrapper over :func:`numpy.interp`.
 
     ``xp`` must be non-decreasing (duplicates allowed). Queries below ``xp[0]``
@@ -609,13 +616,13 @@ def _interp(x: Tensor, xp: Tensor, fp: Tensor, right: float | None = None) -> Te
 
 
 def _match_errors(
-    frames: list[tuple[_BoxData, _BoxData]],
+    frames: list[tuple[_BoxData[int], _BoxData[int]]],
     trans_errs: list[float],
     match_frame: list[int],
     match_pred: list[int],
     match_gt: list[int],
     orientation_period: float,
-) -> dict[str, Tensor]:
+) -> dict[str, Tensor[[int]]]:
     """Vectorized per-true-positive TP errors, in match order.
 
     Translation error is the match distance, already collected. The velocity,
@@ -677,7 +684,7 @@ def _match_errors(
     return out
 
 
-def _cummean(x: Tensor) -> Tensor:
+def _cummean[N: IntVar](x: Tensor[[N]]) -> Tensor[[N]]:
     """NaN-aware cumulative mean.
 
     Returns:
@@ -702,13 +709,13 @@ def _nanmean(values: Iterable[float]) -> float:
     return fmean(vals) if vals else math.nan
 
 
-def _to_box_data(
-    boxes: "BoundingBoxes3D",
-    labels: Tensor,
-    velocities: Tensor | None,
-    attributes: Tensor | None,
-    scores: Tensor | None,
-) -> _BoxData:
+def _to_box_data[N: IntVar](
+    boxes: BoundingBoxes3D,
+    labels: Tensor[[N]],
+    velocities: Tensor[[N, 2]] | None,
+    attributes: Tensor[[N]] | None,
+    scores: Tensor[[N]] | None,
+) -> _BoxData[N]:
     """Convert a frame's boxes/labels/etc. to CPU float64 ``_BoxData`` tensors.
 
     Centers (xy), sizes and yaw are derived from the box parameters via

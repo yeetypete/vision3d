@@ -1,6 +1,7 @@
 """3D detection mean Average Precision metric."""
 
-from collections.abc import Iterable
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, NotRequired, TypedDict
@@ -8,10 +9,14 @@ from typing import TYPE_CHECKING, NotRequired, TypedDict
 import torch
 from torch import Tensor
 
-from vision3d.metrics._types import Prediction3D, Target3D
 from vision3d.ops import box3d_iou, extract_box3d_params
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from shape_extensions import IntVar
+
+    from vision3d.metrics._types import Prediction3D, Target3D
     from vision3d.tensors import BoundingBox3DFormat
 
 
@@ -285,7 +290,9 @@ class MeanAveragePrecision3D:
         self._state.clear()
 
 
-def _greedy_match(scores: Tensor, iou: Tensor, threshold: float) -> Tensor:
+def _greedy_match[NP: IntVar, NG: IntVar](
+    scores: Tensor[[NP]], iou: Tensor[[NP, NG]], threshold: float
+) -> Tensor[[NP]]:
     """Greedy one-to-one matching, preds ordered by descending score.
 
     Args:
@@ -315,9 +322,9 @@ def _greedy_match(scores: Tensor, iou: Tensor, threshold: float) -> Tensor:
     return is_tp
 
 
-def _compute_ap(
-    scores: Tensor,
-    is_tp: Tensor,
+def _compute_ap[NP: IntVar](
+    scores: Tensor[[NP]],
+    is_tp: Tensor[[NP]],
     num_gt: int,
     interpolation: APInterpolation,
 ) -> float:
@@ -365,7 +372,9 @@ def _compute_ap(
     raise ValueError(msg)
 
 
-def _sample_ap(recalls: Tensor, precisions: Tensor, targets: Tensor) -> float:
+def _sample_ap[R: IntVar, T: IntVar](
+    recalls: Tensor[[R]], precisions: Tensor[[R]], targets: Tensor[[T]]
+) -> float:
     """Sample precision at each target recall level and average.
 
     Returns:
@@ -378,7 +387,7 @@ def _sample_ap(recalls: Tensor, precisions: Tensor, targets: Tensor) -> float:
     return float(sampled.mean().item())
 
 
-def _all_points_ap(recalls: Tensor, precisions: Tensor) -> float:
+def _all_points_ap[R: IntVar](recalls: Tensor[[R]], precisions: Tensor[[R]]) -> float:
     """VOC07 area-under-curve AP at every recall change.
 
     Returns:
