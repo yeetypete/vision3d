@@ -1,11 +1,20 @@
 """Meta (fake tensor) registrations for vision3d custom ops."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
-from torch import Tensor
+
+if TYPE_CHECKING:
+    from shape_extensions import Int, IntVar
+    from torch import Tensor
 
 
 @torch.library.register_fake("vision3d::iou_box3d")
-def _meta_iou_box3d(boxes1: Tensor, boxes2: Tensor) -> tuple[Tensor, Tensor]:
+def _meta_iou_box3d[N: IntVar, M: IntVar](
+    boxes1: Tensor[[N, 8, 3]], boxes2: Tensor[[M, 8, 3]]
+) -> tuple[Tensor[[N, M]], Tensor[[N, M]]]:
     torch._check(
         boxes1.dim() == 3 and boxes1.size(1) == 8 and boxes1.size(2) == 3,
         lambda: f"boxes1 must be (N, 8, 3), got {tuple(boxes1.shape)}",
@@ -23,13 +32,13 @@ def _meta_iou_box3d(boxes1: Tensor, boxes2: Tensor) -> tuple[Tensor, Tensor]:
 
 
 @torch.library.register_fake("vision3d::voxelize")
-def _meta_voxelize(
-    points: Tensor,
+def _meta_voxelize[N: IntVar, C: IntVar, MPV: IntVar](
+    points: Tensor[[N, C]],
     point_cloud_range: list[float],
     voxel_size: list[float],
-    max_points_per_voxel: int,
+    max_points_per_voxel: Int[MPV],
     max_voxels: int | None,
-) -> tuple[Tensor, Tensor, Tensor]:
+) -> tuple[Tensor[[int, MPV, C]], Tensor[[int, 3]], Tensor[[int]]]:
     torch._check(
         points.dim() == 2,
         lambda: f"points must be 2D [N, C], got {tuple(points.shape)}",

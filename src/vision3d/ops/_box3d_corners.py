@@ -1,17 +1,24 @@
 """Compute 3D bounding box corners."""
 
-import torch
-from torch import Tensor
+from __future__ import annotations
 
-from vision3d.tensors import BoundingBox3DFormat
+from typing import TYPE_CHECKING
+
+import torch
 
 from ._points_in_boxes_3d import extract_box3d_params
 
+if TYPE_CHECKING:
+    from shape_extensions import IntVar
+    from torch import Tensor
 
-def box3d_corners(
-    boxes: Tensor,
+    from vision3d.tensors import BoundingBox3DFormat
+
+
+def box3d_corners[N: IntVar, K: IntVar](
+    boxes: Tensor[[N, K]],
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[[N, 8, 3]]:
     r"""Compute the 8 world-space corners of 3D bounding boxes.
 
     Supports all rotation formats including full 9-DOF (yaw, pitch, roll).
@@ -40,7 +47,7 @@ def box3d_corners(
     # 8 sign combinations for (x, y, z) offsets
     # Order: (-x,-y,-z), (+x,-y,-z), (+x,+y,-z), (-x,+y,-z),
     #        (-x,-y,+z), (+x,-y,+z), (+x,+y,+z), (-x,+y,+z)
-    signs = torch.tensor(
+    signs: Tensor[[8, 3]] = torch.tensor(
         [
             [-1, -1, -1],
             [+1, -1, -1],
@@ -53,7 +60,7 @@ def box3d_corners(
         ],
         dtype=boxes.dtype,
         device=boxes.device,
-    )  # [8, 3]
+    )
 
     # Local corners before rotation: [N, 8, 3]
     local = half_dims.unsqueeze(1) * signs.unsqueeze(0)

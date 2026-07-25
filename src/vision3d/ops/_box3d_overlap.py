@@ -1,18 +1,25 @@
 """3D oriented bounding box overlap using the Separating Axis Theorem."""
 
-import torch
-from torch import Tensor
+from __future__ import annotations
 
-from vision3d.tensors import BoundingBox3DFormat
+from typing import TYPE_CHECKING
+
+import torch
 
 from ._points_in_boxes_3d import extract_box3d_params
 
+if TYPE_CHECKING:
+    from shape_extensions import IntVar
+    from torch import Tensor
 
-def box3d_overlap(
-    boxes1: Tensor,
-    boxes2: Tensor,
+    from vision3d.tensors import BoundingBox3DFormat
+
+
+def box3d_overlap[N: IntVar, M: IntVar, K: IntVar](
+    boxes1: Tensor[[N, K]],
+    boxes2: Tensor[[M, K]],
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[[N, M]]:
     """Check 3D overlap between two sets of oriented bounding boxes.
 
     Uses the Separating Axis Theorem (SAT) with 15 potential separating
@@ -52,7 +59,7 @@ def box3d_overlap(
     c = torch.einsum("nik,mjk->nmij", rot1, rot2)  # [N, M, 3, 3]
     abs_c = c.abs()
 
-    overlap = torch.ones(
+    overlap: Tensor[[N, M]] = torch.ones(
         centers1.shape[0], centers2.shape[0], dtype=torch.bool, device=boxes1.device
     )
 

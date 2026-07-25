@@ -1,20 +1,27 @@
 """3D non-maximum suppression."""
 
-import torch
-from torch import Tensor
+from __future__ import annotations
 
-from vision3d.tensors import BoundingBox3DFormat
+from typing import TYPE_CHECKING
+
+import torch
 
 from ._box3d_iou import box3d_iou
 
+if TYPE_CHECKING:
+    from shape_extensions import IntVar
+    from torch import Tensor
+
+    from vision3d.tensors import BoundingBox3DFormat
+
 
 @torch.no_grad()
-def nms_3d(
-    boxes: Tensor,
-    scores: Tensor,
+def nms_3d[N: IntVar, K: IntVar](
+    boxes: Tensor[[N, K]],
+    scores: Tensor[[N]],
     iou_threshold: float,
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[[int]]:
     """Greedy, class-agnostic non-maximum suppression on 3D bounding boxes.
 
     Iteratively removes lower-scoring boxes whose IoU with a
@@ -29,8 +36,8 @@ def nms_3d(
         format: Format of ``boxes``.
 
     Returns:
-        ``int64`` tensor of indices into ``boxes`` that survived, sorted
-        in decreasing order of score.
+        ``int64`` tensor ``[S]`` of indices into ``boxes`` that survived,
+        sorted in decreasing order of score. ``S`` depends on the data.
     """
     n = boxes.shape[0]
     if n == 0:
@@ -52,13 +59,13 @@ def nms_3d(
 
 
 @torch.no_grad()
-def batched_nms_3d(
-    boxes: Tensor,
-    scores: Tensor,
-    idxs: Tensor,
+def batched_nms_3d[N: IntVar, K: IntVar](
+    boxes: Tensor[[N, K]],
+    scores: Tensor[[N]],
+    idxs: Tensor[[N]],
     iou_threshold: float,
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[[int]]:
     """Class-aware 3D NMS: runs :func:`nms_3d` independently per class.
 
     Args:
@@ -69,8 +76,8 @@ def batched_nms_3d(
         format: Format of ``boxes``.
 
     Returns:
-        ``int64`` tensor of indices into ``boxes`` that survived, sorted
-        in decreasing order of score.
+        ``int64`` tensor ``[S]`` of indices into ``boxes`` that survived,
+        sorted in decreasing order of score. See :func:`nms_3d`.
     """
     if boxes.numel() == 0:
         return torch.empty(0, dtype=torch.long, device=boxes.device)

@@ -4,22 +4,30 @@ Python wrapper around PyTorch3D's ``box3d_overlap``. C++ and
 CUDA sources live under ``src/vision3d/ops/csrc/iou_box3d/``.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import torch
-from torch import Tensor
 
 from vision3d import _extension  # noqa: F401  # loads ``_C`` into torch.ops
 from vision3d.ops import _meta_registrations  # noqa: F401  # registers fake kernels
-from vision3d.tensors import BoundingBox3DFormat
 
 from ._box3d_corners import box3d_corners
 
+if TYPE_CHECKING:
+    from shape_extensions import IntVar
+    from torch import Tensor
+
+    from vision3d.tensors import BoundingBox3DFormat
+
 
 @torch.no_grad()
-def box3d_iou(
-    boxes1: Tensor,
-    boxes2: Tensor,
+def box3d_iou[N: IntVar, M: IntVar, K: IntVar](
+    boxes1: Tensor[[N, K]],
+    boxes2: Tensor[[M, K]],
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> Tensor[[N, M]]:
     """Compute the pairwise intersection-over-union of 3D ``boxes1`` and ``boxes2``.
 
     ``iou = vol / (vol1 + vol2 - vol)``, where ``vol`` is the volume of
@@ -42,5 +50,6 @@ def box3d_iou(
     """
     corners1 = box3d_corners(boxes1, format).to(torch.float32)  # [N, 8, 3]
     corners2 = box3d_corners(boxes2, format).to(torch.float32)  # [M, 8, 3]
+    iou: Tensor[[N, M]]
     _, iou = torch.ops.vision3d.iou_box3d(corners1, corners2)
     return iou
