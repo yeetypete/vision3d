@@ -1,10 +1,11 @@
 """`nuScenes <https://www.nuscenes.org/>`_ Dataset."""
 
+from __future__ import annotations
+
 import json
-import os
 import sys
 from pathlib import Path
-from typing import Any, ClassVar, Literal, TypedDict, overload, override
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypedDict, overload, override
 
 if sys.version_info >= (3, 13):
     from typing import ReadOnly
@@ -28,6 +29,9 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 from vision3d.transforms.functional import accumulate_sweeps
+
+if TYPE_CHECKING:
+    import os
 
 # Detection class set used for evaluation, Mirrors
 # ``nuscenes.eval.detection.constants.DETECTION_NAMES``.
@@ -1519,14 +1523,14 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
         return inputs, targets
 
-    def _load_lidar(self, lidar_data: _SampleData) -> Tensor:
+    def _load_lidar(self, lidar_data: _SampleData) -> Tensor[[int, 5]]:
         path = self.root / lidar_data["filename"]
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 5)
         return torch.from_numpy(points)
 
     def _load_lidar_sweeps(
-        self, lidar_data: _SampleData, lidar_to_global: Tensor
-    ) -> Tensor:
+        self, lidar_data: _SampleData, lidar_to_global: Tensor[[4, 4]]
+    ) -> Tensor[[int, 6]]:
         """Aggregate up to ``num_sweeps`` lidar sweeps into the key-frame frame.
 
         Walks the ``prev`` chain back from the key-frame, motion-compensating
@@ -1540,8 +1544,8 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         global_to_lidar = torch.linalg.inv(lidar_to_global)
         keyframe_time = lidar_data["timestamp"]
 
-        sweeps: list[Tensor] = []
-        transforms: list[Tensor] = []
+        sweeps: list[Tensor[[int, 5]]] = []
+        transforms: list[Tensor[[4, 4]]] = []
         time_offsets: list[float] = []
         sweep_data = lidar_data
         for _ in range(self.num_sweeps):
@@ -1572,13 +1576,13 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             torch.tensor(time_offsets, dtype=torch.float32),
         )
 
-    def _load_image(self, cam_data: _SampleData) -> Tensor:
+    def _load_image(self, cam_data: _SampleData) -> Tensor[[3, int, int]]:
         path = self.root / cam_data["filename"]
         img = decode_image(str(path), mode=ImageReadMode.RGB)  # [3, H, W] uint8
         return img.float() / 255.0
 
     def _load_annotations(
-        self, sample: _Sample, lidar_to_global: Tensor
+        self, sample: _Sample, lidar_to_global: Tensor[[4, 4]]
     ) -> SampleTargets:
         """Load annotations and convert from global to lidar frame.
 
@@ -1685,7 +1689,9 @@ def _quaternion_to_rotation_matrix(rotation_wxyz: list[float]) -> np.ndarray:
     )
 
 
-def _make_transform(translation: list[float], rotation_wxyz: list[float]) -> Tensor:
+def _make_transform(
+    translation: list[float], rotation_wxyz: list[float]
+) -> Tensor[[4, 4]]:
     """Build a 4x4 transform from translation + quaternion ``(w, x, y, z)``.
 
     Returns:

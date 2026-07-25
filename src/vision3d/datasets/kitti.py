@@ -1,13 +1,13 @@
 """`KITTI 3D Object Detection <http://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=3d>`_ Dataset."""
 
+from __future__ import annotations
+
 import csv
 import io
-import os
 import urllib.request
 import zipfile
-from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, ClassVar, override
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, override
 
 import numpy as np
 import torch
@@ -25,6 +25,21 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
+
+if TYPE_CHECKING:
+    import os
+    from collections.abc import Iterable
+
+    from shape_extensions import IntVar
+
+
+class _Calib(TypedDict):
+    """Camera calibration for one KITTI frame."""
+
+    #: Lidar-to-camera transform.
+    extrinsics: Tensor[[1, 4, 4]]
+    #: Camera intrinsic matrix (P2, left color camera).
+    intrinsics: Tensor[[1, 3, 3]]
 
 
 class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
@@ -253,19 +268,19 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
                 dest=self._raw_folder,
             )
 
-    def _load_velodyne(self, base: Path, frame_id: str) -> Tensor:
+    def _load_velodyne(self, base: Path, frame_id: str) -> Tensor[[int, 4]]:
         path = base / self.velodyne_dir_name / f"{frame_id}.bin"
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 4)
         return torch.from_numpy(points)
 
-    def _load_image(self, base: Path, frame_id: str) -> Tensor:
+    def _load_image(self, base: Path, frame_id: str) -> Tensor[[1, 3, int, int]]:
         path = base / self.image_dir_name / f"{frame_id}.png"
         if path.exists():
             img = decode_image(str(path), mode=ImageReadMode.RGB)  # [3, H, W] uint8
             return img.unsqueeze(0).float() / 255.0
         return torch.zeros(1, 3, 1, 1)
 
-    def _load_calib(self, base: Path, frame_id: str) -> dict[str, Tensor]:
+    def _load_calib(self, base: Path, frame_id: str) -> _Calib:
         """Parse KITTI calibration file.
 
         Returns:
@@ -312,7 +327,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         self,
         base: Path,
         frame_id: str,
-        calib: dict[str, Tensor],
+        calib: _Calib,
     ) -> SampleTargets:
         """Parse KITTI label file and convert to lidar frame.
 
@@ -352,7 +367,9 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         }
 
 
-def _cam_to_lidar_boxes(boxes_cam: Tensor, extrinsics: Tensor) -> Tensor:
+def _cam_to_lidar_boxes[N: IntVar](
+    boxes_cam: Tensor[[N, 7]], extrinsics: Tensor[[4, 4]]
+) -> Tensor[[N, 7]]:
     """Convert KITTI camera-frame boxes to lidar-frame XYZLWHY format.
 
     Args:
@@ -400,12 +417,12 @@ def _cam_to_lidar_boxes(boxes_cam: Tensor, extrinsics: Tensor) -> Tensor:
     )
 
 
-def _get_fov_mask(
-    points_3d: Tensor,
-    proj_matrix: Tensor,
+def _get_fov_mask[N: IntVar](
+    points_3d: Tensor[[N, 3]],
+    proj_matrix: Tensor[[3, 4]],
     img_h: int,
     img_w: int,
-) -> Tensor:
+) -> Tensor[[N]]:
     """Get boolean mask for points that project into the camera image.
 
     Args:
@@ -422,10 +439,10 @@ def _get_fov_mask(
     """
     n = points_3d.shape[0]
     ones = torch.ones(n, 1, dtype=points_3d.dtype)
-    pts_hom = torch.cat([points_3d, ones], dim=1)  # [N, 4]
+    pts_hom = torch.cat((points_3d, ones), dim=1)  # [N, 4]
 
     # Project: [3, 4] @ [4, N] -> [3, N]
-    pts_img = (proj_matrix @ pts_hom.T).T  # [N, 3]
+    pts_img = (proj_matrix @ pts_hom.transpose(0, 1)).transpose(0, 1)  # [N, 3]
 
     depth = pts_img[:, 2]
     u = pts_img[:, 0] / depth.clamp(min=1e-6)
