@@ -101,144 +101,144 @@
       "column": 16,
       "concise_description": "No attribute `from_numpy` in module `torch`",
       "description": "No attribute `from_numpy` in module `torch`",
-      "line": 259,
+      "line": 274,
       "name": "missing-attribute",
       "path": "src/vision3d/datasets/kitti.py",
       "severity": "error",
       "stop_column": 32,
-      "stop_line": 259
+      "stop_line": 274
     },
     {
       "code": -2,
       "column": 22,
       "concise_description": "No attribute `from_numpy` in module `torch`",
       "description": "No attribute `from_numpy` in module `torch`",
-      "line": 289,
+      "line": 304,
       "name": "missing-attribute",
       "path": "src/vision3d/datasets/kitti.py",
       "severity": "error",
       "stop_column": 38,
-      "stop_line": 289
+      "stop_line": 304
     },
     {
       "code": -2,
       "column": 22,
       "concise_description": "No attribute `from_numpy` in module `torch`",
       "description": "No attribute `from_numpy` in module `torch`",
-      "line": 305,
+      "line": 320,
       "name": "missing-attribute",
       "path": "src/vision3d/datasets/kitti.py",
       "severity": "error",
       "stop_column": 38,
-      "stop_line": 305
+      "stop_line": 320
     },
     {
       "code": -2,
       "column": 20,
       "concise_description": "Module `torch.linalg` exists, but was not imported explicitly. You are relying on other modules to load it.",
       "description": "Module `torch.linalg` exists, but was not imported explicitly. You are relying on other modules to load it.",
-      "line": 377,
+      "line": 394,
       "name": "implicit-import",
       "path": "src/vision3d/datasets/kitti.py",
       "severity": "warn",
       "stop_column": 32,
-      "stop_line": 377
+      "stop_line": 394
     },
     {
       "code": -2,
       "column": 13,
-      "concise_description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`",
-      "description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
-      "line": 434,
+      "concise_description": "`&` is not supported between `Tensor[[N]]` and `Tensor[[N]]`",
+      "description": "`&` is not supported between `Tensor[[N]]` and `Tensor[[N]]`\n  Cannot find `__and__` or `__rand__`",
+      "line": 451,
       "name": "unsupported-operation",
       "path": "src/vision3d/datasets/kitti.py",
       "severity": "error",
       "stop_column": 35,
-      "stop_line": 434
+      "stop_line": 451
     },
     {
       "code": -2,
       "column": 28,
       "concise_description": "Module `torch.linalg` exists, but was not imported explicitly. You are relying on other modules to load it.",
       "description": "Module `torch.linalg` exists, but was not imported explicitly. You are relying on other modules to load it.",
-      "line": 1501,
+      "line": 1505,
       "name": "implicit-import",
       "path": "src/vision3d/datasets/nuscenes.py",
       "severity": "warn",
       "stop_column": 40,
-      "stop_line": 1501
+      "stop_line": 1505
     },
     {
       "code": -2,
       "column": 16,
       "concise_description": "No attribute `from_numpy` in module `torch`",
       "description": "No attribute `from_numpy` in module `torch`",
-      "line": 1525,
+      "line": 1529,
       "name": "missing-attribute",
       "path": "src/vision3d/datasets/nuscenes.py",
       "severity": "error",
       "stop_column": 32,
-      "stop_line": 1525
+      "stop_line": 1529
     },
     {
       "code": -2,
       "column": 27,
       "concise_description": "Module `torch.linalg` exists, but was not imported explicitly. You are relying on other modules to load it.",
       "description": "Module `torch.linalg` exists, but was not imported explicitly. You are relying on other modules to load it.",
-      "line": 1540,
+      "line": 1544,
       "name": "implicit-import",
       "path": "src/vision3d/datasets/nuscenes.py",
       "severity": "warn",
       "stop_column": 39,
-      "stop_line": 1540
+      "stop_line": 1544
     },
     {
       "code": -2,
       "column": 27,
       "concise_description": "Module `torch.linalg` exists, but was not imported explicitly. You are relying on other modules to load it.",
       "description": "Module `torch.linalg` exists, but was not imported explicitly. You are relying on other modules to load it.",
-      "line": 1589,
+      "line": 1593,
       "name": "implicit-import",
       "path": "src/vision3d/datasets/nuscenes.py",
       "severity": "warn",
       "stop_column": 39,
-      "stop_line": 1589
+      "stop_line": 1593
     },
     {
       "code": -2,
       "column": 31,
       "concise_description": "Object of class `Tensor` has no attribute `numpy`",
       "description": "Object of class `Tensor` has no attribute `numpy`",
-      "line": 1590,
+      "line": 1594,
       "name": "missing-attribute",
       "path": "src/vision3d/datasets/nuscenes.py",
       "severity": "error",
       "stop_column": 60,
-      "stop_line": 1590
+      "stop_line": 1594
     },
     {
       "code": -2,
       "column": 22,
       "concise_description": "Unexpected keyword argument `dtype` in function `torch.eye`",
       "description": "Unexpected keyword argument `dtype` in function `torch.eye`",
-      "line": 1695,
+      "line": 1701,
       "name": "unexpected-keyword",
       "path": "src/vision3d/datasets/nuscenes.py",
       "severity": "error",
       "stop_column": 27,
-      "stop_line": 1695
+      "stop_line": 1701
     },
     {
       "code": -2,
       "column": 17,
       "concise_description": "No attribute `from_numpy` in module `torch`",
       "description": "No attribute `from_numpy` in module `torch`",
-      "line": 1696,
+      "line": 1702,
       "name": "missing-attribute",
       "path": "src/vision3d/datasets/nuscenes.py",
       "severity": "error",
       "stop_column": 33,
-      "stop_line": 1696
+      "stop_line": 1702
     },
     {
       "code": -2,
@@ -1493,12 +1493,12 @@
       "column": 17,
       "concise_description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`",
       "description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
-      "line": 150,
+      "line": 154,
       "name": "unsupported-operation",
       "path": "src/vision3d/transforms/_range_filter.py",
       "severity": "error",
       "stop_column": 63,
-      "stop_line": 150
+      "stop_line": 154
     },
     {
       "code": -2,
