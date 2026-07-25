@@ -1,7 +1,8 @@
 """Range-based filtering for points and boxes."""
 
-from collections.abc import Callable
-from typing import Any, override
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, override
 
 import torch
 from torch import Tensor
@@ -12,6 +13,9 @@ from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 from ._transform import Transform
 from ._utils import _find_boxes, _parse_labels_getter, _resolve_label_ids
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class RangeFilter3D(Transform):
@@ -107,7 +111,7 @@ class RangeFilter3D(Transform):
         return tree_unflatten(flat_outputs, spec)
 
     def _filter_leaf(
-        self, inpt: Any, box_keep: "Tensor[[int]] | None", label_ids: set[int]
+        self, inpt: Any, box_keep: Tensor[[int]] | None, label_ids: set[int]
     ) -> Any:
         """Filter a single flattened leaf according to its type.
 
@@ -138,7 +142,7 @@ class RangeFilter3D(Transform):
         keep = ((pts[:, :3] >= min_bound) & (pts[:, :3] < max_bound)).all(dim=-1)
         return PointCloud3D(pts[keep])
 
-    def _box_keep_mask(self, boxes: BoundingBoxes3D) -> "Tensor[[int]]":
+    def _box_keep_mask(self, boxes: BoundingBoxes3D) -> Tensor[[int]]:
         raw = boxes.as_subclass(Tensor)
         centers, _, _ = extract_box3d_params(raw, boxes.format)
         min_bound = torch.tensor(

@@ -134,7 +134,7 @@ def _fill_convex_polygon[H: IntVar, W: IntVar](
     return torch.from_numpy(mask_np.copy()).bool().to(device)
 
 
-_HullMaskResult = tuple["Tensor[[int, int]]", tuple[int, int, int, int], float]
+type _HullMaskResult = tuple[Tensor[[int, int]], tuple[int, int, int, int], float]
 
 
 def _project_boxes_to_camera[M: IntVar, K: IntVar](
