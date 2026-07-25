@@ -243,8 +243,8 @@
     {
       "code": -2,
       "column": 31,
-      "concise_description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`",
-      "description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
+      "concise_description": "`&` is not supported between `Tensor[[int]]` and `Tensor[[int]]`",
+      "description": "`&` is not supported between `Tensor[[int]]` and `Tensor[[int]]`\n  Cannot find `__and__` or `__rand__`",
       "line": 181,
       "name": "unsupported-operation",
       "path": "src/vision3d/metrics/_mean_average_precision_3d.py",
@@ -255,8 +255,8 @@
     {
       "code": -2,
       "column": 29,
-      "concise_description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`",
-      "description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
+      "concise_description": "`&` is not supported between `Tensor[[int]]` and `Tensor[[int]]`",
+      "description": "`&` is not supported between `Tensor[[int]]` and `Tensor[[int]]`\n  Cannot find `__and__` or `__rand__`",
       "line": 182,
       "name": "unsupported-operation",
       "path": "src/vision3d/metrics/_mean_average_precision_3d.py",
@@ -267,8 +267,8 @@
     {
       "code": -2,
       "column": 26,
-      "concise_description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`",
-      "description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
+      "concise_description": "`&` is not supported between `Tensor[[int]]` and `Tensor[tuple[Unknown, ...]]`",
+      "description": "`&` is not supported between `Tensor[[int]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
       "line": 185,
       "name": "unsupported-operation",
       "path": "src/vision3d/metrics/_mean_average_precision_3d.py",
@@ -279,8 +279,8 @@
     {
       "code": -2,
       "column": 26,
-      "concise_description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`",
-      "description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
+      "concise_description": "`&` is not supported between `Tensor[[int]]` and `Tensor[tuple[Unknown, ...]]`",
+      "description": "`&` is not supported between `Tensor[[int]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
       "line": 186,
       "name": "unsupported-operation",
       "path": "src/vision3d/metrics/_mean_average_precision_3d.py",
@@ -725,30 +725,18 @@
       "column": 17,
       "concise_description": "No attribute `promote_types` in module `torch`",
       "description": "No attribute `promote_types` in module `torch`",
-      "line": 30,
+      "line": 37,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_box3d_overlap.py",
       "severity": "error",
       "stop_column": 36,
-      "stop_line": 30
+      "stop_line": 37
     },
     {
       "code": -2,
       "column": 9,
-      "concise_description": "`&=` is not supported between `Tensor[[int, int]]` and `Tensor[tuple[Unknown, ...]]`",
-      "description": "`&=` is not supported between `Tensor[[int, int]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__iand__` or `__and__` or `__rand__`",
-      "line": 64,
-      "name": "unsupported-operation",
-      "path": "src/vision3d/ops/_box3d_overlap.py",
-      "severity": "error",
-      "stop_column": 32,
-      "stop_line": 64
-    },
-    {
-      "code": -2,
-      "column": 9,
-      "concise_description": "`&=` is not supported between `Tensor[[int, int]]` and `Tensor[tuple[Unknown, ...]]`",
-      "description": "`&=` is not supported between `Tensor[[int, int]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__iand__` or `__and__` or `__rand__`",
+      "concise_description": "`&=` is not supported between `Tensor[[N, M]]` and `Tensor[[N, M]]`",
+      "description": "`&=` is not supported between `Tensor[[N, M]]` and `Tensor[[N, M]]`\n  Cannot find `__iand__` or `__and__` or `__rand__`",
       "line": 71,
       "name": "unsupported-operation",
       "path": "src/vision3d/ops/_box3d_overlap.py",
@@ -758,351 +746,339 @@
     },
     {
       "code": -2,
+      "column": 9,
+      "concise_description": "`&=` is not supported between `Tensor[[N, M]]` and `Tensor[[N, M]]`",
+      "description": "`&=` is not supported between `Tensor[[N, M]]` and `Tensor[[N, M]]`\n  Cannot find `__iand__` or `__and__` or `__rand__`",
+      "line": 78,
+      "name": "unsupported-operation",
+      "path": "src/vision3d/ops/_box3d_overlap.py",
+      "severity": "error",
+      "stop_column": 32,
+      "stop_line": 78
+    },
+    {
+      "code": -2,
       "column": 13,
-      "concise_description": "`&=` is not supported between `Tensor[[int, int]]` and `Tensor[tuple[Unknown, ...]]`",
-      "description": "`&=` is not supported between `Tensor[[int, int]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__iand__` or `__and__` or `__rand__`",
-      "line": 94,
+      "concise_description": "`&=` is not supported between `Tensor[[N, M]]` and `Tensor[[N, M]]`",
+      "description": "`&=` is not supported between `Tensor[[N, M]]` and `Tensor[[N, M]]`\n  Cannot find `__iand__` or `__and__` or `__rand__`",
+      "line": 101,
       "name": "unsupported-operation",
       "path": "src/vision3d/ops/_box3d_overlap.py",
       "severity": "error",
       "stop_column": 36,
-      "stop_line": 94
+      "stop_line": 101
     },
     {
       "code": -2,
       "column": 2,
       "concise_description": "Module `torch.library` exists, but was not imported explicitly. You are relying on other modules to load it.",
       "description": "Module `torch.library` exists, but was not imported explicitly. You are relying on other modules to load it.",
-      "line": 7,
+      "line": 14,
       "name": "implicit-import",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "warn",
       "stop_column": 15,
-      "stop_line": 7
+      "stop_line": 14
     },
     {
       "code": -2,
       "column": 5,
       "concise_description": "No attribute `_check` in module `torch`",
       "description": "No attribute `_check` in module `torch`",
-      "line": 9,
+      "line": 18,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "error",
       "stop_column": 17,
-      "stop_line": 9
+      "stop_line": 18
     },
     {
       "code": -2,
       "column": 5,
       "concise_description": "No attribute `_check` in module `torch`",
       "description": "No attribute `_check` in module `torch`",
-      "line": 13,
+      "line": 22,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "error",
       "stop_column": 17,
-      "stop_line": 13
+      "stop_line": 22
     },
     {
       "code": -2,
       "column": 28,
-      "concise_description": "Argument `tuple[int, int]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
-      "description": "Argument `tuple[int, int]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
-      "line": 20,
+      "concise_description": "Argument `tuple[Int[N], Int[M]]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
+      "description": "Argument `tuple[Int[N], Int[M]]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
+      "line": 29,
       "name": "bad-argument-type",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "error",
       "stop_column": 34,
-      "stop_line": 20
+      "stop_line": 29
     },
     {
       "code": -2,
       "column": 28,
-      "concise_description": "Argument `tuple[int, int]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
-      "description": "Argument `tuple[int, int]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
-      "line": 21,
+      "concise_description": "Argument `tuple[Int[N], Int[M]]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
+      "description": "Argument `tuple[Int[N], Int[M]]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
+      "line": 30,
       "name": "bad-argument-type",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "error",
       "stop_column": 34,
-      "stop_line": 21
+      "stop_line": 30
     },
     {
       "code": -2,
       "column": 2,
       "concise_description": "Module `torch.library` exists, but was not imported explicitly. You are relying on other modules to load it.",
       "description": "Module `torch.library` exists, but was not imported explicitly. You are relying on other modules to load it.",
-      "line": 25,
+      "line": 34,
       "name": "implicit-import",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "warn",
       "stop_column": 15,
-      "stop_line": 25
+      "stop_line": 34
     },
     {
       "code": -2,
       "column": 5,
       "concise_description": "No attribute `_check` in module `torch`",
       "description": "No attribute `_check` in module `torch`",
-      "line": 33,
+      "line": 42,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "error",
       "stop_column": 17,
-      "stop_line": 33
+      "stop_line": 42
     },
     {
       "code": -2,
       "column": 5,
       "concise_description": "No attribute `_check` in module `torch`",
       "description": "No attribute `_check` in module `torch`",
-      "line": 37,
+      "line": 46,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "error",
       "stop_column": 17,
-      "stop_line": 37
+      "stop_line": 46
     },
     {
       "code": -2,
       "column": 5,
       "concise_description": "No attribute `_check` in module `torch`",
       "description": "No attribute `_check` in module `torch`",
-      "line": 38,
+      "line": 47,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "error",
       "stop_column": 17,
-      "stop_line": 38
+      "stop_line": 47
     },
     {
       "code": -2,
       "column": 31,
-      "concise_description": "Argument `tuple[Literal[0], int, int]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
-      "description": "Argument `tuple[Literal[0], int, int]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
-      "line": 40,
+      "concise_description": "Argument `tuple[Literal[0], Int[MPV], Int[C]]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
+      "description": "Argument `tuple[Literal[0], Int[MPV], Int[C]]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
+      "line": 49,
       "name": "bad-argument-type",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "error",
       "stop_column": 59,
-      "stop_line": 40
+      "stop_line": 49
     },
     {
       "code": -2,
       "column": 31,
       "concise_description": "Argument `tuple[Literal[0], Literal[3]]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
       "description": "Argument `tuple[Literal[0], Literal[3]]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
-      "line": 41,
+      "line": 50,
       "name": "bad-argument-type",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "error",
       "stop_column": 37,
-      "stop_line": 41
+      "stop_line": 50
     },
     {
       "code": -2,
       "column": 35,
       "concise_description": "Argument `tuple[Literal[0]]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
       "description": "Argument `tuple[Literal[0]]` is not assignable to parameter `*size` with type `int` in function `torch.Tensor.new_empty`",
-      "line": 42,
+      "line": 51,
       "name": "bad-argument-type",
       "path": "src/vision3d/ops/_meta_registrations.py",
       "severity": "error",
       "stop_column": 39,
-      "stop_line": 42
+      "stop_line": 51
     },
     {
       "code": -2,
       "column": 13,
       "concise_description": "Object of class `Tensor` has no attribute `argsort`",
       "description": "Object of class `Tensor` has no attribute `argsort`",
-      "line": 39,
+      "line": 46,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_nms_3d.py",
       "severity": "error",
       "stop_column": 27,
-      "stop_line": 39
+      "stop_line": 46
     },
     {
       "code": -2,
       "column": 42,
       "concise_description": "Unexpected keyword argument `dtype` in function `torch.zeros_like`",
       "description": "Unexpected keyword argument `dtype` in function `torch.zeros_like`",
-      "line": 78,
+      "line": 85,
       "name": "unexpected-keyword",
       "path": "src/vision3d/ops/_nms_3d.py",
       "severity": "error",
       "stop_column": 47,
-      "stop_line": 78
+      "stop_line": 85
     },
     {
       "code": -2,
       "column": 21,
       "concise_description": "No attribute `unique` in module `torch`",
       "description": "No attribute `unique` in module `torch`",
-      "line": 79,
+      "line": 86,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_nms_3d.py",
       "severity": "error",
       "stop_column": 33,
-      "stop_line": 79
+      "stop_line": 86
     },
     {
       "code": -2,
       "column": 31,
       "concise_description": "Missing argument `x` in function `torch.where`",
       "description": "Missing argument `x` in function `torch.where`",
-      "line": 80,
+      "line": 87,
       "name": "missing-argument",
       "path": "src/vision3d/ops/_nms_3d.py",
       "severity": "error",
       "stop_column": 49,
-      "stop_line": 80
+      "stop_line": 87
     },
     {
       "code": -2,
       "column": 31,
       "concise_description": "Missing argument `y` in function `torch.where`",
       "description": "Missing argument `y` in function `torch.where`",
-      "line": 80,
+      "line": 87,
       "name": "missing-argument",
       "path": "src/vision3d/ops/_nms_3d.py",
       "severity": "error",
       "stop_column": 49,
-      "stop_line": 80
+      "stop_line": 87
     },
     {
       "code": -2,
       "column": 31,
       "concise_description": "Missing argument `x` in function `torch.where`",
       "description": "Missing argument `x` in function `torch.where`",
-      "line": 84,
+      "line": 91,
       "name": "missing-argument",
       "path": "src/vision3d/ops/_nms_3d.py",
       "severity": "error",
       "stop_column": 42,
-      "stop_line": 84
+      "stop_line": 91
     },
     {
       "code": -2,
       "column": 31,
       "concise_description": "Missing argument `y` in function `torch.where`",
       "description": "Missing argument `y` in function `torch.where`",
-      "line": 84,
+      "line": 91,
       "name": "missing-argument",
       "path": "src/vision3d/ops/_nms_3d.py",
       "severity": "error",
       "stop_column": 42,
-      "stop_line": 84
+      "stop_line": 91
     },
     {
       "code": -2,
       "column": 25,
       "concise_description": "Object of class `Tensor` has no attribute `argsort`",
       "description": "Object of class `Tensor` has no attribute `argsort`",
-      "line": 85,
+      "line": 92,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_nms_3d.py",
       "severity": "error",
       "stop_column": 53,
-      "stop_line": 85
+      "stop_line": 92
     },
     {
       "code": -2,
       "column": 17,
       "concise_description": "No attribute `promote_types` in module `torch`",
       "description": "No attribute `promote_types` in module `torch`",
-      "line": 29,
+      "line": 36,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_points_in_boxes_3d.py",
       "severity": "error",
       "stop_column": 36,
-      "stop_line": 29
+      "stop_line": 36
     },
     {
       "code": -2,
       "column": 37,
       "concise_description": "Unexpected keyword argument `dtype` in function `torch.full`",
       "description": "Unexpected keyword argument `dtype` in function `torch.full`",
-      "line": 57,
+      "line": 64,
       "name": "unexpected-keyword",
       "path": "src/vision3d/ops/_points_in_boxes_3d.py",
       "severity": "error",
       "stop_column": 42,
-      "stop_line": 57
+      "stop_line": 64
     },
     {
       "code": -2,
       "column": 55,
       "concise_description": "Unexpected keyword argument `device` in function `torch.full`",
       "description": "Unexpected keyword argument `device` in function `torch.full`",
-      "line": 57,
+      "line": 64,
       "name": "unexpected-keyword",
       "path": "src/vision3d/ops/_points_in_boxes_3d.py",
       "severity": "error",
       "stop_column": 61,
-      "stop_line": 57
+      "stop_line": 64
     },
     {
       "code": -2,
       "column": 25,
       "concise_description": "No attribute `uint8` in module `torch`",
       "description": "No attribute `uint8` in module `torch`",
-      "line": 59,
+      "line": 66,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_points_in_boxes_3d.py",
       "severity": "error",
       "stop_column": 36,
-      "stop_line": 59
+      "stop_line": 66
     },
     {
       "code": -2,
       "column": 14,
       "concise_description": "Object of class `Tensor` has no attribute `any`",
       "description": "Object of class `Tensor` has no attribute `any`",
-      "line": 61,
+      "line": 68,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_points_in_boxes_3d.py",
       "severity": "error",
       "stop_column": 22,
-      "stop_line": 61
+      "stop_line": 68
     },
     {
       "code": -2,
       "column": 12,
       "concise_description": "Object of class `Tensor` has no attribute `all`",
       "description": "Object of class `Tensor` has no attribute `all`",
-      "line": 188,
+      "line": 198,
       "name": "missing-attribute",
       "path": "src/vision3d/ops/_points_in_boxes_3d.py",
       "severity": "error",
       "stop_column": 55,
-      "stop_line": 188
-    },
-    {
-      "code": -2,
-      "column": 31,
-      "concise_description": "No attribute `nan` in module `torch`",
-      "description": "No attribute `nan` in module `torch`",
-      "line": 41,
-      "name": "missing-attribute",
-      "path": "src/vision3d/ops/_project.py",
-      "severity": "error",
-      "stop_column": 40,
-      "stop_line": 41
-    },
-    {
-      "code": -2,
-      "column": 31,
-      "concise_description": "No attribute `nan` in module `torch`",
-      "description": "No attribute `nan` in module `torch`",
-      "line": 42,
-      "name": "missing-attribute",
-      "path": "src/vision3d/ops/_project.py",
-      "severity": "error",
-      "stop_column": 40,
-      "stop_line": 42
+      "stop_line": 198
     },
     {
       "code": -2,
@@ -5259,8 +5235,8 @@
     {
       "code": -2,
       "column": 24,
-      "concise_description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`",
-      "description": "`&` is not supported between `Tensor[tuple[Unknown, ...]]` and `Tensor[tuple[Unknown, ...]]`\n  Cannot find `__and__` or `__rand__`",
+      "concise_description": "`&` is not supported between `Tensor[[int]]` and `Tensor[[int]]`",
+      "description": "`&` is not supported between `Tensor[[int]]` and `Tensor[[int]]`\n  Cannot find `__and__` or `__rand__`",
       "line": 249,
       "name": "unsupported-operation",
       "path": "test/test_transforms_v2.py",
