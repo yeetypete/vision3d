@@ -34,9 +34,9 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          repo="$(uv version --frozen --short)"
-          if [ "$INPUT_VERSION" != "$repo" ]; then
-            echo "::error::Input version (${INPUT_VERSION}) does not match the project version (${repo}). Bump \`project.version\` in pyproject.toml on main first."
+          version="$(uv version --short)"
+          if [ "$INPUT_VERSION" != "$version" ]; then
+            echo "::error::Input version (${INPUT_VERSION}) does not match the project version (${version}). Bump \`project.version\` in pyproject.toml on main first."
             exit 1
           fi
 
