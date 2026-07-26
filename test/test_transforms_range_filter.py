@@ -286,14 +286,35 @@ class TestLabelsGetter:
     def test_default_getter_non_tensor_labels_raises(self) -> None:
         inputs, targets = _make_two_dict_sample()
         targets = {"boxes": targets["boxes"], "labels": ["a", "b", "c"]}
-        with pytest.raises(ValueError, match="not a tensor"):
+        with pytest.raises(ValueError, match="must return a tensor"):
             RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
 
     def test_default_getter_missing_labels_with_boxes_raises(self) -> None:
         inputs, targets = _make_two_dict_sample()
         targets = {"boxes": targets["boxes"]}
-        with pytest.raises(ValueError, match="could not find a labels tensor"):
+        with pytest.raises(ValueError, match="could not find the labels"):
             RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
+
+    def test_default_getter_finds_label_like_key(self) -> None:
+        # torchvision falls back to any key containing "label", so conventions
+        # like "gt_labels" work without a custom getter.
+        inputs, targets = _make_two_dict_sample()
+        targets = {"boxes": targets["boxes"], "gt_labels": targets["labels"]}
+        _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
+        assert out_targets["gt_labels"].tolist() == [0, 1]
+
+    def test_default_getter_prefers_exact_labels_key(self) -> None:
+        # An exact "labels" match wins over a mere "label" substring match.
+        inputs, targets = _make_two_dict_sample()
+        targets = {
+            "boxes": targets["boxes"],
+            "sublabels": torch.tensor([9, 9, 9]),
+            "labels": targets["labels"],
+        }
+        _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
+        assert out_targets["labels"].tolist() == [0, 1]
+        # The substring key was not selected, so it is left untouched.
+        assert out_targets["sublabels"].tolist() == [9, 9, 9]
 
     def test_default_getter_missing_labels_without_boxes_ok(self) -> None:
         points = PointCloud3D(torch.tensor([[0.0, 0, 0, 1], [50.0, 0, 0, 1]]))
