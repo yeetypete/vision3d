@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g. 0.1.1). Must match version.txt."
+        description: "Version to release (e.g. 0.1.1). Must match pyproject.toml."
         type: string
         required: true
 
@@ -26,12 +26,17 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Verify input matches version.txt
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8
+        with:
+          enable-cache: false
+      - name: Verify input matches the project version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          input="${{ github.event.inputs.version }}"
-          repo="$(cat version.txt)"
-          if [ "$input" != "$repo" ]; then
-            echo "::error::Input version (${input}) does not match version.txt (${repo}). Bump version.txt on main first."
+          repo="$(uv version --frozen --short)"
+          if [ "$INPUT_VERSION" != "$repo" ]; then
+            echo "::error::Input version (${INPUT_VERSION}) does not match the project version (${repo}). Bump \`project.version\` in pyproject.toml on main first."
             exit 1
           fi
 
@@ -57,7 +62,6 @@ jobs:
       contents: read
     uses: ./.github/workflows/build.yaml
     with:
-      version: ${{ inputs.version }}
       cache: false
 
   announce:

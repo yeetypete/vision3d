@@ -3,10 +3,6 @@ name: build
 on:
   workflow_call:
     inputs:
-      version:
-        description: "Version of the produced wheels and sdist (e.g. 0.1.0)."
-        type: string
-        required: true
       cache:
         description: "Whether the build should be cached."
         type: boolean
@@ -54,8 +50,6 @@ jobs:
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ runner.temp }}/uv-cache
           cache-suffix: build
-      - name: Set BUILD_VERSION
-        run: echo "BUILD_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
       - name: Build
         # Pull torch from PyTorch's cu128 index to match this container's CUDA
         # toolkit (PyPI's default is cu130).

@@ -35,25 +35,7 @@ jobs:
       contents: read
     uses: ./.github/workflows/test.yaml
 
-  read-version:
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    outputs:
-      version: ${{ steps.read.outputs.version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - name: Read version.txt
-        id: read
-        run: echo "version=$(cat version.txt)" >> "$GITHUB_OUTPUT"
-
   build:
-    needs: read-version
     permissions:
       contents: read
     uses: ./.github/workflows/build.yaml
-    with:
-      version: ${{ needs.read-version.outputs.version }}
