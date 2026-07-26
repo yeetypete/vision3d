@@ -855,6 +855,25 @@ class TestDeterminism:
 
 # Validation
 class TestValidation:
+    def test_box_format_change_between_calls_raises(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(
+            *_make_lidar_batch(
+                batch_size=3,
+                centers=_SOURCE_CENTERS,
+                format=BoundingBox3DFormat.XYZLWHYPR,
+            )
+        )
+
+        with pytest.raises(ValueError, match="Cannot paste an object stored as"):
+            cp(
+                *_make_lidar_batch(
+                    batch_size=1,
+                    centers=_TARGET_CENTER,
+                    format=BoundingBox3DFormat.XYZXYZ,
+                )
+            )
+
     def test_p_out_of_range_raises(self) -> None:
         with pytest.raises(ValueError, match="`p` should be a float"):
             CopyPaste3D(target_counts={CAR: 10}, p=1.5)

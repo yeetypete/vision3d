@@ -62,6 +62,7 @@ class ObjectEntry:
             camera-only entries.
         box: Full box tensor ``[K]`` in its original format.
         label: Integer class label.
+        format: The format ``box`` is parameterised in.
         camera_crops: Per-camera crops, or None when no camera data is
             available.  ``camera_crops[i]`` is None if the object is not
             visible in camera ``i``.
@@ -70,6 +71,7 @@ class ObjectEntry:
     points: Tensor | None
     box: Tensor
     label: int
+    format: BoundingBox3DFormat
     camera_crops: list[CameraCrop | None] | None = field(default=None, repr=False)
 
 
@@ -479,7 +481,8 @@ class CopyPaste3D(Transform):
             The same pytree structure with modified leaves.
 
         Raises:
-            ValueError: If called with no inputs.
+            ValueError: If called with no inputs. If the objects already in the
+                database were stored in a different box format than the sample.
             TypeError: If the batch does not hold one leaf of each type per
                 sample.
         """  # noqa: DOC502
@@ -660,6 +663,7 @@ class CopyPaste3D(Transform):
                 points=obj_points.detach().cpu() if obj_points is not None else None,
                 box=boxes[j].detach().cpu(),
                 label=label,
+                format=fmt,
                 camera_crops=camera_crops_map.get(j),
             )
             self._database[label].append(entry)
@@ -842,6 +846,10 @@ class CopyPaste3D(Transform):
 
         Returns:
             Modified ``(inputs, targets)`` dicts.
+
+        Raises:
+            ValueError: If a stored object's box format differs from this
+                sample's.
         """
         points = inputs.get("points")
         boxes = targets["boxes"]
@@ -870,6 +878,14 @@ class CopyPaste3D(Transform):
 
             perm = torch.randperm(len(db)).tolist()
             candidates = [db[i] for i in perm[:n_paste]]
+
+            mismatched = next((c for c in candidates if c.format != fmt), None)
+            if mismatched is not None:
+                msg = (
+                    f"Cannot paste an object stored as {mismatched.format.value} "
+                    f"into a sample whose boxes are {fmt.value}."
+                )
+                raise ValueError(msg)
 
             if self._jitter:
                 # Jitter path: place one at a time so each candidate's jittered
