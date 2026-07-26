@@ -1,6 +1,7 @@
 """Tests for CopyPaste3D transform."""
 
 import math
+import pickle
 from typing import Any
 
 import pytest
@@ -269,6 +270,14 @@ class TestDatabase:
         for _ in range(10):
             cp(*_make_lidar_batch(batch_size=2, num_boxes=3))
         assert len(cp._database[CAR]) <= 5
+
+    def test_pickle_round_trip_preserves_database(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1, max_database_size=7)
+        cp(*_make_lidar_batch(batch_size=2, num_boxes=3))
+        restored = pickle.loads(pickle.dumps(cp))
+        assert len(restored._database[CAR]) == len(cp._database[CAR])
+        assert restored._database[CAR].maxlen == 7
+        assert restored._database[PED].maxlen == 7
 
     def test_min_points_filter(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=9999)

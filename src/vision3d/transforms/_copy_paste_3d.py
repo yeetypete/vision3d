@@ -1,5 +1,6 @@
 """3D copy-paste data augmentation with lazy object database."""
 
+import functools
 import math
 from collections import defaultdict, deque
 from collections.abc import Sequence
@@ -440,8 +441,10 @@ class CopyPaste3D(Transform):
         self._jitter = any(r != (0.0, 0.0) for r in self.offset_range)
         self.p = p
 
+        # functools.partial rather than a lambda so the transform stays
+        # pickleable, which torch.save and DataLoader's spawn start method need.
         self._database: dict[int, deque[ObjectEntry]] = defaultdict(
-            lambda: deque(maxlen=self.max_database_size)
+            functools.partial(deque, maxlen=self.max_database_size)
         )
 
     @override
