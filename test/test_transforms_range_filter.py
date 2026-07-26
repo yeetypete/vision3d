@@ -118,11 +118,6 @@ class TestBoxFiltering:
         _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
         assert isinstance(out_targets["boxes"], BoundingBoxes3D)
 
-    def test_preserves_format(self) -> None:
-        inputs, targets = _make_two_dict_sample()
-        _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
-        assert out_targets["boxes"].format == BoundingBox3DFormat.XYZLWHYPR
-
     @pytest.mark.parametrize("fmt", _ALL_FORMATS)
     def test_format_agnostic(self, fmt: BoundingBox3DFormat) -> None:
         inputs, targets = _make_two_dict_sample(fmt=fmt)
