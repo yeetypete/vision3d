@@ -925,8 +925,51 @@ class TestValidation:
     def test_forward_mismatched_sample_counts(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10})
         batch = _make_lidar_batch(batch_size=2, num_boxes=2)
-        with pytest.raises(TypeError, match="equal sized lists"):
+        with pytest.raises(TypeError, match="one leaf of each type per sample"):
             cp(batch[0], batch[1][:1])
+
+
+class TestLabelsGetter:
+    def test_extra_plain_tensors_pass_through(self) -> None:
+        # A batch may carry plain tensors that are not labels, such as a
+        # per-sample timestamp. They must come back untouched.
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        inputs, targets = _make_lidar_batch(batch_size=2, num_boxes=3)
+        stamps = tuple(torch.tensor([float(i)]) for i in range(len(targets)))
+        targets = tuple(
+            {**tgt, "timestamp": stamp} for tgt, stamp in zip(targets, stamps)
+        )
+
+        _, out_targets = cp(inputs, targets)
+
+        for out_target, stamp in zip(out_targets, stamps):
+            assert out_target["timestamp"] is stamp
+
+    def test_custom_labels_getter(self) -> None:
+        # "categories" is not label-like, so only the custom getter can find it.
+        cp = CopyPaste3D(
+            target_counts={CAR: 10},
+            min_points=1,
+            labels_getter=lambda batch: tuple(t["categories"] for t in batch[1]),
+        )
+        inputs, targets = _make_lidar_batch(batch_size=2, num_boxes=3)
+        targets = tuple(
+            {"boxes": tgt["boxes"], "categories": tgt["labels"]} for tgt in targets
+        )
+
+        _, out_targets = cp(inputs, targets)
+
+        for out_target in out_targets:
+            assert out_target["categories"].shape[0] == out_target["boxes"].shape[0]
+
+    def test_unfindable_labels_raise(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        inputs, targets = _make_lidar_batch(batch_size=2, num_boxes=3)
+        targets = tuple(
+            {"boxes": tgt["boxes"], "categories": tgt["labels"]} for tgt in targets
+        )
+        with pytest.raises(ValueError, match="could not find any labels tensor"):
+            cp(inputs, targets)
 
 
 # Input modalities
