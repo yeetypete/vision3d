@@ -571,6 +571,9 @@ class CopyPaste3D(Transform):
                 intrinsics.append(obj)
 
         n = len(boxes)
+        if n == 0:
+            return [], []
+
         has_points = len(points) > 0
         has_cameras = len(images) > 0
         has_labels = len(labels) > 0

@@ -994,6 +994,23 @@ class TestInputModalities:
         assert isinstance(out_inputs[0]["images"], CameraImages)
         assert out_targets[0]["boxes"].shape[0] >= 1
 
+    @pytest.mark.parametrize(
+        "make_batch", [_make_lidar_batch, _make_camera_batch, _make_fusion_batch]
+    )
+    def test_box_free_batch_passes_through(self, make_batch: Any) -> None:
+        # Objects are defined by boxes, so an unannotated batch of any modality
+        # is a no-op rather than an error.
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(*make_batch(batch_size=2, num_boxes=3))
+        inputs, _ = make_batch(batch_size=1, num_boxes=1)
+
+        out_inputs = cp(inputs)
+
+        for out, original in zip(out_inputs, inputs, strict=True):
+            assert set(out) == set(original)
+            for key, value in original.items():
+                assert out[key] is value
+
     def test_camera_only_entries_have_no_points(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         cp(*_make_camera_batch(batch_size=1, num_boxes=2))
