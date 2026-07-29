@@ -12,7 +12,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: release-${{ github.event.inputs.version }}
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
