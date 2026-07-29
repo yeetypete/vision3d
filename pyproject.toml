@@ -1,5 +1,6 @@
 [project]
 name = "vision3d"
+version = "0.5.1"
 description = "A 3D extension of torchvision."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,7 +14,6 @@ dependencies = [
   "torchvision>=0.25",
   "typing-extensions>=4.13; python_version < '3.13'",
 ]
-dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/yeetypete/vision3d"

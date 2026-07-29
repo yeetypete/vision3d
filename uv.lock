@@ -2027,6 +2027,7 @@ wheels = [
 
 [[package]]
 name = "vision3d"
+version = "0.5.1"
 source = { editable = "." }
 dependencies = [
     { name = "numpy" },

@@ -158,12 +158,14 @@ created via the
 [Release workflow](https://github.com/yeetypete/vision3d/actions/workflows/release.yaml)
 ([source](./.github/workflows/release.yaml)) from the Actions UI:
 
-1. Bump `version.txt` to the new version (e.g. `0.1.0` --> `0.1.1`) in its own
-   PR and merge to `main`.
+1. Bump `project.version` in `pyproject.toml` to the new version (e.g. `0.1.0`
+   --> `0.1.1`) in its own PR and merge to `main`. `uv version --bump patch`
+   (or `minor`/`major`) does the edit for you, and `uv version` prints the
+   current value.
 1. From the Actions tab, run the
    [Release workflow](https://github.com/yeetypete/vision3d/actions/workflows/release.yaml)
    and pass the new version (e.g. `0.1.1`) as input. The workflow verifies the
-   input matches `version.txt`, runs lint and tests, builds the full wheel
+   input matches the project version, runs lint and tests, builds the full wheel
    matrix (every supported Python + CUDA combination) plus the sdist, atomically
    creates the GitHub release with tag `v<version>` and all artifacts attached,
    and publishes the sdist to PyPI.
