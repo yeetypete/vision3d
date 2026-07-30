@@ -2,12 +2,14 @@
 
 from ._copy_paste_3d import CopyPaste3D
 from ._geometry import RandomFlip3D, RandomRotate3D, RandomScale3D, RandomTranslate3D
+from ._object_min_points_filter import ObjectMinPointsFilter
 from ._point_cloud import PointJitter, PointSample, PointShuffle
 from ._range_filter import RangeFilter3D
 from ._transform import Transform
 
 __all__ = [
     "CopyPaste3D",
+    "ObjectMinPointsFilter",
     "PointJitter",
     "PointSample",
     "PointShuffle",
