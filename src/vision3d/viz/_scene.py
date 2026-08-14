@@ -1,6 +1,7 @@
-"""Log vision3d data to a Rerun viewer."""
+"""Log vision3d scene data (point clouds, boxes, cameras) to a Rerun viewer."""
 
 import math
+from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
@@ -16,11 +17,11 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 
-try:
-    import rerun as rr
-except ImportError as e:
-    msg = "rerun-sdk is required for visualization. Install with: pip install vision3d[viz]"
-    raise ImportError(msg) from e
+from ._errors import LoggingInputError
+from ._rerun import rr
+
+if TYPE_CHECKING:
+    from rerun import RecordingStream
 
 
 def log_point_cloud(
@@ -28,6 +29,8 @@ def log_point_cloud(
     points: PointCloud3D | Tensor,
     *,
     color_by_distance: bool = True,
+    static: bool = False,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     """Log a point cloud to Rerun.
 
@@ -35,6 +38,11 @@ def log_point_cloud(
         entity: Rerun entity path (e.g. ``"world/lidar"``).
         points: Point cloud ``[N, 3+C]``. First 3 columns are xyz.
         color_by_distance: Color points by distance from origin.
+        static: Log without a timeline so the cloud shows at every point on
+            every timeline. Use for geometry that is constant across a
+            recording, such as a fixed sample inspected over training steps.
+        recording: Target recording. ``None`` (default) uses Rerun's active
+            global recording.
     """
     xyz = points[:, :3].detach().cpu()
 
@@ -48,7 +56,7 @@ def log_point_cloud(
         colors[:, 2] = ((1 - normalized) * 255).to(torch.uint8)
         colors[:, 3] = 255
 
-    rr.log(entity, rr.Points3D(xyz, colors=colors))
+    rr.log(entity, rr.Points3D(xyz, colors=colors), static=static, recording=recording)
 
 
 def log_boxes_3d(
@@ -63,6 +71,8 @@ def log_boxes_3d(
     fill_mode: rr.components.FillModeLike | None = None,
     show_labels: bool | None = None,
     log_heading: bool = True,
+    static: bool = False,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     """Log 3D bounding boxes to Rerun.
 
@@ -92,17 +102,23 @@ def log_boxes_3d(
             in the viewer. ``None`` leaves Rerun's default heuristic, which
             hides labels when there are many boxes.
         log_heading: If True and boxes have rotation, log heading arrows.
+        static: Log without a timeline so the boxes show at every point on
+            every timeline. Use for ground truth on a fixed sample inspected
+            over training steps, where only the predictions change over time.
+        recording: Target recording. ``None`` (default) uses Rerun's active
+            global recording.
 
     Raises:
-        ValueError: If ``score_threshold`` is set without ``scores``, or if
-            ``scores``, ``labels``, or ``class_ids`` length does not match
-            the number of boxes.
+        LoggingInputError: If ``score_threshold`` is set without ``scores``,
+            or if ``scores``, ``labels``, or ``class_ids`` length does not
+            match the number of boxes.
     """
     if label_to_id is not None:
         rr.log(
             entity,
             rr.AnnotationContext([(i, name) for name, i in label_to_id.items()]),
             static=True,
+            recording=recording,
         )
 
     raw = boxes.as_subclass(Tensor).detach().cpu()
@@ -113,19 +129,19 @@ def log_boxes_3d(
     )
     if score_list is not None and len(score_list) != raw.shape[0]:
         msg = f"scores has length {len(score_list)} but there are {raw.shape[0]} boxes"
-        raise ValueError(msg)
+        raise LoggingInputError(msg)
     if labels is not None and len(labels) != raw.shape[0]:
         msg = f"labels has length {len(labels)} but there are {raw.shape[0]} boxes"
-        raise ValueError(msg)
+        raise LoggingInputError(msg)
     if class_ids is not None and len(class_ids) != raw.shape[0]:
         msg = (
             f"class_ids has length {len(class_ids)} but there are {raw.shape[0]} boxes"
         )
-        raise ValueError(msg)
+        raise LoggingInputError(msg)
     if score_threshold is not None:
         if score_list is None:
             msg = "score_threshold requires scores"
-            raise ValueError(msg)
+            raise LoggingInputError(msg)
         keep = [i for i, s in enumerate(score_list) if s >= score_threshold]
         raw = raw[keep]
         score_list = [score_list[i] for i in keep]
@@ -137,7 +153,7 @@ def log_boxes_3d(
     n = raw.shape[0]
 
     if n == 0:
-        rr.log(entity, rr.Clear(recursive=True))
+        rr.log(entity, rr.Clear(recursive=True), static=static, recording=recording)
         return
 
     display_labels = _build_labels(labels, class_ids, label_to_id, score_list)
@@ -159,6 +175,8 @@ def log_boxes_3d(
             fill_mode=fill_mode,
             show_labels=show_labels,
         ),
+        static=static,
+        recording=recording,
     )
 
     if log_heading and BoundingBox3DFormat.is_rotated(fmt):
@@ -188,6 +206,8 @@ def log_boxes_3d(
                 radii=radii,
                 colors=[(255, 255, 255)] * n,
             ),
+            static=static,
+            recording=recording,
         )
 
 
@@ -198,10 +218,13 @@ def log_cameras(
     extrinsics: CameraExtrinsics | Tensor | None = None,
     *,
     jpeg_quality: int | None = None,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     """Log all camera images with optional pinhole projection to Rerun.
 
-    Each camera is logged to ``{entity_prefix}_{i}``.
+    Each camera is logged to ``{entity_prefix}/{i}``. Images are inherently
+    per-frame, so -- unlike :func:`log_point_cloud` and :func:`log_boxes_3d` --
+    there is no ``static`` option here.
 
     Args:
         entity_prefix: Rerun entity path prefix (e.g. ``"world/cam"``).
@@ -210,15 +233,18 @@ def log_cameras(
         extrinsics: Extrinsic matrices ``[N_cams, 4, 4]`` (lidar-to-camera).
         jpeg_quality: If set, JPEG-encode each image at this quality (0-100)
             before logging. ``None`` (default) logs uncompressed.
+        recording: Target recording. ``None`` (default) uses Rerun's active
+            global recording.
     """
     for i in range(images.shape[0]):
         _log_single_camera(
-            f"{entity_prefix}_{i}",
+            f"{entity_prefix}/{i}",
             images,
             intrinsics,
             extrinsics,
             camera_index=i,
             jpeg_quality=jpeg_quality,
+            recording=recording,
         )
 
 
@@ -230,6 +256,7 @@ def _log_single_camera(
     *,
     camera_index: int,
     jpeg_quality: int | None = None,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     img = images[camera_index].detach().cpu()
     # [C, H, W] -> [H, W, C], uint8
@@ -248,6 +275,7 @@ def _log_single_camera(
                 mat3x3=ext[:3, :3],
                 relation=rr.TransformRelation.ChildFromParent,
             ),
+            recording=recording,
         )
 
     if intrinsics is not None:
@@ -261,12 +289,13 @@ def _log_single_camera(
                 height=h,
                 camera_xyz=rr.ViewCoordinates.RDF,
             ),
+            recording=recording,
         )
 
     archetype = rr.Image(img)
     if jpeg_quality is not None:
         archetype = archetype.compress(jpeg_quality=jpeg_quality)
-    rr.log(entity, archetype)
+    rr.log(entity, archetype, recording=recording)
 
 
 def log_sample(
@@ -278,6 +307,7 @@ def log_sample(
     label_to_id: dict[str, int] | None = None,
     score_threshold: float | None = None,
     jpeg_quality: int | None = None,
+    recording: "RecordingStream | None" = None,
 ) -> None:
     """Log a full sample dict to Rerun.
 
@@ -287,6 +317,12 @@ def log_sample(
     can be toggled independently; both keep per-class colors and are
     distinguished by fill style (ground truth as translucent colored
     faces, predictions as a wireframe).
+
+    The whole sample is logged at the current timeline position, so there is no
+    ``static`` option. To inspect a fixed sample over training (constant cloud
+    and ground truth, only predictions changing), log its parts directly with
+    :func:`log_point_cloud`/:func:`log_boxes_3d` using ``static=True`` for the
+    constant geometry.
 
     Args:
         inputs: :class:`~vision3d.datasets.SampleInputs` with ``"points"``,
@@ -302,9 +338,11 @@ def log_sample(
         score_threshold: If set, predictions below this score are dropped.
         jpeg_quality: If set, JPEG-encode camera images at this quality
             (0-100) before logging. See :func:`log_cameras`.
+        recording: Target recording. ``None`` (default) uses Rerun's active
+            global recording.
     """
     if "points" in inputs:
-        log_point_cloud(f"{entity_prefix}/lidar", inputs["points"])
+        log_point_cloud(f"{entity_prefix}/lidar", inputs["points"], recording=recording)
 
     if "images" in inputs:
         log_cameras(
@@ -313,6 +351,7 @@ def log_sample(
             inputs.get("intrinsics"),
             inputs.get("extrinsics"),
             jpeg_quality=jpeg_quality,
+            recording=recording,
         )
 
     if targets and "boxes" in targets:
@@ -323,6 +362,7 @@ def log_sample(
             class_ids=class_ids,
             label_to_id=label_to_id,
             fill_mode="transparentfillmajorwireframe",
+            recording=recording,
         )
 
     if predictions and "boxes" in predictions:
@@ -336,6 +376,7 @@ def log_sample(
             score_threshold=score_threshold,
             fill_mode="majorwireframe",
             show_labels=True,
+            recording=recording,
         )
 
 
@@ -377,7 +418,7 @@ def _extract_centers_sizes_yaws(
         yaws is a list of floats.
 
     Raises:
-        ValueError: If ``fmt`` is not a supported format.
+        LoggingInputError: If ``fmt`` is not a supported format.
     """
     if fmt is BoundingBox3DFormat.XYZXYZ:
         mins = raw[:, :3]
@@ -395,6 +436,6 @@ def _extract_centers_sizes_yaws(
         yaws = raw[:, 6].tolist()
     else:
         msg = f"Unsupported format: {fmt}"
-        raise ValueError(msg)
+        raise LoggingInputError(msg)
 
     return centers, sizes, yaws

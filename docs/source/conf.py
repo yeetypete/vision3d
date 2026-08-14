@@ -66,6 +66,9 @@ nitpick_ignore = [
     ("py:class", "vision3d.transforms._transform._RandomApplyTransform"),
     ("py:class", "vision3d.transforms.v2._Refuse3DAwareMixin"),
     ("py:class", "torchvision.transforms.v2._transform._RandomApplyTransform"),
+    # Type-only annotation on the viz loggers; imported under TYPE_CHECKING and
+    # referenced by bare name, which has no entry in any object inventory.
+    ("py:class", "RecordingStream"),
 ]
 
 intersphinx_mapping = {
