@@ -26,8 +26,9 @@ validation metrics from :mod:`vision3d.metrics`.
 # A real loop would compute these from a model and a dataset. Here we fake a
 # BEVFusion-style run: a total loss that decays with noise, split into
 # classification, regression, and heatmap components, plus a learning rate
-# following linear warmup then cosine decay. ``simulate_run`` is parameterized
-# by hyperparameters so we can replay it for several runs later.
+# following linear warmup then cosine decay. ``simulate_run`` takes a
+# ``RunConfig``, so the same definitions drive both the single run below and
+# the run comparison later.
 
 import math
 from typing import NamedTuple
@@ -52,32 +53,6 @@ def lr_at(step: int, base_lr: float) -> float:
     return 0.5 * base_lr * (1 + math.cos(math.pi * progress))
 
 
-def simulate_run(
-    *, base_lr: float, decay: float, seed: int
-) -> list[tuple[dict[str, torch.Tensor], float]]:
-    """Synthesize per-step losses and learning rates for one run.
-
-    Returns:
-        One ``(losses, lr)`` pair per step, where ``losses`` maps component
-        name to a scalar-tensor loss.
-    """
-    generator = torch.Generator().manual_seed(seed)
-    steps = []
-    for step in range(TOTAL_STEPS):
-        d = math.exp(-decay * step / TOTAL_STEPS)
-
-        def noise() -> torch.Tensor:
-            return 1 + 0.15 * torch.randn(1, generator=generator)
-
-        losses = {
-            "loss/cls": torch.tensor(1.2 * d) * noise(),
-            "loss/reg": torch.tensor(0.8 * d + 0.1) * noise(),
-            "loss/heatmap": torch.tensor(0.6 * d) * noise(),
-        }
-        steps.append((losses, lr_at(step, base_lr)))
-    return steps
-
-
 class RunConfig(NamedTuple):
     """Hyperparameters and plot style for one synthetic run."""
 
@@ -92,6 +67,31 @@ RUNS = [
     RunConfig("baseline", base_lr=1e-3, decay=3.0, seed=0, color=(31, 119, 180)),
     RunConfig("high_lr", base_lr=3e-3, decay=2.0, seed=1, color=(255, 127, 14)),
 ]
+
+
+def simulate_run(run: RunConfig) -> list[tuple[dict[str, torch.Tensor], float]]:
+    """Synthesize per-step losses and learning rates for one run.
+
+    Returns:
+        One ``(losses, lr)`` pair per step, where ``losses`` maps component
+        name to a scalar-tensor loss.
+    """
+    generator = torch.Generator().manual_seed(run.seed)
+    steps = []
+    for step in range(TOTAL_STEPS):
+        d = math.exp(-run.decay * step / TOTAL_STEPS)
+
+        def noise() -> torch.Tensor:
+            return 1 + 0.15 * torch.randn(1, generator=generator)
+
+        losses = {
+            "loss/cls": torch.tensor(1.2 * d) * noise(),
+            "loss/reg": torch.tensor(0.8 * d + 0.1) * noise(),
+            "loss/heatmap": torch.tensor(0.6 * d) * noise(),
+        }
+        steps.append((losses, lr_at(step, run.base_lr)))
+    return steps
+
 
 # %%
 # Set up the recording, dashboard, and logger
@@ -174,7 +174,7 @@ if logger.enabled:
 # ``sched`` for its own axis. In a hot loop, pass ``every=N`` to throttle
 # logging (and the ``.item()`` GPU sync it costs) to every N steps.
 
-for step, (losses, lr) in enumerate(simulate_run(base_lr=1e-3, decay=3.0, seed=0)):
+for step, (losses, lr) in enumerate(simulate_run(RUNS[0])):
     total = sum(losses.values())
     logger.log({"loss/total": total, **losses}, step=step)
     logger.log({"lr": lr}, step=step, group="sched")
@@ -198,8 +198,7 @@ for run in RUNS:
     logger.log_config(
         {f"{run.name}/base_lr": run.base_lr, f"{run.name}/decay": run.decay}
     )
-    steps = simulate_run(base_lr=run.base_lr, decay=run.decay, seed=run.seed)
-    for step, (losses, _lr) in enumerate(steps):
+    for step, (losses, _lr) in enumerate(simulate_run(run)):
         logger.log({"loss/total": sum(losses.values())}, step=step, group=group)
 
 # %%
@@ -235,9 +234,6 @@ for epoch in range(EPOCHS):
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
 
 scene_gen = torch.Generator().manual_seed(7)
-points = torch.empty(4000, 3)
-points[:, :2] = points[:, :2].uniform_(-20, 20, generator=scene_gen)
-points[:, 2] = points[:, 2].uniform_(-2, 1, generator=scene_gen)
 
 # Three ground-truth objects (XYZLWHY: center, size, yaw).
 gt = BoundingBoxes3D(
@@ -253,6 +249,29 @@ gt = BoundingBoxes3D(
 class_ids = [0, 0, 0]
 label_to_id = {"car": 0}
 
+# Ground plane plus a cluster of returns inside each object, so the converging
+# predictions have visible structure to land on.
+ground = torch.empty(3000, 3)
+ground[:, :2] = ground[:, :2].uniform_(-20, 20, generator=scene_gen)
+ground[:, 2] = ground[:, 2].uniform_(-2.0, -1.7, generator=scene_gen)
+
+clusters = []
+for cx, cy, cz, length, width, height, yaw in gt.tolist():
+    local = torch.empty(400, 3).uniform_(-0.5, 0.5, generator=scene_gen)
+    local *= torch.tensor([length, width, height])
+    cos, sin = math.cos(yaw), math.sin(yaw)
+    clusters.append(
+        torch.stack(
+            [
+                cx + local[:, 0] * cos - local[:, 1] * sin,
+                cy + local[:, 0] * sin + local[:, 1] * cos,
+                cz + local[:, 2],
+            ],
+            dim=1,
+        )
+    )
+points = torch.cat([ground, *clusters])
+
 logger.log_point_cloud("val_sample/lidar", points, static=True)
 logger.log_boxes_3d(
     "val_sample/gt/boxes",
@@ -264,10 +283,8 @@ logger.log_boxes_3d(
 )
 
 # Each object starts from a fixed but badly-wrong guess -- far off, 0.3x-2.5x
-# the true size, heading off by up to 180 degrees -- then converges at its own
-# rate along a decaying wander, so the boxes hunt for objects instead of
-# sliding along tidy arcs. Confidence climbs noisily from near-zero.
-TWO_PI = 2 * math.pi
+# the true size, heading off by up to 180 degrees -- and converges at its own
+# rate. Confidence climbs noisily from near-zero.
 n = gt.shape[0]
 gt_raw = gt.as_subclass(torch.Tensor)
 
@@ -290,37 +307,21 @@ size_scale = rand(n, 3, lo=0.3, hi=2.5)
 yaw_error = rand(n, lo=-math.pi, hi=math.pi)
 decay_k = rand(n, lo=2.0, hi=5.0)  # per-box convergence speed
 
-# Smooth wander: one low-frequency sinusoid per box and axis, each with its
-# own amplitude, frequency, and phase, so no two paths share an arc.
-wander_amp = rand(n, 3, lo=0.0, hi=3.0)
-wander_freq = rand(n, 3, lo=1.0, hi=3.0)
-wander_phase = rand(n, 3, lo=0.0, hi=TWO_PI)
-yaw_wander = rand(n, lo=0.0, hi=0.6)
-yaw_freq = rand(n, lo=1.0, hi=3.0)
-yaw_phase = rand(n, lo=0.0, hi=TWO_PI)
-
 # The validation loop left the ``epoch`` cursor set, and Rerun stamps every
 # log with all active cursors. Clear it so these predictions ride the
 # ``step`` timeline alone instead of carrying a stale epoch.
 logger.reset_time()
 
 for step in range(TOTAL_STEPS):
-    frac = step / TOTAL_STEPS
-    alpha = 1 - torch.exp(-decay_k * frac)  # [n], per-box, 0 -> ~1
+    alpha = 1 - torch.exp(-decay_k * step / TOTAL_STEPS)  # [n], 0 -> ~1
     remaining = (1 - alpha).unsqueeze(1)  # [n, 1] for broadcasting over xyz
     raw = gt_raw.clone()
-    # Position: glide from the far-off guess to the GT, plus a decaying wander.
+    # Position: glide from the far-off guess onto the GT center.
     raw[:, :3] += remaining * init_offset
-    raw[:, :3] += (
-        remaining * wander_amp * torch.sin(TWO_PI * wander_freq * frac + wander_phase)
-    )
     # Shape: interpolate the size distortion back to the true dimensions.
     raw[:, 3:6] *= 1 + remaining * (size_scale - 1)
-    # Heading: unwind the yaw error, with its own wobble.
+    # Heading: unwind the yaw error.
     raw[:, 6] += (1 - alpha) * yaw_error
-    raw[:, 6] += (
-        (1 - alpha) * yaw_wander * torch.sin(TWO_PI * yaw_freq * frac + yaw_phase)
-    )
     # Confidence climbs from near-zero as the predictions sharpen, but noisily.
     scores = (0.05 + 0.9 * alpha + 0.06 * torch.randn(n, generator=pred_gen)).clamp(
         0.02, 0.99
@@ -336,9 +337,3 @@ for step in range(TOTAL_STEPS):
         fill_mode="majorwireframe",
         show_labels=True,
     )
-
-# %%
-# Finish the recording
-# --------------------
-# Nothing to close: the logger owns no lifecycle, and the recording is flushed
-# by the ``with`` block in a real loop, or at process exit here.
