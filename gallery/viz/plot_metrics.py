@@ -3,21 +3,21 @@ Logging training metrics with vision3d
 ======================================
 
 This example demonstrates tracking a 3D detector's training run with
-`Rerun <https://rerun.io/>`_, driven by :class:`vision3d.viz.RerunLogger` --
-the high-level entry point that turns a :class:`rerun.RecordingStream` into a
-one-line-per-step metric logger. It covers per-step scalar metrics, comparing
-several runs in one plot, and
-watching predictions converge on a fixed sample over training
-(:func:`vision3d.viz.log_boxes_3d` with ``static=True``). Everything is logged
-to a single recording and arranged into one dashboard with
-:func:`vision3d.viz.time_series_view` and :func:`vision3d.viz.lidar_view`.
-Because every panel shares the ``step`` timeline, playing it draws the loss
-curves *and* converges the 3D boxes at the same time.
+`Rerun <https://rerun.io/>`_, driven by :class:`vision3d.viz.RerunLogger`
+-- the high-level entry point that turns a :class:`rerun.RecordingStream`
+into a one-line-per-step metric logger. It covers per-step scalar metrics,
+comparing several runs in one plot, and watching predictions converge on a
+fixed sample over training (:func:`vision3d.viz.log_boxes_3d` with
+``static=True``). Everything is logged to a single recording and arranged
+into one dashboard with :func:`vision3d.viz.time_series_view` and
+:func:`vision3d.viz.lidar_view`. Because every panel shares the ``step``
+timeline, playing it draws the loss curves *and* converges the 3D boxes at
+the same time.
 
-Training itself lives outside vision3d, but the logging does not. To keep the
-example self-contained we synthesize a plausible run rather than training a
-real model; in practice the scalars come from your loop and the validation
-metrics from :mod:`vision3d.metrics`.
+Training itself lives outside vision3d, but the logging does not. To keep
+the example self-contained we synthesize a plausible run rather than
+training a real model; in practice the scalars come from your loop and the
+validation metrics from :mod:`vision3d.metrics`.
 """
 
 # %%
@@ -97,14 +97,14 @@ RUNS = [
 # Set up the recording, dashboard, and logger
 # -------------------------------------------
 # You own the Rerun recording: create it, attach whichever sink you want
-# (``spawn``, ``save``, ``connect_grpc``, ...) and a dashboard blueprint, then
-# hand it to :class:`~vision3d.viz.RerunLogger`, which
-# adds the training-loop conveniences on top -- entity namespacing, throttling,
-# and an ``enabled`` switch that turns every method into a no-op, so the logger
+# (``spawn``, ``save``, ``connect_grpc``, ...) and a dashboard blueprint,
+# then hand it to :class:`~vision3d.viz.RerunLogger`, which adds the
+# training-loop conveniences on top -- entity namespacing, throttling, and
+# an ``enabled`` switch that turns every method into a no-op, so the logger
 # is safe to call from shared multi-GPU loop code. The blueprint composes
-# :func:`~vision3d.viz.time_series_view` (scalars under each prefix: ``train``,
-# ``runs``, ``val``) and :func:`~vision3d.viz.lidar_view` (the 3D scene), all
-# driven by the shared ``step`` timeline.
+# :func:`~vision3d.viz.time_series_view` (scalars under each prefix:
+# ``train``, ``sched``, ``runs``, ``val``) and :func:`~vision3d.viz.lidar_view`
+# (the 3D scene), all driven by the shared ``step`` timeline.
 
 import rerun as rr
 import rerun.blueprint as rrb
@@ -115,10 +115,13 @@ from vision3d.viz import (
     time_series_view,
 )
 
+# One Y axis per view, so the learning rate gets its own ``sched`` panel
+# instead of flattening against losses ~1000x larger.
 dashboard = rrb.Blueprint(
     rrb.Vertical(
         rrb.Horizontal(
             time_series_view(entity_prefix="train", name="loss (baseline)"),
+            time_series_view(entity_prefix="sched", name="learning rate"),
             time_series_view(entity_prefix="runs", name="total loss (runs)"),
             time_series_view(entity_prefix="val", name="val metrics"),
         ),
@@ -127,10 +130,9 @@ dashboard = rrb.Blueprint(
     )
 )
 
-# A real (often multi-GPU) run would write to a file, record from one rank only,
-# and let the stream's context manager own the lifecycle -- on exit it flushes
-# and finalizes the sink, so the ``.rrd`` is readable the moment the block
-# ends::
+# A real (often multi-GPU) run writes to a file, records from one rank, and
+# lets the stream's context manager own the lifecycle -- on exit it flushes
+# and finalizes the sink, so the ``.rrd`` is readable right after the block::
 #
 #     with rr.RecordingStream("bevfusion") as rec:
 #         rec.save("run.rrd")
@@ -138,26 +140,29 @@ dashboard = rrb.Blueprint(
 #         logger = RerunLogger(rec, enabled=rank == 0)
 #         ...  # training loop
 #
-# No ``with`` block can span this example's narrative cells, so it uses
-# :func:`rerun.init` to register a process-global recording and passes ``None``
-# to target whichever recording is active. That also lets the documentation
-# build capture the run for the viewer embedded below.
+# No ``with`` block can span this example's cells, so we register a
+# process-global recording with :func:`rerun.init` and pass ``None`` to
+# target it. That also lets the docs build capture the run for the viewer.
 rr.init("vision3d_training", spawn=True)
 rr.send_blueprint(dashboard)
 
 logger = RerunLogger(None)
 
-# Record run-wide settings as recording properties; per-run hyperparameters
-# are logged in the run-comparison section below.
+# Run-wide settings become recording properties; per-run hyperparameters are
+# logged in the run-comparison section below.
 logger.log_config({"epochs": EPOCHS, "steps_per_epoch": STEPS_PER_EPOCH})
 
-# The 3D scene shares this recording. The logger's scene methods
-# (``logger.log_point_cloud``/``log_boxes_3d``) route into it and no-op when
-# disabled. For raw archetypes with no method -- like these view coordinates --
-# log on the stream directly, guarded by ``logger.enabled`` so the call honours
-# the switch too.
+# The 3D scene shares this recording: the logger's scene methods route into
+# it and no-op when disabled. Raw archetypes with no method -- like these
+# view coordinates -- go through ``rr.log`` on ``logger.recording``, guarded
+# by ``logger.enabled`` so they honour the switch too.
 if logger.enabled:
-    rr.log("val_sample", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+    rr.log(
+        "val_sample",
+        rr.ViewCoordinates.RIGHT_HAND_Z_UP,
+        static=True,
+        recording=logger.recording,
+    )
 
 # %%
 # Log per-step training metrics
@@ -165,12 +170,14 @@ if logger.enabled:
 # Inside the training loop, call :meth:`~vision3d.viz.RerunLogger.log` once per
 # optimizer step. Metrics default to the ``"train"`` group; names containing
 # ``/`` (e.g. ``"loss/cls"``) nest, so the component losses group under
-# ``train/loss``. In a hot loop, pass ``every=N`` to throttle logging (and the
-# ``.item()`` GPU sync it costs) to every N steps.
+# ``train/loss``. ``group=`` overrides that -- the learning rate goes to
+# ``sched`` for its own axis. In a hot loop, pass ``every=N`` to throttle
+# logging (and the ``.item()`` GPU sync it costs) to every N steps.
 
 for step, (losses, lr) in enumerate(simulate_run(base_lr=1e-3, decay=3.0, seed=0)):
     total = sum(losses.values())
-    logger.log({"loss/total": total, **losses, "lr": lr}, step=step)
+    logger.log({"loss/total": total, **losses}, step=step)
+    logger.log({"lr": lr}, step=step, group="sched")
 
 # %%
 # Compare several runs in one plot
@@ -178,12 +185,10 @@ for step, (losses, lr) in enumerate(simulate_run(base_lr=1e-3, decay=3.0, seed=0
 # Rerun overlays scalars logged to sibling entities in the same view. Giving
 # each run its own ``group`` (``runs/<name>``) puts their curves on one plot;
 # :meth:`~vision3d.viz.RerunLogger.style_series` then gives each a stable
-# legend name and color without repeating the entity path, and
-# :meth:`~vision3d.viz.RerunLogger.log_config` records each run's distinct
-# hyperparameters (namespaced by run) so you can tell the curves apart later.
-# This is the Rerun analogue of a wandb run comparison. (Rerun has no sweep
-# table or parallel-coordinate view, so for experiment *management* you would
-# still pair it with a tool like wandb or MLflow.)
+# legend name and color, and :meth:`~vision3d.viz.RerunLogger.log_config`
+# records each run's hyperparameters (namespaced by run) so you can tell the
+# curves apart later. Rerun has no sweep table or parallel-coordinate view,
+# so for experiment *management* you would still pair it with wandb or MLflow.
 
 for run in RUNS:
     group = f"runs/{run.name}"
@@ -258,13 +263,10 @@ logger.log_boxes_3d(
     static=True,
 )
 
-# Each object gets a fixed but badly-wrong initial guess: far-off position,
-# distorted shape (0.3x-2.5x the true size), and a heading off by up to 180
-# degrees. As training progresses each box converges at its *own* rate and
-# wanders along a unique, decaying path -- smooth low-frequency noise rather
-# than per-frame jitter -- so the predictions look like a real detector
-# hunting for objects, not boxes sliding along tidy arcs. Confidence climbs
-# noisily from near-zero. All of it dies down as the loss curves fall.
+# Each object starts from a fixed but badly-wrong guess -- far off, 0.3x-2.5x
+# the true size, heading off by up to 180 degrees -- then converges at its own
+# rate along a decaying wander, so the boxes hunt for objects instead of
+# sliding along tidy arcs. Confidence climbs noisily from near-zero.
 TWO_PI = 2 * math.pi
 n = gt.shape[0]
 gt_raw = gt.as_subclass(torch.Tensor)
@@ -288,8 +290,8 @@ size_scale = rand(n, 3, lo=0.3, hi=2.5)
 yaw_error = rand(n, lo=-math.pi, hi=math.pi)
 decay_k = rand(n, lo=2.0, hi=5.0)  # per-box convergence speed
 
-# Smooth wander: a low-frequency sinusoid per box, per axis, with its own
-# amplitude, frequency, and phase so paths curve unpredictably (no shared arc).
+# Smooth wander: one low-frequency sinusoid per box and axis, each with its
+# own amplitude, frequency, and phase, so no two paths share an arc.
 wander_amp = rand(n, 3, lo=0.0, hi=3.0)
 wander_freq = rand(n, 3, lo=1.0, hi=3.0)
 wander_phase = rand(n, 3, lo=0.0, hi=TWO_PI)
@@ -297,10 +299,9 @@ yaw_wander = rand(n, lo=0.0, hi=0.6)
 yaw_freq = rand(n, lo=1.0, hi=3.0)
 yaw_phase = rand(n, lo=0.0, hi=TWO_PI)
 
-# The validation loop above left the ``epoch`` cursor at its last value, and
-# Rerun stamps every log with all active cursors. Clear it so these per-step
-# predictions ride the ``step`` timeline alone instead of carrying a stale
-# epoch.
+# The validation loop left the ``epoch`` cursor set, and Rerun stamps every
+# log with all active cursors. Clear it so these predictions ride the
+# ``step`` timeline alone instead of carrying a stale epoch.
 logger.reset_time()
 
 for step in range(TOTAL_STEPS):
