@@ -9,48 +9,47 @@ may be discussed.
 
 ## Prerequisites
 
-- [`uv`](https://docs.astral.sh/uv/) for Python environment and project
-  management.
-- [CUDA toolkit](https://developer.nvidia.com/cuda-downloads) >= 12.8.
-- `ninja` (for parallel compilation of the C++/CUDA extension).
-- A C++ toolchain (`build-essential` on Debian/Ubuntu).
+- [Nix](https://nixos.org/download/), with flakes enabled.
+- Optionally [`direnv`](https://direnv.net/), to enter the dev shell
+  automatically.
 
 ## Setting up the dev environment
 
-Clone the repository and sync the full dev environment (runtime extras + dev
-tooling + docs toolchain):
+Clone the repository, enter the dev shell, and sync the full Python environment
+(runtime extras + dev tooling + docs toolchain):
 
 ```bash
 git clone https://github.com/yeetypete/vision3d.git
 cd vision3d
+nix develop  # or `direnv allow`, once
 uv sync --all-extras --all-groups
 ```
 
-This creates `.venv/`, installs PyTorch and all optional dependencies, and
-builds the C++/CUDA extension against your installed toolchain. On machines
-where CUDA is installed but no GPU is visible (for example, inside containers),
-force a CUDA build with:
+Nix supplies the system toolchain. `uv` still manages the Python
+environment. The toolkit is always present, but a GPU may not be, and the build
+reads the visible devices to decide what to compile. Without one, set both:
 
 ```bash
 FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="12.0+PTX" uv sync --all-extras --all-groups
 ```
 
-Set `TORCH_CUDA_ARCH_LIST` to the compute capabilities you require. The value
+`FORCE_CUDA` enables the CUDA sources, which are otherwise skipped, and
+`TORCH_CUDA_ARCH_LIST` names the compute capabilities to build for. The value
 above covers Blackwell GPUs.
 
 ### Using a different CUDA toolkit version
 
 `uv.lock` pins torch to the variant published on PyPI (currently the `cu130`
-build). If your local CUDA toolkit is a different major version vision3d will
-not build. To resolve this, point uv at the PyTorch wheel index which matches
-your installed CUDA toolkit during sync:
+build), which matches the toolkit the dev shell provides. If you change the
+toolkit in [`flake.nix`](./flake.nix) to a different major version, point uv at
+the matching PyTorch wheel index during sync:
 
 ```bash
 uv sync --all-extras --all-groups --index https://download.pytorch.org/whl/cu128
 ```
 
-Replace `cu128` with whatever CUDA major version your installed CUDA toolkit
-ships, e.g. `cu130`, `cu132`.
+Replace `cu128` with the CUDA major version the shell ships, e.g. `cu130`,
+`cu132`.
 
 ## Pre-commit hooks
 
