@@ -8,6 +8,8 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
+    flake-parts.url = "github:hercules-ci/flake-parts";
+
     # Every packaged CUDA toolkit bundles a CCCL older than 3.4, and nixpkgs
     # has no standalone one, so it is pinned here as a source input. See where
     # CCCL_INCLUDE_DIRS is set for why a newer CCCL is needed.
@@ -25,38 +27,20 @@
   };
 
   outputs =
-    {
-      nixpkgs,
-      cccl,
-      kernels,
-      ...
-    }:
-    let
-      inherit (nixpkgs) lib;
+    inputs@{ flake-parts, ... }:
+    flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [
         "x86_64-linux"
         "aarch64-linux"
       ];
 
-      forAllSystems =
-        f:
-        lib.genAttrs systems (
-          system:
-          f {
-            inherit system;
-            pkgs = lib.fix (
-              pkgs:
-              import nixpkgs {
-                inherit system;
-                config.allowUnfreePredicate = pkgs._cuda.lib.allowUnfreeCudaPredicate;
-              }
-            );
-          }
-        );
-    in
-    {
-      devShells = forAllSystems (
-        { pkgs, ... }:
+      perSystem =
+        {
+          lib,
+          pkgs,
+          system,
+          ...
+        }:
         let
           cuda = pkgs.cudaPackages_13;
 
@@ -118,7 +102,7 @@
           # libstdc++ it claims to support.
           manylinux =
             let
-              root = "${kernels}/nix-builder/pkgs/manylinux";
+              root = "${inputs.kernels}/nix-builder/pkgs/manylinux";
               inherit (pkgs.stdenv.hostPlatform.uname) processor;
             in
             pkgs.callPackage root { } {
@@ -131,10 +115,18 @@
           wheelStdenv = manylinux.gcc13Stdenv;
         in
         {
+          _module.args.pkgs = lib.fix (
+            pkgs:
+            import inputs.nixpkgs {
+              inherit system;
+              config.allowUnfreePredicate = pkgs._cuda.lib.allowUnfreeCudaPredicate;
+            }
+          );
+
           # nvcc rejects a host gcc newer than the toolkit supports, and the
           # nixpkgs default moves independently of what NVIDIA allows.
           # `backendStdenv` is the gcc this toolkit was built against.
-          default = (pkgs.mkShell.override { stdenv = cuda.backendStdenv; }) {
+          devShells.default = (pkgs.mkShell.override { stdenv = cuda.backendStdenv; }) {
             packages = [
               pkgs.uv
               pkgs.llvmPackages_22.clang-unwrapped
@@ -150,7 +142,7 @@
               # first release carrying the fix. See:
               #   - https://github.com/NVIDIA/cccl/issues/7896
               #   - https://github.com/llvm/llvm-project/pull/168711
-              CCCL_INCLUDE_DIRS = "${cccl}/libcudacxx/include:${cccl}/cub:${cccl}/thrust";
+              CCCL_INCLUDE_DIRS = "${inputs.cccl}/libcudacxx/include:${inputs.cccl}/cub:${inputs.cccl}/thrust";
             };
           };
 
@@ -161,7 +153,7 @@
           #
           #   nix develop .#wheel --command uv build --wheel \
           #     --index https://download.pytorch.org/whl/cu128
-          wheel =
+          devShells.wheel =
             let
               cudaHomeWheel = mkCudaHome {
                 c = cudaWheel;
@@ -179,7 +171,6 @@
               ];
               env.CUDA_HOME = "${cudaHomeWheel}";
             };
-        }
-      );
+        };
     };
 }
