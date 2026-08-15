@@ -13,9 +13,9 @@
 #include <torch/csrc/stable/ops.h>
 #include <torch/csrc/stable/tensor.h> // NOLINT(misc-include-cleaner)
 #include <torch/headeronly/util/Exception.h>
-#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cuda/std/array>
 #include <tuple>
 #include <utility>
 #include "iou_box3d/iou_box3d.h"
@@ -34,10 +34,10 @@ __global__ void IoUBox3DKernel(
   const int64_t tid = (blockIdx.x * blockDim.x) + threadIdx.x;
   const int64_t stride = static_cast<int64_t>(gridDim.x) * blockDim.x;
 
-  std::array<FaceVerts, NUM_TRIS> box1_tris{};
-  std::array<FaceVerts, NUM_TRIS> box2_tris{};
-  std::array<FaceVerts, NUM_PLANES> box1_planes{};
-  std::array<FaceVerts, NUM_PLANES> box2_planes{};
+  cuda::std::array<FaceVerts, NUM_TRIS> box1_tris{};
+  cuda::std::array<FaceVerts, NUM_TRIS> box2_tris{};
+  cuda::std::array<FaceVerts, NUM_PLANES> box1_planes{};
+  cuda::std::array<FaceVerts, NUM_PLANES> box2_planes{};
 
   for (int64_t i = tid; i < N * M; i += stride) {
     const int64_t n = i / M; // box1 index
@@ -70,7 +70,7 @@ __global__ void IoUBox3DKernel(
     // TODO: determine if the value of MAX_TRIS is sufficient or
     // if we should store the max tris for each NxM computation
     // and throw an error if any exceeds the max.
-    std::array<FaceVerts, MAX_TRIS> box1_intersect{};
+    cuda::std::array<FaceVerts, MAX_TRIS> box1_intersect{};
     for (int j = 0; j < NUM_TRIS; ++j) {
       // Initialize the faces from the box
       box1_intersect[j] = box1_tris[j];
@@ -79,7 +79,7 @@ __global__ void IoUBox3DKernel(
     int box1_count = BoxIntersections(box2_planes, box2_center, box1_intersect);
 
     // Tris in Box2 intersection with Planes in Box1
-    std::array<FaceVerts, MAX_TRIS> box2_intersect{};
+    cuda::std::array<FaceVerts, MAX_TRIS> box2_intersect{};
     for (int j = 0; j < NUM_TRIS; ++j) {
       box2_intersect[j] = box2_tris[j];
     }
@@ -89,7 +89,7 @@ __global__ void IoUBox3DKernel(
     // If there are overlapping regions in Box2, remove any coplanar faces
     if (box2_count > 0) {
       // Identify if any triangles in Box2 are coplanar with Box1
-      std::array<Keep, MAX_TRIS> tri2_keep{};
+      cuda::std::array<Keep, MAX_TRIS> tri2_keep{};
       for (int j = 0; j < MAX_TRIS; ++j) {
         // Initialize the valid faces to be true
         tri2_keep[j].keep = j < box2_count;
