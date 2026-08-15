@@ -1,0 +1,45 @@
+{
+  "nodes": {
+    "cccl": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1785310908,
+        "narHash": "sha256-HA7J5ZzMwiJ4xqKtbWzPBVm06FhP/EmL/AAgUEYkucc=",
+        "owner": "NVIDIA",
+        "repo": "cccl",
+        "rev": "d36012203ef73ac7f966e848dd88482273e91e02",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NVIDIA",
+        "ref": "v3.4.2",
+        "repo": "cccl",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1786599213,
+        "narHash": "sha256-yNJd40f11EzXBjSByCB7IPpeFFAdeoSKKM67dGkfFoU=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "0e251e24a4f24e036a084b6b4b2d2491af4167f4",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "cccl": "cccl",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

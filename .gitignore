@@ -1,6 +1,9 @@
 # Wrangler
 .wrangler/
 
+# direnv
+.direnv/
+
 # Sphinx-gallery
 docs/source/_static/*.rrd
 docs/source/auto_examples/
@@ -162,7 +165,6 @@ activemq-data/
 
 # Environments
 .env
-.envrc
 .venv
 env/
 venv/

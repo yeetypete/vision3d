@@ -3,7 +3,7 @@
 BUILD := build
 DB := $(BUILD)/compile_commands.json
 UV ?= uv
-CLANG_TIDY ?= run-clang-tidy-22
+CLANG_TIDY ?= run-clang-tidy
 # Force CUDA to be enabled for the build, so that the compile database contains
 # the flags for compiling .cu files.
 export FORCE_CUDA ?= 1
@@ -29,6 +29,7 @@ help:
 	@echo "  clean-build  Remove $(BUILD)/"
 	@echo ""
 	@echo "Requires clang-tidy >= 22 (override with CLANG_TIDY=<binary>)."
+	@echo "Run under 'nix develop', which provides it."
 
 # Generated from a real build, so clang-tidy and clangd see the flags the
 # extension is actually compiled with. `build_ext` writes `$(BUILD)/build.ninja`
