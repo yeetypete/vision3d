@@ -24,11 +24,21 @@
       url = "github:huggingface/kernels";
       flake = false;
     };
+
+    git-hooks = {
+      url = "github:cachix/git-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
     inputs@{ flake-parts, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
+      imports = [
+        ./nix/git-hooks.nix
+        ./nix/llvm.nix
+      ];
+
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -36,6 +46,7 @@
 
       perSystem =
         {
+          config,
           lib,
           pkgs,
           system,
@@ -127,12 +138,16 @@
           # nixpkgs default moves independently of what NVIDIA allows.
           # `backendStdenv` is the gcc this toolkit was built against.
           devShells.default = (pkgs.mkShell.override { stdenv = cuda.backendStdenv; }) {
+            # Writes `.pre-commit-config.yaml` and installs the git hook automatically
+            # when entering the shell. See `nix/git-hooks.nix` for details.
+            inherit (config.pre-commit) shellHook;
             packages = [
               pkgs.uv
-              pkgs.llvmPackages_22.clang-unwrapped
+              config.llvmPackages.clang-unwrapped
               pkgs.ninja
               cudaHome
-            ];
+            ]
+            ++ config.pre-commit.settings.enabledPackages;
             env = {
               CUDA_HOME = "${cudaHome}";
               # Workaround: the CCCL bundled with the toolkit annotates the

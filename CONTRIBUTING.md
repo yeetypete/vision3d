@@ -53,27 +53,26 @@ Replace `cu128` with the CUDA major version the shell ships, e.g. `cu130`,
 
 ## Pre-commit hooks
 
-We use [`prek`](https://github.com/j178/prek) (a fast drop-in for `pre-commit`)
-in CI to run formatters and lightweight linters. For your convenience you may
-install it with uv:
+Formatters and lightweight linters run as git hooks, installed when you enter
+the dev shell. They are declared in [`nix/git-hooks.nix`](./nix/git-hooks.nix)
+and rendered to a generated, gitignored `.pre-commit-config.yaml`. Edit the
+flake module to change a hook.
+
+To run every hook over the whole tree:
 
 ```bash
-uv tool install prek
+nix fmt
 ```
 
-Then install the hooks locally so they run on every commit:
-
-```bash
-prek install
-```
-
-See the [prek documentation](https://prek.j178.dev/) for more details.
+Some hooks shell out to `uv run`, so they need a synced environment and cannot
+run under `nix flake check`, which builds in a sandbox with no network. Use
+`nix fmt` or the git hook instead.
 
 ## Linting, formatting, and type checking
 
 We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting, and
-[`pyrefly`](https://pyrefly.org/) for type checking. All three run in CI and
-must be clean on a PR. You may run them locally via `uv`:
+[`pyrefly`](https://pyrefly.org/) for type checking. All three run as hooks and
+in CI, and must be clean on a PR. You may also run them directly via `uv`:
 
 ```bash
 uv run ruff check             # lint
