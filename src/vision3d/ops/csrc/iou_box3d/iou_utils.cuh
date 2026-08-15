@@ -8,8 +8,10 @@
 
 #pragma once
 
-#include <array>
 #include <cmath>
+#include <cuda/std/array>
+#include <cuda/std/initializer_list>
+#include <cuda/std/tuple>
 #include "utils/float_math.cuh"
 
 // dEpsilon: Used in dot products and is used to assess whether two unit vectors
@@ -59,7 +61,7 @@ struct Keep {
   bool keep;
 };
 
-__device__ const std::array<FaceVertsIdx, NUM_PLANES> kPlanes = {{
+__device__ const cuda::std::array<FaceVertsIdx, NUM_PLANES> kPlanes = {{
     {.v0 = 0, .v1 = 1, .v2 = 2, .v3 = 3},
     {.v0 = 3, .v1 = 2, .v2 = 6, .v3 = 7},
     {.v0 = 0, .v1 = 1, .v2 = 5, .v3 = 4},
@@ -67,7 +69,7 @@ __device__ const std::array<FaceVertsIdx, NUM_PLANES> kPlanes = {{
     {.v0 = 1, .v1 = 5, .v2 = 6, .v3 = 2},
     {.v0 = 4, .v1 = 5, .v2 = 6, .v3 = 7},
 }};
-__device__ const std::array<FaceVertsIdx, NUM_TRIS> kTris = {{
+__device__ const cuda::std::array<FaceVertsIdx, NUM_TRIS> kTris = {{
     {.v0 = 0, .v1 = 1, .v2 = 2},
     {.v0 = 0, .v1 = 3, .v2 = 2},
     {.v0 = 4, .v1 = 5, .v2 = 6},
@@ -137,7 +139,7 @@ __device__ inline void GetBoxPlanes(
 //    float3: Geometric center of the vertices.
 //
 __device__ inline float3 FaceCenter(
-    std::initializer_list<const float3> vertices) {
+    cuda::std::initializer_list<const float3> vertices) {
   auto sumVertices = float3{};
   for (const auto& vertex : vertices) {
     sumVertices = sumVertices + vertex;
@@ -155,7 +157,7 @@ __device__ inline float3 FaceCenter(
 //
 __device__ inline float3 GetNormal(const float3 e0, const float3 e1) {
   float3 n = cross(e0, e1);
-  n = n / std::fmaxf(norm(n), kEpsilon);
+  n = n / fmaxf(norm(n), kEpsilon);
   return n;
 }
 
@@ -170,7 +172,7 @@ __device__ inline float3 GetNormal(const float3 e0, const float3 e1) {
 //    float3: center of the plane
 //
 __device__ inline float3 FaceNormal(
-    std::initializer_list<const float3> vertices) {
+    cuda::std::initializer_list<const float3> vertices) {
   const auto faceCenter = FaceCenter(vertices);
   auto normal = float3();
   auto maxDist = -1.0f;
@@ -433,9 +435,9 @@ __device__ inline float3 PlaneEdgeIntersection(
 //    v1m, v2m: float3 vectors of the most distant points
 //          in verts1 and verts2 respectively
 //
-__device__ inline std::tuple<float3, float3> ArgMaxVerts(
-    std::initializer_list<float3> verts1,
-    std::initializer_list<float3> verts2) {
+__device__ inline cuda::std::tuple<float3, float3> ArgMaxVerts(
+    cuda::std::initializer_list<float3> verts1,
+    cuda::std::initializer_list<float3> verts2) {
   auto v1m = float3();
   auto v2m = float3();
   float maxdist = -1.0f;
@@ -449,7 +451,7 @@ __device__ inline std::tuple<float3, float3> ArgMaxVerts(
       }
     }
   }
-  return std::make_tuple(v1m, v2m);
+  return cuda::std::make_tuple(v1m, v2m);
 }
 
 // Compute a boolean indicator for whether or not two faces
@@ -475,8 +477,8 @@ __device__ inline bool IsCoplanarTriTri(
   // Compute most distant points
   const auto v1mAndv2m =
       ArgMaxVerts({tri1.v0, tri1.v1, tri1.v2}, {tri2.v0, tri2.v1, tri2.v2});
-  const auto v1m = std::get<0>(v1mAndv2m);
-  const auto v2m = std::get<1>(v1mAndv2m);
+  const auto v1m = cuda::std::get<0>(v1mAndv2m);
+  const auto v2m = cuda::std::get<1>(v1mAndv2m);
 
   float3 n12m = v1m - v2m;
   n12m = n12m / fmaxf(norm(n12m), kEpsilon);
@@ -510,8 +512,8 @@ __device__ inline bool IsCoplanarTriPlane(
   // Compute most distant points
   const auto v1mAndv2m = ArgMaxVerts(
       {tri.v0, tri.v1, tri.v2}, {plane.v0, plane.v1, plane.v2, plane.v3});
-  const auto v1m = std::get<0>(v1mAndv2m);
-  const auto v2m = std::get<1>(v1mAndv2m);
+  const auto v1m = cuda::std::get<0>(v1mAndv2m);
+  const auto v2m = cuda::std::get<1>(v1mAndv2m);
 
   float3 n12m = v1m - v2m;
   n12m = n12m / fmaxf(norm(n12m), kEpsilon);
@@ -712,14 +714,14 @@ __device__ inline int BoxIntersections(
     // Get plane normal direction
     const float3 n2 = PlaneNormalDirection(planes[p], center);
     // Create intermediate vector to store the updated tris
-    std::array<FaceVerts, MAX_TRIS> tri_verts_updated{};
+    cuda::std::array<FaceVerts, MAX_TRIS> tri_verts_updated{};
     int offset = 0;
 
     // Iterate through triangles in face_verts_out
     // for the valid tris given by num_tris
     for (int t = 0; t < num_tris; ++t) {
       // Clip tri by plane, can max be split into 2 triangles
-      std::array<FaceVerts, 2> tri_updated{};
+      cuda::std::array<FaceVerts, 2> tri_updated{};
       const int count =
           ClipTriByPlane(planes[p], face_verts_out[t], n2, tri_updated);
       // Add to the tri_verts_updated output if not empty
