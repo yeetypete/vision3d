@@ -84,7 +84,7 @@
                   c.cuda_nvcc
                   c.cuda_cudart
                   c.cccl
-                  # clang's CUDA wrapper header includes
+                  # Workaround: clang's CUDA wrapper header includes
                   # <curand_mtgp32_kernel.h> unconditionally, so .cu files do
                   # not parse without it.
                   c.libcurand
@@ -143,7 +143,7 @@
             ];
             env = {
               CUDA_HOME = "${cudaHome}";
-              # The CCCL bundled with the toolkit annotates the
+              # Workaround: the CCCL bundled with the toolkit annotates the
               # <cuda/std/string_view> deduction guides __host__-only, which
               # clang rejects outright. That breaks clang-tidy on any file
               # reaching <cub/...>, so it is overridden with CCCL 3.4, the
