@@ -26,8 +26,9 @@ Checks: >
   -readability-uppercase-literal-suffix,
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'src/vision3d/ops/csrc/.*'
-# Drop the nvcc driver flags clang cannot parse. -gencode is machine specific,
-# so the Makefile removes that one.
+# The compile database holds nvcc command lines, so drop the driver flags clang
+# has no equivalent for. None of them change what is analysed. -gencode is
+# machine specific, so the Makefile strips that one.
 RemovedArgs:
   - '--expt-relaxed-constexpr'
   - '--compiler-options'

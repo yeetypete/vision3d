@@ -86,13 +86,6 @@
               ln -s $out/lib $out/lib64
             '';
           };
-
-          # Layout clang expects from --gcc-install-dir.
-          gccInstallDir =
-            let
-              gcc = cuda.backendStdenv.cc.cc;
-            in
-            "${gcc}/lib/gcc/${pkgs.stdenv.hostPlatform.config}/${gcc.version}";
         in
         {
           # nvcc rejects a host gcc newer than the toolkit supports, and the
@@ -116,10 +109,6 @@
               #   - https://github.com/NVIDIA/cccl/issues/7896
               #   - https://github.com/llvm/llvm-project/pull/168711
               CCCL_INCLUDE_DIRS = "${cccl}/libcudacxx/include:${cccl}/cub:${cccl}/thrust";
-              # Unwrapped clang has no wrapper to point it at a libstdc++, so
-              # it would scan /usr/lib/gcc and analyse against whatever gcc the
-              # host happens to have, while the build uses `backendStdenv`.
-              GCC_INSTALL_DIR = "${gccInstallDir}";
             };
           };
         }

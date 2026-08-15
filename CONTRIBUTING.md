@@ -103,8 +103,7 @@ C++ and CUDA. The native sources live under `src/vision3d/ops/csrc/`. The
 extension is built by `setup.py` via
 [`torch.utils.cpp_extension`](https://pytorch.org/docs/stable/cpp_extension.html).
 
-Editing any C++ or CUDA source rebuilds the extension on the next sync. If a
-change does not seem to have been picked up, sync explicitly:
+After editing any C++ or CUDA source, rebuild with:
 
 ```bash
 uv sync --reinstall-package vision3d
@@ -113,11 +112,15 @@ uv sync --reinstall-package vision3d
 If you add a new source file, remember to add it to `setup.py` so it will be
 compiled during the build.
 
-`clang-tidy` can be set to run on the C++/CUDA sources via the `make tidy` target:
+`clang-tidy` runs over the same sources with:
 
 ```bash
 make tidy
 ```
+
+This compiles the extension first to produce `build/compile_commands.json`, so
+the linter sees the flags the extension is really built with. Run it from the
+dev shell, which supplies clang, the CUDA toolkit and a new enough CCCL.
 
 ## Documentation
 
