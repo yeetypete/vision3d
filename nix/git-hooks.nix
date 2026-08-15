@@ -50,6 +50,26 @@
               excludes = [ "^CLAUDE\\.md$" ];
             };
 
+            # `just --fmt` takes a single `--justfile`, but a hook is handed
+            # every matching path at once.
+            just-fmt = {
+              enable = true;
+              name = "just-fmt";
+              entry = lib.getExe (
+                pkgs.writeShellApplication {
+                  name = "just-fmt";
+                  runtimeInputs = [ pkgs.just ];
+                  text = ''
+                    for file in "$@"; do
+                      just --fmt --justfile "$file"
+                    done
+                  '';
+                }
+              );
+              language = "system";
+              files = "(^|/)justfile$";
+            };
+
             clang-format = {
               enable = true;
               package = config.llvmPackages.clang-unwrapped;
@@ -84,14 +104,6 @@
                 "pyi"
               ];
               require_serial = true;
-            };
-            pyrefly = {
-              enable = true;
-              name = "pyrefly";
-              entry = "uv run --no-sync pyrefly check";
-              language = "system";
-              types = [ "python" ];
-              pass_filenames = false;
             };
             uv-lock = {
               enable = true;

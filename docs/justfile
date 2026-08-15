@@ -1,0 +1,31 @@
+# Sphinx commands, invoked from the repository root as `just docs <recipe>`.
+
+# -W --keep-going nitpicks every warning as an error, -n reports missing
+# references, -j auto parallelises over the available cores.
+sphinxopts := env('SPHINXOPTS', '-W --keep-going -n -j auto')
+uv := env('UV', 'uv')
+
+# Build the HTML docs into docs/build/html.
+html *opts:
+    {{ uv }} run sphinx-build -M html source build {{ sphinxopts }} {{ opts }}
+
+# --watch picks up edits outside the source dir (gallery scripts, vision3d
+# docstrings). --ignore breaks rebuild loops on paths Sphinx writes back into
+# the source tree (sphinx-gallery's MD5/output cache, autosummary's generated
+# stubs).
+[doc('Rebuild on save and open the page in your browser.')]
+livehtml *opts:
+    {{ uv }} run sphinx-autobuild source build/html \
+        --watch ../gallery \
+        --watch ../src \
+        --ignore 'source/auto_examples/*' \
+        --ignore 'source/api/generated/*' \
+        {{ sphinxopts }} {{ opts }}
+
+# Run any other Sphinx builder, e.g. `just docs build linkcheck`.
+build builder *opts:
+    {{ uv }} run sphinx-build -M {{ builder }} source build {{ sphinxopts }} {{ opts }}
+
+# Remove the built docs.
+clean:
+    {{ uv }} run sphinx-build -M clean source build

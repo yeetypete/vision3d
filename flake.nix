@@ -143,6 +143,7 @@
             inherit (config.pre-commit) shellHook;
             packages = [
               pkgs.uv
+              pkgs.just
               config.llvmPackages.clang-unwrapped
               pkgs.ninja
               cudaHome
@@ -165,9 +166,6 @@
           # built against the oldest CUDA we support, so it runs on any newer driver.
           # Linting and the compile database stay in `default`, so this needs only uv
           # and the toolchain.
-          #
-          #   nix develop .#wheel --command uv build --wheel \
-          #     --index https://download.pytorch.org/whl/cu128
           devShells.wheel =
             let
               cudaHomeWheel = mkCudaHome {

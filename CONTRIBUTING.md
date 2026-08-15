@@ -51,6 +51,16 @@ uv sync --all-extras --all-groups --index https://download.pytorch.org/whl/cu128
 Replace `cu128` with the CUDA major version the shell ships, e.g. `cu130`,
 `cu132`.
 
+## Project commands
+
+We use [`just`](https://just.systems/) as our task runner. Recipes are declared
+in the [`justfile`](./justfile) and, for Sphinx, in
+[`docs/justfile`](./docs/justfile). To see what is available:
+
+```bash
+just
+```
+
 ## Pre-commit hooks
 
 Formatters and lightweight linters run as git hooks, installed when you enter
@@ -70,15 +80,24 @@ run under `nix flake check`, which builds in a sandbox with no network. Use
 
 ## Linting, formatting, and type checking
 
-We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting, and
-[`pyrefly`](https://pyrefly.org/) for type checking. All three run as hooks and
-in CI, and must be clean on a PR. You may also run them directly via `uv`:
+We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting,
+[`pyrefly`](https://pyrefly.org/) for type checking the Python sources, and
+[`clang-tidy`](https://clang.llvm.org/extra/clang-tidy/) for C++/CUDA.
+All of them run in CI and must be clean on a PR.
+
+`just lint` syncs the environment, then runs `pyrefly` and `clang-tidy` over the
+whole project:
 
 ```bash
-uv run ruff check             # lint
-uv run ruff format            # auto-format (writes changes)
-uv run ruff format --check    # check-only; fails if formatting is off
+just lint                       # from the dev shell
+nix develop --command just lint # or from outside it
+```
+
+You may also run any of them directly:
+
+```bash
 uv run pyrefly check          # type check
+just tidy                     # clang-tidy
 ```
 
 ## Running tests
@@ -114,12 +133,8 @@ compiled during the build.
 `clang-tidy` runs over the same sources with:
 
 ```bash
-make tidy
+just tidy
 ```
-
-This compiles the extension first to produce `build/compile_commands.json`, so
-the linter sees the flags the extension is really built with. Run it from the
-dev shell, which supplies clang, the CUDA toolkit and a new enough CCCL.
 
 ## Documentation
 
@@ -127,7 +142,8 @@ The docs are built with Sphinx from [`docs/source/`](./docs/source/). To build
 them locally:
 
 ```bash
-uv run make -C docs html
+just docs html      # build once
+just docs livehtml  # live preview, rebuilds on save
 ```
 
 The output lands in `docs/build/html/`. You may open
@@ -182,6 +198,15 @@ created via the
 > The `announce` (GitHub release creation) and `publish-pypi` jobs both
 > run inside the `pypi` deployment environment, so required reviewers configured
 > there gate the actual release and PyPI push.
+
+To produce the artifacts locally, `just wheel` builds the sdist and wheel in
+the manylinux_2_28 shell against the oldest CUDA version we support. Pass
+another tag to build against a different CUDA version:
+
+```bash
+just wheel        # cu128, the default
+just wheel cu130
+```
 
 ## License
 

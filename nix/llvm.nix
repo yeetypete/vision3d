@@ -1,4 +1,4 @@
-# LLVM shared by the dev shell, the clang-format hook and `make tidy`.
+# LLVM shared by the dev shell, the clang-format hook and `just tidy`.
 { flake-parts-lib, ... }:
 {
   options.perSystem = flake-parts-lib.mkPerSystemOption (
