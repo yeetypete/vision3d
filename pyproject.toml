@@ -41,10 +41,10 @@ dev = [
   "types-docutils>=0.21",
   "types-setuptools>=80",
 ]
-# One group per (toolkit, torch) pair in `nix/cuda.nix`. Each dev shell exports
-# the group matching the toolkit it provides as `TORCH_GROUP`, and `just sync`
-# installs it, so torch is always built against the toolkit that builds the
-# extension. `tool.uv.conflicts` keeps all of them in one lockfile.
+# One group per (toolkit, torch) pair in `nix/cuda.nix`. Each dev shell leaves
+# the group matching the toolkit it provides enabled and disables the rest, so
+# torch is always built against the toolkit that builds the extension.
+# `tool.uv.conflicts` keeps all of them in one lockfile.
 torch211-cu128 = ["torch==2.11.*", "torchvision==0.26.*"]
 torch212-cu130 = ["torch==2.12.*", "torchvision==0.27.*"]
 torch213-cu132 = ["torch==2.13.*", "torchvision==0.28.*"]
@@ -109,8 +109,15 @@ conflicts = [
     { group = "torch213-cu132" },
   ],
 ]
-# A bare `uv sync` gets the variant the default dev shell provides.
-default-groups = ["dev", "torch213-cu132"]
+# Every variant is a default, and each dev shell disables ones it does not provide
+# through `UV_NO_GROUP`.
+default-groups = [
+  "dev",
+  "docs",
+  "torch211-cu128",
+  "torch212-cu130",
+  "torch213-cu132",
+]
 # The PyTorch wheel index (download.pytorch.org/whl/cuXXX) mirrors a stale
 # subset of PyPI. Use `unsafe-first-match` so the resolver exhausts the
 # user-supplied `--index <pytorch>` first (keeping torch on the requested
@@ -134,6 +141,13 @@ cache-keys = [
   { env = "FORCE_CUDA" },
   { env = "TORCH_CUDA_ARCH_LIST" },
 ]
+
+# `[build-system] requires` is resolved in an isolated environment that reads
+# neither `uv.lock` nor the groups above, so `torch>=2.10` would resolve to the
+# one build PyPI publishes, whose CUDA major nvcc then rejects. `match-runtime`
+# pins the build to the torch the environment resolved instead.
+[tool.uv.extra-build-dependencies]
+vision3d = [{ requirement = "torch", match-runtime = true }]
 
 # Bind each variant group to the PyTorch wheel index carrying that CUDA build.
 [tool.uv.sources]

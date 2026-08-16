@@ -8,26 +8,22 @@ mod docs
 build := 'build'
 db := build / 'compile_commands.json'
 uv := env('UV', 'uv')
-# The torch variant to install, as a dependency group in pyproject.toml. Every
-# dev shell exports the one matching the CUDA toolkit it provides.
-torch_group := env('TORCH_GROUP', 'torch213-cu132')
 # Requires clang-tidy 22 or newer, which the dev shell supplies. Override with
 # CLANG_TIDY=<binary> to use another.
 clang_tidy := env('CLANG_TIDY', 'run-clang-tidy')
+uv_args := '--locked --all-extras'
 
 # List the available recipes.
 default:
     @just --list --list-submodules
 
-# The torch variants are mutually exclusive, so `--all-groups` cannot be used.
 [doc('Sync the Python environment to uv.lock.')]
 sync:
-    {{ uv }} sync --locked --all-extras --no-default-groups \
-        --group dev --group docs --group {{ torch_group }}
+    {{ uv }} sync {{ uv_args }}
 
 # Type check the Python sources.
 typecheck:
-    {{ uv }} run pyrefly check
+    {{ uv }} run {{ uv_args }} pyrefly check
 
 # Type check the Python sources and run clang-tidy over the native ones.
 lint: sync typecheck tidy
@@ -35,7 +31,7 @@ lint: sync typecheck tidy
 # Extra arguments go to pytest, e.g. `just test -m cpu -x`.
 [doc('Run the test suite.')]
 test *args: sync
-    {{ uv }} run pytest "$@"
+    {{ uv }} run {{ uv_args }} pytest "$@"
 
 # The database is regenerated first rather than tracked for staleness, since
 # ninja already recompiles only what changed.
@@ -65,16 +61,19 @@ tidy: compile-db
 # the database.
 [doc('Regenerate the compile database clangd and clang-tidy read.')]
 compile-db: sync
-    {{ uv }} run python setup.py --quiet build_ext --build-temp '{{ build }}'
+    {{ uv }} run {{ uv_args }} python setup.py --quiet build_ext --build-temp '{{ build }}'
     ninja -C '{{ build }}' -t compdb > '{{ db }}'
 
 [doc('Build the release sdist and manylinux_2_28 wheel into dist/.')]
 wheel:
     nix develop .#wheel --command {{ just_executable() }} _wheel
 
+# `uv build` refuses to build while `match-runtime` is declared, having no
+# environment to match against. Its torch comes from `UV_INDEX` in the wheel
+# dev shell instead. See: https://github.com/astral-sh/uv/issues/16066
 [private]
 _wheel:
-    {{ uv }} build
+    {{ uv }} build --no-config --index-strategy unsafe-first-match
     auditwheel repair --plat manylinux_2_28_x86_64 --only-plat --exclude '*' \
         --wheel-dir dist dist/*-linux_x86_64.whl
     rm dist/*-linux_x86_64.whl

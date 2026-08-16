@@ -69,9 +69,14 @@
             // buildEnv v.toolkit
             // {
               CUDA_HOME = "${cudaHome}";
-              # The dependency group `just sync` installs, which pins torch to
-              # the build matching this toolkit.
-              TORCH_GROUP = variantName v;
+              # `pyproject.toml` enables every variant group by default, so
+              # disabling the ones this toolkit does not pair with leaves uv
+              # holding the torch built against it, whichever command runs.
+              # TODO: Select the group directly with `UV_GROUP` once uv has it:
+              # https://github.com/astral-sh/uv/issues/11958
+              UV_NO_GROUP = lib.concatMapStringsSep " " variantName (
+                lib.filter (o: variantName o != variantName v) variants
+              );
               # Workaround: the CCCL bundled with the toolkit annotates the
               # <cuda/std/string_view> deduction guides __host__-only, which
               # clang rejects outright. That breaks clang-tidy on any file

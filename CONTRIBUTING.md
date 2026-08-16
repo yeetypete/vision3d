@@ -35,9 +35,11 @@ See `cudaCapabilities` and `cudaForwardCompat` in [`nix/cuda.nix`](./nix/cuda.ni
 
 The toolkit that builds the extension must be the one torch was built against,
 so each dev shell pairs a toolkit with a torch build. `variants` in
-[`nix/cuda.nix`](./nix/cuda.nix) lists the pairs, `pyproject.toml` carries a
-dependency group per pair, and the shell exports the group it needs as
-`TORCH_GROUP` for `just sync` to install:
+[`nix/cuda.nix`](./nix/cuda.nix) lists the pairs and `pyproject.toml` carries a
+dependency group per pair, enabled by default. The dev shell disables the groups
+its toolkit does not pair with, so that every `uv` command run inside it correctly
+installs the torch version matching the dev shell's toolkit. To switch to a
+different pair, run:
 
 ```bash
 nix develop .#torch211-cu128  # or .#torch212-cu130, .#torch213-cu132
