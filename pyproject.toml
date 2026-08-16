@@ -140,6 +140,7 @@ cache-keys = [
   { file = "src/vision3d/ops/csrc/**" },
   { env = "FORCE_CUDA" },
   { env = "TORCH_CUDA_ARCH_LIST" },
+  { env = "UV_NO_GROUP" },
 ]
 
 # `[build-system] requires` is resolved in an isolated environment that reads
