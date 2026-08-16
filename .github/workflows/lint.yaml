@@ -25,7 +25,6 @@ jobs:
         with:
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ runner.temp }}/uv-cache
-          cache-suffix: lint
       - name: Install dependencies
         run: uv sync --locked --all-extras --all-groups --no-install-project
       - name: Ruff lint
@@ -65,7 +64,6 @@ jobs:
         with:
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ runner.temp }}/uv-cache
-          cache-suffix: tidy
       - name: Install dependencies
         run: uv sync --locked --all-extras --all-groups --no-install-project
       - name: clang-tidy

@@ -17,7 +17,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     container:
-      image: pytorch/manylinux2_28-builder:cuda13.0
+      image: nvidia/cuda:13.0.3-devel-ubuntu24.04
       volumes:
         - /usr/share/dotnet:/host/dotnet
         - /usr/local/lib/android:/host/android
@@ -26,7 +26,9 @@ jobs:
       contents: read
     env:
       FORCE_CUDA: "1"
-      TORCH_CUDA_ARCH_LIST: "7.5;8.0;8.6;9.0;10.0;12.0+PTX"
+      # The runner has no GPU, so the kernels never run and the gallery only
+      # needs the extension to import. One arch keeps the build short.
+      TORCH_CUDA_ARCH_LIST: "12.0"
     steps:
       - name: Free disk space
         shell: bash
@@ -38,12 +40,16 @@ jobs:
           wait
       - name: Install system dependencies
         run: |
-          yum install -y \
-            libSM \
-            libXext \
-            libXrender \
-            libxcb \
-            mesa-libGL
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates \
+            git \
+            libgl1 \
+            libsm6 \
+            libxcb1 \
+            libxext6 \
+            libxrender1 \
+            make
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -53,19 +59,22 @@ jobs:
         with:
           enable-cache: true
           cache-local-path: ${{ runner.temp }}/uv-cache
-          cache-suffix: docs
       - name: Install dependencies
         run: uv sync --all-extras --all-groups
       - name: Cache nuScenes mini
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
-          path: ~/.cache/vision3d/nuscenes-mini
-          key: nuscenes-mini-v1.0
+          path: |
+            ~/.cache/vision3d/nuscenes-mini
+            !~/.cache/vision3d/nuscenes-mini/v1.0-mini.tgz
+          key: nuscenes-mini-v1.0-extracted
       - name: Cache KITTI mini
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
         with:
           path: ~/.cache/vision3d/kitti-mini
-          key: kitti-mini-10frames
+          key: >-
+            kitti-mini-${{ hashFiles('gallery/datasets/plot_kitti.py',
+            'src/vision3d/datasets/kitti.py') }}
       - name: Build docs
         run: uv run make -C docs html
       - name: Upload docs artifact
