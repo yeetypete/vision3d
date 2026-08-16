@@ -38,15 +38,19 @@ jobs:
   clang-tidy:
     runs-on: ubuntu-24.04
     container:
-      image: nvidia/cuda:12.8.0-devel-ubuntu24.04
+      image: nvidia/cuda:13.0.3-devel-ubuntu24.04
     permissions:
       contents: read
+    env:
+      # The runner has no GPU, so torch would otherwise build every arch it
+      # supports.
+      TORCH_CUDA_ARCH_LIST: "12.0"
     steps:
       - name: Install system dependencies
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ca-certificates cmake curl git gnupg lsb-release make software-properties-common sudo wget
+            ca-certificates curl git gnupg lsb-release make ninja-build software-properties-common sudo wget
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
