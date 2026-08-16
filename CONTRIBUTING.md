@@ -22,28 +22,34 @@ Clone the repository, enter the dev shell, and sync the full Python environment
 git clone https://github.com/yeetypete/vision3d.git
 cd vision3d
 nix develop  # or `direnv allow`, once
-uv sync --all-extras --all-groups
+just sync
 ```
 
 Nix supplies the system toolchain. `uv` still manages the Python
 environment. The toolkit is always present, but a GPU may not be, so the shell
 exports `FORCE_CUDA=1` to compile the CUDA sources either way, and
 `TORCH_CUDA_ARCH_LIST` to explicitely set the CUDA architectures to build for.
-See `cudaCapabilities` and `cudaForwardCompat` in [`flake.nix`](./flake.nix).
+See `cudaCapabilities` and `cudaForwardCompat` in [`nix/cuda.nix`](./nix/cuda.nix).
 
-### Using a different CUDA toolkit version
+### Torch and CUDA variants
 
-The toolkit that builds the extension must be the one torch was built against.
-torch warns when the minors differ and fails across majors. The shell keeps them
-aligned by setting `UV_INDEX` to the PyTorch wheel index for its toolkit, and
-`uv.lock` pins a torch from that index.
-
-To switch toolkits, change `cuda` in [`flake.nix`](./flake.nix), re-enter the
-shell, and relock:
+The toolkit that builds the extension must be the one torch was built against,
+so each dev shell pairs a toolkit with a torch build. `variants` in
+[`nix/cuda.nix`](./nix/cuda.nix) lists the pairs, `pyproject.toml` carries a
+dependency group per pair, and the shell exports the group it needs as
+`TORCH_GROUP` for `just sync` to install:
 
 ```bash
-uv lock --upgrade-package torch --upgrade-package torchvision
+nix develop .#torch211-cu128  # or .#torch212-cu130, .#torch213-cu132
+just sync
 ```
+
+CI runs the test suite in every variant. A plain `nix develop` gives the newest
+pair (`torch213-cu132`).
+
+To add or move a pair, edit `variants`, add the matching group to
+`pyproject.toml`, and relock with `uv lock`. Note that the PyTorch wheel index
+publishes only some (toolkit, torch) combinations.
 
 ## Project commands
 

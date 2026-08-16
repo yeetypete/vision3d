@@ -72,17 +72,17 @@ To produce a wheel locally:
 uv build
 ```
 
-Inside the dev shell, `uv build` resolves torch from the PyTorch wheel index
-matching the toolkit the shell provides (currently `cu132`), which the shell
-exports as `UV_INDEX`. If you build against a different CUDA version, point uv
-at the matching index instead:
+`uv build` resolves in an isolated environment that reads neither `uv.lock` nor
+the dependency group pinning the dev shell's torch, so it takes torch from PyPI,
+which may not match the toolkit at hand. To build against a specific CUDA
+version, name the index:
 
 ```bash
-uv build --index https://download.pytorch.org/whl/cu128
+uv build --index https://download.pytorch.org/whl/cu132
 ```
 
-Replace `cu128` with the CUDA version you are building against, e.g. `cu130`,
-`cu132`.
+`just wheel` automatically builds the release wheel in a shell that pairs the
+oldest CUDA we support with the matching torch.
 
 ### Extras
 
