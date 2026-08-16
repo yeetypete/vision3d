@@ -57,12 +57,14 @@ uv sync --all-extras
 ```
 
 `nix develop` supplies `uv`, the CUDA toolkit and a matching host compiler from
-the checked-in [flake](flake.nix), so none of them have to be installed
+the checked-in [flake](https://github.com/yeetypete/vision3d/blob/main/flake.nix),
+so none of them have to be installed
 system-wide. Without Nix, these dependencies need to be installed manually.
 
 `uv sync` compiles the C++/CUDA extension as part of installing the project,
-targeting the GPUs it can see. See [CONTRIBUTING.md](CONTRIBUTING.md) for how
-to target a specific GPU on a machine with no GPU.
+targeting the GPUs it can see. See
+[CONTRIBUTING.md](https://github.com/yeetypete/vision3d/blob/main/CONTRIBUTING.md)
+for how to target a specific GPU on a machine with no GPU.
 
 To produce a wheel locally:
 
