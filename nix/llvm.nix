@@ -6,6 +6,10 @@
     {
       options.llvmPackages = lib.mkOption {
         type = lib.types.raw;
+        description = ''
+          nixpkgs `llvmPackages` set behind clang-tidy, clang-format and
+          clangd.
+        '';
         default = pkgs.llvmPackages_22;
       };
     }
