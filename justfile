@@ -39,12 +39,10 @@ tidy:
 compile-db:
     BUILD_DIR='{{ build }}' bash scripts/compile-db.sh
 
-# `dist` is a derivation, so this only copies what it built out of the store.
-# See `nix/uv2nix.nix`.
-[doc('Build the release sdist and manylinux_2_28 wheel into dist/.')]
+# See `nix/uv2nix.nix` for what the derivation builds.
+[doc('Build the release sdist and manylinux_2_28 wheel, linked as result/.')]
 wheel:
-    mkdir -p dist
-    install -m644 "$(nix build --no-link --print-out-paths '.#dist')"/* dist/
+    nix build '.#dist'
 
 # Remove the build directory.
 clean:

@@ -7,6 +7,10 @@
 # git-hooks.nix generates this from flake.nix
 /.pre-commit-config.yaml
 
+# `nix build` links what it built here
+/result
+/result-*
+
 # Sphinx-gallery
 docs/source/_static/*.rrd
 docs/source/auto_examples/

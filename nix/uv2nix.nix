@@ -54,9 +54,15 @@
 
       workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ../.; };
 
-      # The oldest interpreter `requires-python` admits, which is the one the
-      # release wheel targets.
-      python = lib.head (
+      # What the dev shells and the checks run on. The shells export it as
+      # `UV_PYTHON`, so uv resolves the interpreter the environments were
+      # built with rather than one of its own.
+      devPython = pkgs.pythonInterpreters.python314;
+
+      # The oldest interpreter `requires-python` admits. `setup.py` tags the
+      # wheel `cp312-abi3`, so building against the oldest is what makes the one
+      # artifact installable on every version above it.
+      wheelPython = lib.head (
         pyproject-nix.lib.util.filterPythonInterpreters {
           inherit (workspace) requires-python;
           inherit (pkgs) pythonInterpreters;
@@ -283,6 +289,7 @@
         {
           variant,
           stdenv ? variant.toolkit.backendStdenv,
+          python ? devPython,
         }:
         let
           v = variant;
@@ -331,11 +338,12 @@
       forVariants =
         prefix: f: lib.listToAttrs (map (v: lib.nameValuePair "${prefix}${variantName v}" (f v)) variants);
 
-      # The release build: the oldest pair we support, compiled against the
-      # manylinux_2_28 toolchain rather than the toolkit's own gcc, so the
-      # artifact meets the glibc and libstdc++ its tag promises.
+      # The release build: the oldest pair we support on the oldest interpreter,
+      # compiled against the manylinux_2_28 toolchain rather than the toolkit's
+      # own gcc, so the artifact meets the glibc and libstdc++ its tag promises.
       wheelSet = pythonSetFor {
         variant = lib.head variants;
+        python = wheelPython;
         inherit (config.manylinux) stdenv;
       };
 
@@ -363,7 +371,7 @@
     in
     {
       uv2nix = {
-        inherit python;
+        python = devPython;
         devVenvs = forVariants "" mkDevVenv;
         defaultVenv = mkDevVenv config.cuda.defaultVariant;
       };

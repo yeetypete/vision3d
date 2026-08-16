@@ -29,13 +29,20 @@ jobs:
         uses: ./.github/actions/setup
         with:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      # The manylinux toolchain imports a pinned nixpkgs from a fetched
-      # source, so evaluating the release artifacts realises that source.
-      # `--no-build` refuses to, hence realising it first.
-      - name: Fetch what evaluation imports
-        run: nix eval --raw '.#packages.x86_64-linux.dist.drvPath' > /dev/null
+      # `nix flake check --all-systems --no-build` is the obvious command, but
+      # it evaluates in read-only mode, which cannot realise the nixpkgs the
+      # manylinux toolchain imports mid-evaluation. See NixOS/nix#4265. Forcing
+      # each `drvPath` reaches the same outputs on every system and builds none
+      # of them.
       - name: Evaluate every output
-        run: nix flake check --all-systems --no-build
+        run: |
+          for output in checks devShells formatter packages; do
+            nix eval --json ".#$output" --apply '
+              builtins.mapAttrs (
+                _: v: if v ? drvPath then v.drvPath else builtins.mapAttrs (_: d: d.drvPath) v
+              )
+            ' > /dev/null
+          done
 
   # TODO: Enable GPU tests once we have a GPU runner.
   check:
@@ -78,18 +85,15 @@ jobs:
         uses: ./.github/actions/setup
         with:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      # What `just wheel` runs, without a shell to provide `just`.
       - name: Build the release artifacts
-        run: |
-          mkdir -p dist
-          cp -L "$(nix build --no-link --print-out-paths '.#dist')"/* dist/
+        run: echo "dist=$(nix build --no-link --print-out-paths '.#dist')" >> "$GITHUB_ENV"
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           if-no-files-found: error
           retention-days: 5
-          path: dist
+          path: ${{ env.dist }}/*
 
   docs:
     runs-on: ubuntu-24.04
