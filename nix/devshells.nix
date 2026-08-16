@@ -85,14 +85,9 @@
               #   - https://github.com/NVIDIA/cccl/issues/7896
               #   - https://github.com/llvm/llvm-project/pull/168711
               CCCL_INCLUDE_DIRS = "${inputs.cccl}/libcudacxx/include:${inputs.cccl}/cub:${inputs.cccl}/thrust";
-            }
-            // lib.optionalAttrs (lib.versionAtLeast v.toolkit.cudaMajorMinorVersion "13.1") {
-              # torch's host-compiler bounds table stops at CUDA 13.0, so anything
-              # newer warns "There are no g++ version bounds defined for CUDA
-              # version 13.2". The bounds are redundant here, since
-              # `backendStdenv` is the compiler the toolkit was built against and
-              # nvcc enforces its own through <crt/host_config.h>, so the check
-              # is disabled.
+              # The toolkit brings its own host compiler through
+              # `backendStdenv`, and nvcc enforces it via <crt/host_config.h>,
+              # so torch's redundant bounds check is disabled.
               TORCH_DONT_CHECK_COMPILER_ABI = "1";
             };
         };
