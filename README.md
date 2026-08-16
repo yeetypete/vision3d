@@ -72,16 +72,16 @@ To produce a wheel locally:
 uv build
 ```
 
-By default `uv build` resolves torch from PyPI, which currently ships the
-`cu130` variant, matching the toolkit the dev shell provides. If you build
-against a different CUDA major, point uv at the matching PyTorch wheel index
-instead:
+Inside the dev shell, `uv build` resolves torch from the PyTorch wheel index
+matching the toolkit the shell provides (currently `cu132`), which the shell
+exports as `UV_INDEX`. If you build against a different CUDA version, point uv
+at the matching index instead:
 
 ```bash
 uv build --index https://download.pytorch.org/whl/cu128
 ```
 
-Replace `cu128` with the CUDA major you are building against, e.g. `cu130`,
+Replace `cu128` with the CUDA version you are building against, e.g. `cu130`,
 `cu132`.
 
 ### Extras

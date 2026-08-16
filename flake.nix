@@ -53,7 +53,8 @@
           ...
         }:
         let
-          cuda = pkgs.cudaPackages_13;
+
+          cuda = pkgs.cudaPackages_13_2;
 
           # nixpkgs ships CUDA as separate redistributables, some of them
           # multi-output. `static` is left out because nothing links it.
@@ -132,10 +133,16 @@
             env.UV_PYTHON_PREFERENCE = "only-managed";
             shellHook = "unset PYTHONPATH";
           };
-          # torch wants the capabilities as a `;`-separated list, `+PTX` on the
-          # one to emit PTX for (`cudaForwardCompat` configuration option).
           cudaEnv = c: {
             FORCE_CUDA = "1";
+            # torch warns when the toolkit it was built against is not the one
+            # building the extension, and refuses across majors, so resolve it
+            # from the index matching this toolkit.
+            UV_INDEX = "https://download.pytorch.org/whl/cu${
+              lib.replaceStrings [ "." ] [ "" ] c.cudaMajorMinorVersion
+            }";
+            # torch wants the capabilities as a `;`-separated list, `+PTX` on the
+            # one to emit PTX for (`cudaForwardCompat` configuration option).
             TORCH_CUDA_ARCH_LIST = lib.concatStringsSep ";" (
               lib.init c.flags.cudaCapabilities
               ++ [
@@ -187,6 +194,13 @@
               // cudaEnv cuda
               // {
                 CUDA_HOME = "${cudaHome}";
+                # torch's host-compiler bounds table stops at CUDA 13.0, so it
+                # warns "There are no g++ version bounds defined for CUDA
+                # version 13.2". The bounds are redundant here, since
+                # `backendStdenv` is the compiler the toolkit was built against
+                # and nvcc enforces its own through <crt/host_config.h>, so the
+                # check is disabled.
+                TORCH_DONT_CHECK_COMPILER_ABI = "1";
                 # Workaround: the CCCL bundled with the toolkit annotates the
                 # <cuda/std/string_view> deduction guides __host__-only, which
                 # clang rejects outright. That breaks clang-tidy on any file
@@ -225,11 +239,6 @@
                 // cudaEnv cudaWheel
                 // {
                   CUDA_HOME = "${cudaHomeWheel}";
-                  # Ensure the torch version uv resolves matches the CUDA toolkit provided
-                  # by the dev shell.
-                  UV_INDEX = "https://download.pytorch.org/whl/cu${
-                    lib.replaceStrings [ "." ] [ "" ] cudaWheel.cudaMajorMinorVersion
-                  }";
                 };
             };
         };

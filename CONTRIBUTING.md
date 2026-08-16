@@ -33,17 +33,17 @@ See `cudaCapabilities` and `cudaForwardCompat` in [`flake.nix`](./flake.nix).
 
 ### Using a different CUDA toolkit version
 
-`uv.lock` pins torch to the variant published on PyPI (currently the `cu130`
-build), which matches the toolkit the dev shell provides. If you change the
-toolkit in [`flake.nix`](./flake.nix) to a different major version, point uv at
-the matching PyTorch wheel index during sync:
+The toolkit that builds the extension must be the one torch was built against.
+torch warns when the minors differ and fails across majors. The shell keeps them
+aligned by setting `UV_INDEX` to the PyTorch wheel index for its toolkit, and
+`uv.lock` pins a torch from that index.
+
+To switch toolkits, change `cuda` in [`flake.nix`](./flake.nix), re-enter the
+shell, and relock:
 
 ```bash
-uv sync --all-extras --all-groups --index https://download.pytorch.org/whl/cu128
+uv lock --upgrade-package torch --upgrade-package torchvision
 ```
-
-Replace `cu128` with the CUDA major version the shell ships, e.g. `cu130`,
-`cu132`.
 
 ## Project commands
 
