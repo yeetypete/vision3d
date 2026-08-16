@@ -62,10 +62,15 @@ napoleon_use_ivar = True
 # Private base classes that appear in autodoc's "Bases:" line for our
 # public transform subclasses; they aren't documented separately on
 # purpose, so suppress the unresolved cross-reference.
+#
+# `typing_extensions.ReadOnly` reaches the annotations on Python 3.12, where
+# `typing` does not carry it yet. Its own inventory documents it as data
+# rather than a class, so the reference has nothing to resolve to.
 nitpick_ignore = [
     ("py:class", "vision3d.transforms._transform._RandomApplyTransform"),
     ("py:class", "vision3d.transforms.v2._Refuse3DAwareMixin"),
     ("py:class", "torchvision.transforms.v2._transform._RandomApplyTransform"),
+    ("py:class", "typing_extensions.ReadOnly"),
 ]
 
 intersphinx_mapping = {
