@@ -121,10 +121,11 @@ C++ and CUDA. The native sources live under `src/vision3d/ops/csrc/`. The
 extension is built by `setup.py` via
 [`torch.utils.cpp_extension`](https://pytorch.org/docs/stable/cpp_extension.html).
 
-After editing any C++ or CUDA source, rebuild with:
+Editing any C++ or CUDA source rebuilds the extension on the next sync. If a
+change does not seem to have been picked up, sync explicitly:
 
 ```bash
-uv sync --reinstall-package vision3d
+just sync
 ```
 
 If you add a new source file, remember to add it to `setup.py` so it will be
