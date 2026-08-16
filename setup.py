@@ -54,12 +54,9 @@ if _HAS_CUDA:
 # `libcudart_static.a` instead. cudart_static internally calls into
 # pthread/dl/rt, so we link those explicitly to keep the wheel importable on
 # glibc 2.28+ (manylinux_2_28).
-#
-# Without this, clang-tidy reports every `STD_TORCH_CHECK` and
-# `STABLE_TORCH_LIBRARY_*` use in our own sources, because it blames a macro
-# expansion on the expansion site unless the header defining the macro is a
-# system header. Marking the torch and CUDA headers `-isystem` fixes that. The
-# extension classes add them as `-I`, so `include_dirs` is reset below.
+
+# Pass the torch and CUDA headers as `-isystem`, so clang-tidy blames their
+# macro expansions on the defining header instead of our sources.
 _ISYSTEM = [
     _arg
     for _dir in include_paths(device_type="cuda" if _HAS_CUDA else "cpu")

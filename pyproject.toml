@@ -29,10 +29,10 @@ viz = [
 dev = [
   "hypothesis>=6.152.7",
   "nuscenes-devkit>=1.2.0",
-  # nvidia-cuda-cccl is used only by `make tidy`. The CCCL a toolkit bundles
+  # nvidia-cuda-cccl is used only by `make tidy`. The CCCL CUDA toolkit bundles
   # annotates the <cuda/std/string_view> deduction guides __host__-only, which
-  # clang rejects, so clang-tidy needs 3.4 or newer. Remove once CUDA toolkit
-  # includes cccl>=3.4. See: https://github.com/NVIDIA/cccl/issues/7896.
+  # clang rejects. clang-tidy needs CCCL 3.4 or newer which contains the fix.
+  # See: https://github.com/NVIDIA/cccl/issues/7896.
   "nvidia-cuda-cccl==13.3.4.1.2rc1",
   "pyrefly>=1.1.1",
   "pytest>=9.0.2",
@@ -68,9 +68,8 @@ filterwarnings = [
   "error",
   # Unrelated warning from `@torch.jit.script_method` in torch/utils/mkldnn.py.
   "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
-  # `torch.compile`'s inductor backend warns on every CUDA compile that TF32
-  # matmuls are available but disabled. Enabling them would trade the
-  # precision the tests assert on for speed we do not need.
+  # Inductor warns on every CUDA compile that TF32 matmuls are disabled.
+  # Enabling them would cost the precision the tests assert on.
   "ignore:TensorFloat32 tensor cores.*:UserWarning",
 ]
 

@@ -16,10 +16,7 @@ endif
 
 TIDY_ARGS := $(foreach d,$(subst :, ,$(CCCL_INCLUDE_DIRS)),-extra-arg-before=-I$(d))
 
-# clang cannot parse nvcc's -gencode, and RemovedArgs in .clang-tidy matches
-# literally, so it cannot strip a flag whose value depends on the GPU the build
-# saw. Read the values back out of the database instead.
-# Assigned with `=` so it expands in the recipe, once the database exists.
+# Remove -gencode flags from the database, since clang cannot parse them.
 GENCODE_ARGS = $(addprefix -removed-arg=,\
     $(shell grep -oh -- '-gencode=[^ "]*' $(DB) | sort -u))
 
