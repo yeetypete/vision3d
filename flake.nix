@@ -176,13 +176,21 @@
             (pkgs.mkShell.override { stdenv = wheelStdenv; }) {
               packages = [
                 pkgs.uv
+                pkgs.just
                 pkgs.ninja
                 # Retags the wheel manylinux, and refuses to if the binary does
                 # not satisfy the tag.
                 pkgs.auditwheel
                 cudaHomeWheel
               ];
-              env.CUDA_HOME = "${cudaHomeWheel}";
+              env = {
+                CUDA_HOME = "${cudaHomeWheel}";
+                # Ensure the torch version uv resolves matches the CUDA toolkit provided
+                # by the dev shell.
+                UV_INDEX = "https://download.pytorch.org/whl/cu${
+                  lib.replaceStrings [ "." ] [ "" ] cudaWheel.cudaMajorMinorVersion
+                }";
+              };
             };
         };
     };

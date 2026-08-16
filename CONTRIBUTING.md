@@ -108,10 +108,10 @@ Tests are parametrized by device via an autouse fixture in
 backend. Currently CPU and CUDA are supported.
 
 ```bash
-uv run pytest            # run tests on all devices
-uv run pytest -m cpu     # only CPU device
-uv run pytest -m cuda    # only CUDA device
-uv run pytest -m "not cuda"
+just test                # run tests on all devices
+just test -m cpu         # only CPU device
+just test -m cuda        # only CUDA device
+just test -m "not cuda"
 ```
 
 ## Working on the C++ / CUDA extensions
@@ -199,14 +199,15 @@ created via the
 > run inside the `pypi` deployment environment, so required reviewers configured
 > there gate the actual release and PyPI push.
 
-To produce the artifacts locally, `just wheel` builds the sdist and wheel in
-the manylinux_2_28 shell against the oldest CUDA version we support. Pass
-another tag to build against a different CUDA version:
+To produce the artifacts locally:
 
 ```bash
-just wheel        # cu128, the default
-just wheel cu130
+just wheel
 ```
+
+This builds the sdist and wheel in the manylinux_2_28 shell against the oldest
+CUDA version we support. To build against a different one, change `cudaWheel`
+in [`flake.nix`](./flake.nix).
 
 ## License
 

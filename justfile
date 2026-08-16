@@ -1,6 +1,8 @@
 # Top-level developer commands. See pyproject.toml for the actual build, and
 # CONTRIBUTING.md for the workflow around these.
 
+set positional-arguments
+
 mod docs
 
 build := 'build'
@@ -24,6 +26,11 @@ typecheck:
 
 # Type check the Python sources and run clang-tidy over the native ones.
 lint: sync typecheck tidy
+
+# Extra arguments go to pytest, e.g. `just test -m cpu -x`.
+[doc('Run the test suite.')]
+test *args: sync
+    {{ uv }} run pytest "$@"
 
 # The database is regenerated first rather than tracked for staleness, since
 # ninja already recompiles only what changed.
@@ -56,16 +63,14 @@ compile-db: sync
     FORCE_CUDA=1 {{ uv }} run python setup.py --quiet build_ext --build-temp '{{ build }}'
     ninja -C '{{ build }}' -t compdb > '{{ db }}'
 
-# The PyTorch wheel index has to match the toolkit `devShells.wheel` provides,
-# so the default moves with it. Pass another tag positionally to override.
 [doc('Build the release sdist and manylinux_2_28 wheel into dist/.')]
-wheel cuda="cu128":
-    nix develop .#wheel --command {{ just_executable() }} _wheel {{ cuda }}
+wheel:
+    nix develop .#wheel --command {{ just_executable() }} _wheel
 
 [private]
-_wheel cuda:
+_wheel:
     FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST='7.5;8.0;8.6;9.0;10.0;12.0+PTX' \
-        {{ uv }} build --index https://download.pytorch.org/whl/{{ cuda }}
+        {{ uv }} build
     auditwheel repair --plat manylinux_2_28_x86_64 --only-plat --exclude '*' \
         --wheel-dir dist dist/*-linux_x86_64.whl
     rm dist/*-linux_x86_64.whl
