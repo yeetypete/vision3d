@@ -33,7 +33,7 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup
         with:
-          uv-cache-suffix: lint
+          uv-cache: true
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Check flake
         run: nix flake check --all-systems
@@ -62,7 +62,7 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup
         with:
-          uv-cache-suffix: test
+          uv-cache: true
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Run CPU tests
         run: just test -m cpu
@@ -82,7 +82,7 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup
         with:
-          uv-cache-suffix: build
+          uv-cache: true
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       # Already in the shell `just wheel` enters, so call the inner recipe.
       - name: Build wheel
@@ -110,18 +110,22 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup
         with:
-          uv-cache-suffix: docs
+          uv-cache: true
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Cache nuScenes mini
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/vision3d/nuscenes-mini
-          key: nuscenes-mini-v1.0
+          path: |
+            ~/.cache/vision3d/nuscenes-mini
+            !~/.cache/vision3d/nuscenes-mini/v1.0-mini.tgz
+          key: nuscenes-mini-v1.0-extracted
       - name: Cache KITTI mini
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/vision3d/kitti-mini
-          key: kitti-mini-10frames
+          key: >-
+            kitti-mini-${{ hashFiles('gallery/datasets/plot_kitti.py',
+            'src/vision3d/datasets/kitti.py') }}
       - name: Sync environment
         run: just sync
       - name: Build docs

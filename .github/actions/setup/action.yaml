@@ -4,11 +4,10 @@ description: >-
   uv's cache of downloaded wheels.
 
 inputs:
-  uv-cache-suffix:
+  uv-cache:
     description: >-
-      Key prefix for the uv cache, to keep jobs that resolve different
-      environments apart. Leave empty to skip the cache.
-    default: ""
+      Restore and save uv's cache of downloaded wheels.
+    default: "false"
   cachix-auth-token:
     description: >-
       Grants push access to the vision3d cache.
@@ -31,9 +30,9 @@ runs:
         authToken: ${{ inputs.cachix-auth-token }}
 
     - name: Cache uv downloads
-      if: inputs.uv-cache-suffix != ''
+      if: inputs.uv-cache == 'true'
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.cache/uv
-        key: uv-${{ inputs.uv-cache-suffix }}-${{ hashFiles('uv.lock') }}
-        restore-keys: uv-${{ inputs.uv-cache-suffix }}-
+        key: uv-${{ hashFiles('uv.lock') }}
+        restore-keys: uv-
