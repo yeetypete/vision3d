@@ -49,7 +49,6 @@ jobs:
           python-version: "3.12"
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ runner.temp }}/uv-cache
-          cache-suffix: build
       - name: Build
         # Pull torch from PyTorch's cu128 index to match this container's CUDA
         # toolkit (PyPI's default is cu130).

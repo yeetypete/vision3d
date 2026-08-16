@@ -1,5 +1,14 @@
 CompileFlags:
   CompilationDatabase: build
+  # Drop the nvcc driver flags clang cannot parse, as .clang-tidy does.
+  Remove:
+    - --expt-relaxed-constexpr
+    - --compiler-options
+    - "'-fPIC'"
+    - --cudart=static
+    - -ccbin
+    - gcc
+    - -gencode=*
 
 # libstdc++'s deduction guides aren't annotated __host__ __device__, which
 # clang flags when parsing .cu files. Harmless in practice, so silence it.

@@ -944,6 +944,17 @@ wheels = [
 ]
 
 [[package]]
+name = "nvidia-cuda-cccl"
+version = "13.3.4.1.2rc1"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/17/03/ea4df4c842a8183af5ed81e8d5430811b6fd87caf46bba726ab310a1e4aa/nvidia_cuda_cccl-13.3.4.1.2rc1-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:10cb0b00502958cafdad8747de493105641aab444de10e599d63800a768fd5fc", size = 3882729, upload-time = "2026-08-05T19:23:16.482Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/84/0d6ff86b8d68011fa72e4df2a35234351fa971f16dd18f19fe9da10c2bd0/nvidia_cuda_cccl-13.3.4.1.2rc1-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:668121bc3b0d2cdf232e673e8ab463d9661ffbe2ddf2efda3857afc2ffbb675b", size = 3882730, upload-time = "2026-08-05T19:23:18.375Z" },
+    { url = "https://files.pythonhosted.org/packages/85/f8/42c925dfe24d7bdad3b7f90a97bb5d67547104862d2b7479dccde08b4767/nvidia_cuda_cccl-13.3.4.1.2rc1-py3-none-win_amd64.whl", hash = "sha256:baff62815930b7093ad9331d10e3040bda66d55308424b64e946b6571dd5cb5e", size = 3882711, upload-time = "2026-08-05T19:23:22.225Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/a1/11e0cd710253e5016da1c2ed0e9b1461f675e47e2276f5a49c54ab829ec3/nvidia_cuda_cccl-13.3.4.1.2rc1-py3-none-win_arm64.whl", hash = "sha256:3f5036462a95529cb77f0d9eb8bf21d0f0de058a9dabce300bafb82b8a7323c9", size = 3889988, upload-time = "2026-08-05T19:23:25.623Z" },
+]
+
+[[package]]
 name = "nvidia-cuda-cupti"
 version = "13.0.85"
 source = { registry = "https://pypi.org/simple" }
@@ -2046,6 +2057,7 @@ viz = [
 dev = [
     { name = "hypothesis" },
     { name = "nuscenes-devkit" },
+    { name = "nvidia-cuda-cccl" },
     { name = "pyrefly" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -2076,6 +2088,7 @@ provides-extras = ["viz"]
 dev = [
     { name = "hypothesis", specifier = ">=6.152.7" },
     { name = "nuscenes-devkit", specifier = ">=1.2.0" },
+    { name = "nvidia-cuda-cccl", specifier = "==13.3.4.1.2rc1" },
     { name = "pyrefly", specifier = ">=1.1.1" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
