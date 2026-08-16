@@ -43,13 +43,21 @@ jobs:
       - name: Type check and clang-tidy
         run: just lint
 
+  # TODO: Enable GPU tests once we have a GPU runner.
   test:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant:
+          - torch211-cu128
+          - torch212-cu130
+          - torch213-cu132
     defaults:
       run:
-        shell: nix develop -c bash -e {0}
+        shell: nix develop .#${{ matrix.variant }} -c bash -e {0}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
