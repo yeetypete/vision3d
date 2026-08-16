@@ -26,16 +26,10 @@ uv sync --all-extras --all-groups
 ```
 
 Nix supplies the system toolchain. `uv` still manages the Python
-environment. The toolkit is always present, but a GPU may not be, and the build
-reads the visible devices to decide what to compile. Without one, set both:
-
-```bash
-FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="12.0+PTX" uv sync --all-extras --all-groups
-```
-
-`FORCE_CUDA` enables the CUDA sources, which are otherwise skipped, and
-`TORCH_CUDA_ARCH_LIST` names the compute capabilities to build for. The value
-above covers Blackwell GPUs.
+environment. The toolkit is always present, but a GPU may not be, so the shell
+exports `FORCE_CUDA=1` to compile the CUDA sources either way, and
+`TORCH_CUDA_ARCH_LIST` to explicitely set the CUDA architectures to build for.
+See `cudaCapabilities` and `cudaForwardCompat` in [`flake.nix`](./flake.nix).
 
 ### Using a different CUDA toolkit version
 

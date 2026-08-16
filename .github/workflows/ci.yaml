@@ -21,10 +21,6 @@ jobs:
     defaults:
       run:
         shell: nix develop -c bash -e {0}
-    env:
-      # A runner has no GPU for the build to read architectures from, and
-      # clang-tidy needs only the flags, so one architecture is enough.
-      TORCH_CUDA_ARCH_LIST: "12.0"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

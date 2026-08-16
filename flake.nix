@@ -132,13 +132,35 @@
             env.UV_PYTHON_PREFERENCE = "only-managed";
             shellHook = "unset PYTHONPATH";
           };
+          # torch wants the capabilities as a `;`-separated list, `+PTX` on the
+          # one to emit PTX for (`cudaForwardCompat` configuration option).
+          cudaEnv = c: {
+            FORCE_CUDA = "1";
+            TORCH_CUDA_ARCH_LIST = lib.concatStringsSep ";" (
+              lib.init c.flags.cudaCapabilities
+              ++ [
+                (lib.last c.flags.cudaCapabilities + lib.optionalString c.flags.cudaForwardCompat "+PTX")
+              ]
+            );
+          };
         in
         {
           _module.args.pkgs = lib.fix (
             pkgs:
             import inputs.nixpkgs {
               inherit system;
-              config.allowUnfreePredicate = pkgs._cuda.lib.allowUnfreeCudaPredicate;
+              config = {
+                allowUnfreePredicate = pkgs._cuda.lib.allowUnfreeCudaPredicate;
+                cudaCapabilities = [
+                  "7.5"
+                  "8.0"
+                  "8.6"
+                  "9.0"
+                  "10.0"
+                  "12.0"
+                ];
+                cudaForwardCompat = true;
+              };
             }
           );
 
@@ -160,17 +182,20 @@
               cudaHome
             ]
             ++ config.pre-commit.settings.enabledPackages;
-            env = uvOwnsPython.env // {
-              CUDA_HOME = "${cudaHome}";
-              # Workaround: the CCCL bundled with the toolkit annotates the
-              # <cuda/std/string_view> deduction guides __host__-only, which
-              # clang rejects outright. That breaks clang-tidy on any file
-              # reaching <cub/...>, so it is overridden with CCCL 3.4, the
-              # first release carrying the fix. See:
-              #   - https://github.com/NVIDIA/cccl/issues/7896
-              #   - https://github.com/llvm/llvm-project/pull/168711
-              CCCL_INCLUDE_DIRS = "${inputs.cccl}/libcudacxx/include:${inputs.cccl}/cub:${inputs.cccl}/thrust";
-            };
+            env =
+              uvOwnsPython.env
+              // cudaEnv cuda
+              // {
+                CUDA_HOME = "${cudaHome}";
+                # Workaround: the CCCL bundled with the toolkit annotates the
+                # <cuda/std/string_view> deduction guides __host__-only, which
+                # clang rejects outright. That breaks clang-tidy on any file
+                # reaching <cub/...>, so it is overridden with CCCL 3.4, the
+                # first release carrying the fix. See:
+                #   - https://github.com/NVIDIA/cccl/issues/7896
+                #   - https://github.com/llvm/llvm-project/pull/168711
+                CCCL_INCLUDE_DIRS = "${inputs.cccl}/libcudacxx/include:${inputs.cccl}/cub:${inputs.cccl}/thrust";
+              };
           };
 
           # Builds a vision3d release wheel for manylinux_2_28. The wheel is
@@ -195,14 +220,17 @@
                 cudaHomeWheel
               ];
               inherit (uvOwnsPython) shellHook;
-              env = uvOwnsPython.env // {
-                CUDA_HOME = "${cudaHomeWheel}";
-                # Ensure the torch version uv resolves matches the CUDA toolkit provided
-                # by the dev shell.
-                UV_INDEX = "https://download.pytorch.org/whl/cu${
-                  lib.replaceStrings [ "." ] [ "" ] cudaWheel.cudaMajorMinorVersion
-                }";
-              };
+              env =
+                uvOwnsPython.env
+                // cudaEnv cudaWheel
+                // {
+                  CUDA_HOME = "${cudaHomeWheel}";
+                  # Ensure the torch version uv resolves matches the CUDA toolkit provided
+                  # by the dev shell.
+                  UV_INDEX = "https://download.pytorch.org/whl/cu${
+                    lib.replaceStrings [ "." ] [ "" ] cudaWheel.cudaMajorMinorVersion
+                  }";
+                };
             };
         };
     };
