@@ -8,6 +8,9 @@ mod docs
 build := 'build'
 db := build / 'compile_commands.json'
 uv := env('UV', 'uv')
+# The torch variant to install, as a dependency group in pyproject.toml. Every
+# dev shell exports the one matching the CUDA toolkit it provides.
+torch_group := env('TORCH_GROUP', 'torch213-cu132')
 # Requires clang-tidy 22 or newer, which the dev shell supplies. Override with
 # CLANG_TIDY=<binary> to use another.
 clang_tidy := env('CLANG_TIDY', 'run-clang-tidy')
@@ -16,9 +19,11 @@ clang_tidy := env('CLANG_TIDY', 'run-clang-tidy')
 default:
     @just --list --list-submodules
 
-# Sync the Python environment to uv.lock.
+# The torch variants are mutually exclusive, so `--all-groups` cannot be used.
+[doc('Sync the Python environment to uv.lock.')]
 sync:
-    {{ uv }} sync --locked --all-extras --all-groups
+    {{ uv }} sync --locked --all-extras --no-default-groups \
+        --group dev --group docs --group {{ torch_group }}
 
 # Type check the Python sources.
 typecheck:

@@ -41,6 +41,13 @@ dev = [
   "types-docutils>=0.21",
   "types-setuptools>=80",
 ]
+# One group per (toolkit, torch) pair in `nix/cuda.nix`. Each dev shell exports
+# the group matching the toolkit it provides as `TORCH_GROUP`, and `just sync`
+# installs it, so torch is always built against the toolkit that builds the
+# extension. `tool.uv.conflicts` keeps all of them in one lockfile.
+torch211-cu128 = ["torch==2.11.*", "torchvision==0.26.*"]
+torch212-cu130 = ["torch==2.12.*", "torchvision==0.27.*"]
+torch213-cu132 = ["torch==2.13.*", "torchvision==0.28.*"]
 docs = [
   "myst-parser>=5.1.0",
   "pydata-sphinx-theme>=0.17.0",
@@ -92,6 +99,18 @@ convention = "google"
 docstring-code-format = true
 
 [tool.uv]
+# Only one torch variant can be installed at a time. Declaring them conflicting
+# makes uv resolve each into the same lockfile, so `uv sync --locked --group
+# <variant>` needs no relocking.
+conflicts = [
+  [
+    { group = "torch211-cu128" },
+    { group = "torch212-cu130" },
+    { group = "torch213-cu132" },
+  ],
+]
+# A bare `uv sync` gets the variant the default dev shell provides.
+default-groups = ["dev", "torch213-cu132"]
 # The PyTorch wheel index (download.pytorch.org/whl/cuXXX) mirrors a stale
 # subset of PyPI. Use `unsafe-first-match` so the resolver exhausts the
 # user-supplied `--index <pytorch>` first (keeping torch on the requested
@@ -115,3 +134,31 @@ cache-keys = [
   { env = "FORCE_CUDA" },
   { env = "TORCH_CUDA_ARCH_LIST" },
 ]
+
+# Bind each variant group to the PyTorch wheel index carrying that CUDA build.
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cu128", group = "torch211-cu128" },
+  { index = "pytorch-cu130", group = "torch212-cu130" },
+  { index = "pytorch-cu132", group = "torch213-cu132" },
+]
+torchvision = [
+  { index = "pytorch-cu128", group = "torch211-cu128" },
+  { index = "pytorch-cu130", group = "torch212-cu130" },
+  { index = "pytorch-cu132", group = "torch213-cu132" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
