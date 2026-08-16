@@ -4,10 +4,6 @@
 mod docs
 
 build := 'build'
-# Only the throwaway wheel goes here. The objects land in setuptools' usual
-# `build/temp.<platform>-<abi>/`, so the compile database is generated from
-# whatever an ordinary build already compiled instead of building twice.
-lint_build := build / 'lint-wheel'
 db := build / 'compile_commands.json'
 uv := env('UV', 'uv')
 # Requires clang-tidy 22 or newer, which the dev shell supplies. Override with
@@ -29,14 +25,12 @@ typecheck:
 # Type check the Python sources and run clang-tidy over the native ones.
 lint: sync typecheck tidy
 
-# Run clang-tidy over the C++/CUDA sources.
-tidy:
+# The database is regenerated first rather than tracked for staleness, since
+# ninja already recompiles only what changed.
+[doc('Run clang-tidy on C++/CUDA sources.')]
+tidy: compile-db
     #!/usr/bin/env bash
     set -euo pipefail
-    # Regenerate the database only when it is out of date.
-    if [ ! -s '{{ db }}' ] || [ -n "$(find pyproject.toml setup.py uv.lock -newer '{{ db }}')" ]; then
-        {{ just_executable() }} compile-db
-    fi
     args=()
     # clang cannot parse .cu files against the CCCL the toolkit bundles, so
     # point it at the newer one the dev shell exports.
@@ -52,27 +46,15 @@ tidy:
     while IFS= read -r gencode; do
         args+=("-removed-arg=$gencode")
     done < <(grep -oh -- '-gencode=[^ "]*' '{{ db }}' | sort -u)
-    {{ clang_tidy }} -quiet -p '{{ build }}' "${args[@]}" \
+    {{ clang_tidy }} -quiet -hide-progress -p '{{ build }}' "${args[@]}" \
         'src/vision3d/ops/csrc/.*\.(cpp|cu)$'
 
-# Regenerate the compile database clangd and clang-tidy read.
-compile-db:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    # Generated from a real build, so clang-tidy sees the flags the extension
-    # is actually compiled with. --no-build-isolation is required: an isolated
-    # build deletes its torch on exit, leaving every `-isystem
-    # .../torch/include` in the database dangling. FORCE_CUDA covers machines
-    # with a toolkit but no GPU.
-    FORCE_CUDA=1 {{ uv }} build --wheel --no-build-isolation --out-dir '{{ lint_build }}'
-    # An interpreter upgrade leaves the previous temp dir behind, so take the
-    # one this build just wrote.
-    temp=$(ls -dt '{{ build }}'/temp.*/ | head -1)
-    # Written through a temporary file: a failed `ninja -t compdb` must not
-    # leave a truncated database behind, which would then look newer than its
-    # inputs and never be regenerated.
-    (cd "$temp" && ninja -t compdb) > '{{ db }}.tmp'
-    mv '{{ db }}.tmp' '{{ db }}'
+# `build_ext` writes `build/build.ninja`, and `ninja -t compdb` turns it into
+# the database.
+[doc('Regenerate the compile database clangd and clang-tidy read.')]
+compile-db: sync
+    FORCE_CUDA=1 {{ uv }} run python setup.py --quiet build_ext --build-temp '{{ build }}'
+    ninja -C '{{ build }}' -t compdb > '{{ db }}'
 
 # The PyTorch wheel index has to match the toolkit `devShells.wheel` provides,
 # so the default moves with it. Pass another tag positionally to override.
