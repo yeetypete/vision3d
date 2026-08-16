@@ -23,7 +23,11 @@
           package = pkgs.prek;
           hooks = {
             actionlint.enable = true;
-            check-added-large-files.enable = true;
+            # `uv.lock` grew past the 500 kB default.
+            check-added-large-files = {
+              enable = true;
+              args = [ "--maxkb=1024" ];
+            };
             check-case-conflicts.enable = true;
             check-merge-conflicts.enable = true;
             check-symlinks.enable = true;
