@@ -81,8 +81,8 @@ version, name the index:
 uv build --index https://download.pytorch.org/whl/cu132
 ```
 
-`just wheel` automatically builds the release wheel in a shell that pairs the
-oldest CUDA we support with the matching torch.
+`just wheel` automatically builds the release wheel in a shell pinned to the
+oldest (CUDA, torch) pair we support, so releases build reproducibly.
 
 ### Extras
 

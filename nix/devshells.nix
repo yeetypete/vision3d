@@ -104,9 +104,14 @@
           packageMetadata = lib.importJSON "${root}/manylinux-2.28-${processor}-metadata.json";
         };
 
+      # torch version the wheel is built against. `TORCH_TARGET_VERSION` in
+      # `setup.py` is what holds the extension to the stable ABI, so this only
+      # decides which torch a release build resolves for better reproducibility.
+      wheelTorch = (lib.head variants).torch;
+
       # gcc 13 instead of 14, because torch's host-compiler table caps
-      # CUDA 12.8 at gcc < 14 before torch 2.12, and `uv build` resolves
-      # whatever torch the CUDA index offers.
+      # CUDA 12.8 at gcc < 14 before torch 2.12, and the wheel builds against
+      # `wheelTorch`.
       wheelStdenv = manylinux.gcc13Stdenv;
     in
     {
@@ -148,6 +153,14 @@
                   # neither `uv.lock` nor its dependency groups, so the torch
                   # matching this toolkit is selected by index instead.
                   UV_INDEX = "https://download.pytorch.org/whl/cu${noDot wheelToolkit.cudaMajorMinorVersion}";
+                  # That index carries several torch builds, and the
+                  # `torch>=2.10` in `[build-system] requires` would take
+                  # whichever is newest. Pin it to `wheelTorch` for better
+                  # reproducibility. Constraints have to come from the
+                  # environment because `just _wheel` passes `--no-config`.
+                  UV_BUILD_CONSTRAINT = pkgs.writeText "wheel-build-constraints.txt" ''
+                    torch==${wheelTorch}.*
+                  '';
                 };
             };
         };

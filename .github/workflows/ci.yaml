@@ -52,6 +52,7 @@ jobs:
       fail-fast: false
       matrix:
         variant:
+          - torch210-cu128
           - torch211-cu128
           - torch212-cu130
           - torch213-cu132

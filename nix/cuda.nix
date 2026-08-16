@@ -27,6 +27,12 @@
             rather than crossed. `uv.lock` carries a dependency group per pair.
           '';
           default = [
+            # 12.8 is the oldest toolkit we support, because it is the first
+            # whose nvcc knows the Blackwell capabilities (`10.0`, `12.0`).
+            {
+              toolkit = pkgs.cudaPackages_12_8;
+              torch = "2.10";
+            }
             {
               toolkit = pkgs.cudaPackages_12_8;
               torch = "2.11";

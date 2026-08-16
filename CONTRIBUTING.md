@@ -42,7 +42,7 @@ installs the torch version matching the dev shell's toolkit. To switch to a
 different pair, run:
 
 ```bash
-nix develop .#torch211-cu128  # or .#torch212-cu130, .#torch213-cu132
+nix develop .#torch210-cu128  # or .#torch211-cu128, .#torch212-cu130, .#torch213-cu132
 just sync
 ```
 
@@ -50,8 +50,7 @@ CI runs the test suite in every variant. A plain `nix develop` gives the newest
 pair (`torch213-cu132`).
 
 To add or move a pair, edit `variants`, add the matching group to
-`pyproject.toml`, and relock with `uv lock`. Note that the PyTorch wheel index
-publishes only some (toolkit, torch) combinations.
+`pyproject.toml`, and relock with `uv lock`.
 
 ## Project commands
 
@@ -208,9 +207,9 @@ To produce the artifacts locally:
 just wheel
 ```
 
-This builds the sdist and wheel in the manylinux_2_28 shell against the oldest
-CUDA version we support. To build against a different one, change `cudaWheel`
-in [`flake.nix`](./flake.nix).
+This builds the sdist and wheel in the manylinux_2_28 shell, against the oldest
+CUDA version we support (`wheelToolkit` in [`nix/cuda.nix`](./nix/cuda.nix)) and
+the oldest torch we support.
 
 ## License
 

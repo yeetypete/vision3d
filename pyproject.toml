@@ -45,6 +45,7 @@ dev = [
 # the group matching the toolkit it provides enabled and disables the rest, so
 # torch is always built against the toolkit that builds the extension.
 # `tool.uv.conflicts` keeps all of them in one lockfile.
+torch210-cu128 = ["torch==2.10.*", "torchvision==0.25.*"]
 torch211-cu128 = ["torch==2.11.*", "torchvision==0.26.*"]
 torch212-cu130 = ["torch==2.12.*", "torchvision==0.27.*"]
 torch213-cu132 = ["torch==2.13.*", "torchvision==0.28.*"]
@@ -104,6 +105,7 @@ docstring-code-format = true
 # <variant>` needs no relocking.
 conflicts = [
   [
+    { group = "torch210-cu128" },
     { group = "torch211-cu128" },
     { group = "torch212-cu130" },
     { group = "torch213-cu132" },
@@ -114,6 +116,7 @@ conflicts = [
 default-groups = [
   "dev",
   "docs",
+  "torch210-cu128",
   "torch211-cu128",
   "torch212-cu130",
   "torch213-cu132",
@@ -153,11 +156,13 @@ vision3d = [{ requirement = "torch", match-runtime = true }]
 # Bind each variant group to the PyTorch wheel index carrying that CUDA build.
 [tool.uv.sources]
 torch = [
+  { index = "pytorch-cu128", group = "torch210-cu128" },
   { index = "pytorch-cu128", group = "torch211-cu128" },
   { index = "pytorch-cu130", group = "torch212-cu130" },
   { index = "pytorch-cu132", group = "torch213-cu132" },
 ]
 torchvision = [
+  { index = "pytorch-cu128", group = "torch210-cu128" },
   { index = "pytorch-cu128", group = "torch211-cu128" },
   { index = "pytorch-cu130", group = "torch212-cu130" },
   { index = "pytorch-cu132", group = "torch213-cu132" },
