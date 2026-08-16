@@ -11,6 +11,7 @@ uv := env('UV', 'uv')
 # Requires clang-tidy 22 or newer, which the dev shell supplies. Override with
 # CLANG_TIDY=<binary> to use another.
 clang_tidy := env('CLANG_TIDY', 'run-clang-tidy')
+export FORCE_CUDA := env('FORCE_CUDA', '1')
 
 # List the available recipes.
 default:
@@ -60,7 +61,7 @@ tidy: compile-db
 # the database.
 [doc('Regenerate the compile database clangd and clang-tidy read.')]
 compile-db: sync
-    FORCE_CUDA=1 {{ uv }} run python setup.py --quiet build_ext --build-temp '{{ build }}'
+    {{ uv }} run python setup.py --quiet build_ext --build-temp '{{ build }}'
     ninja -C '{{ build }}' -t compdb > '{{ db }}'
 
 [doc('Build the release sdist and manylinux_2_28 wheel into dist/.')]
@@ -69,8 +70,7 @@ wheel:
 
 [private]
 _wheel:
-    FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST='7.5;8.0;8.6;9.0;10.0;12.0+PTX' \
-        {{ uv }} build
+    TORCH_CUDA_ARCH_LIST='7.5;8.0;8.6;9.0;10.0;12.0+PTX' {{ uv }} build
     auditwheel repair --plat manylinux_2_28_x86_64 --only-plat --exclude '*' \
         --wheel-dir dist dist/*-linux_x86_64.whl
     rm dist/*-linux_x86_64.whl
