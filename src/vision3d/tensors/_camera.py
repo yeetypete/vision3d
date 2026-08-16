@@ -165,7 +165,12 @@ class CameraIntrinsics(TVTensor):
         return intrinsics
 
     @classmethod
-    def wrap(cls, tensor: Tensor, like: "CameraIntrinsics", **kwargs: Any) -> Self:
+    @override
+    def wrap(cls, tensor: Tensor, like: TVTensor, **kwargs: Any) -> Self:
+        if not isinstance(like, CameraIntrinsics):
+            raise TypeError(
+                f"like must be a CameraIntrinsics, got {type(like).__name__}"
+            )
         return cls._wrap(tensor, image_size=kwargs.get("image_size", like.image_size))
 
     def __new__(

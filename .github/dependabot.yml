@@ -1,7 +1,9 @@
 version: 2
 updates:
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: "weekly"
     commit-message:
@@ -11,6 +13,16 @@ updates:
       default-days: 7
 
   - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: "nix"
     directory: "/"
     schedule:
       interval: "weekly"

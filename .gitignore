@@ -1,6 +1,12 @@
 # Wrangler
 .wrangler/
 
+# direnv
+.direnv/
+
+# git-hooks.nix generates this from flake.nix
+/.pre-commit-config.yaml
+
 # Sphinx-gallery
 docs/source/_static/*.rrd
 docs/source/auto_examples/
@@ -162,7 +168,6 @@ activemq-data/
 
 # Environments
 .env
-.envrc
 .venv
 env/
 venv/

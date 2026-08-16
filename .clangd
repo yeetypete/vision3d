@@ -1,6 +1,8 @@
 CompileFlags:
   CompilationDatabase: build
-  # Drop the nvcc driver flags clang cannot parse, as .clang-tidy does.
+  # `build/compile_commands.json` is generated from the real nvcc build, so the
+  # .cu entries carry driver flags clang does not accept. See .clang-tidy,
+  # which drops the same set for the same reason.
   Remove:
     - --expt-relaxed-constexpr
     - --compiler-options

@@ -9,78 +9,89 @@ may be discussed.
 
 ## Prerequisites
 
-- [`uv`](https://docs.astral.sh/uv/) for Python environment and project
-  management.
-- [CUDA toolkit](https://developer.nvidia.com/cuda-downloads) >= 12.8.
-- `ninja` (for parallel compilation of the C++/CUDA extension).
-- A C++ toolchain (`build-essential` on Debian/Ubuntu).
+- [Nix](https://nixos.org/download/), with flakes enabled.
+- Optionally [`direnv`](https://direnv.net/), to enter the dev shell
+  automatically.
 
 ## Setting up the dev environment
 
-Clone the repository and sync the full dev environment (runtime extras + dev
-tooling + docs toolchain):
+Clone the repository, enter the dev shell, and sync the full Python environment
+(runtime extras + dev tooling + docs toolchain):
 
 ```bash
 git clone https://github.com/yeetypete/vision3d.git
 cd vision3d
+nix develop  # or `direnv allow`, once
 uv sync --all-extras --all-groups
 ```
 
-This creates `.venv/`, installs PyTorch and all optional dependencies, and
-builds the C++/CUDA extension against your installed toolchain. On machines
-where CUDA is installed but no GPU is visible (for example, inside containers),
-force a CUDA build with:
-
-```bash
-FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="12.0+PTX" uv sync --all-extras --all-groups
-```
-
-Set `TORCH_CUDA_ARCH_LIST` to the compute capabilities you require. The value
-above covers Blackwell GPUs.
+Nix supplies the system toolchain. `uv` still manages the Python
+environment. The toolkit is always present, but a GPU may not be, so the shell
+exports `FORCE_CUDA=1` to compile the CUDA sources either way, and
+`TORCH_CUDA_ARCH_LIST` to explicitely set the CUDA architectures to build for.
+See `cudaCapabilities` and `cudaForwardCompat` in [`flake.nix`](./flake.nix).
 
 ### Using a different CUDA toolkit version
 
-`uv.lock` pins torch to the variant published on PyPI (currently the `cu130`
-build). If your local CUDA toolkit is a different major version vision3d will
-not build. To resolve this, point uv at the PyTorch wheel index which matches
-your installed CUDA toolkit during sync:
+The toolkit that builds the extension must be the one torch was built against.
+torch warns when the minors differ and fails across majors. The shell keeps them
+aligned by setting `UV_INDEX` to the PyTorch wheel index for its toolkit, and
+`uv.lock` pins a torch from that index.
+
+To switch toolkits, change `cuda` in [`flake.nix`](./flake.nix), re-enter the
+shell, and relock:
 
 ```bash
-uv sync --all-extras --all-groups --index https://download.pytorch.org/whl/cu128
+uv lock --upgrade-package torch --upgrade-package torchvision
 ```
 
-Replace `cu128` with whatever CUDA major version your installed CUDA toolkit
-ships, e.g. `cu130`, `cu132`.
+## Project commands
+
+We use [`just`](https://just.systems/) as our task runner. Recipes are declared
+in the [`justfile`](./justfile) and, for Sphinx, in
+[`docs/justfile`](./docs/justfile). To see what is available:
+
+```bash
+just
+```
 
 ## Pre-commit hooks
 
-We use [`prek`](https://github.com/j178/prek) (a fast drop-in for `pre-commit`)
-in CI to run formatters and lightweight linters. For your convenience you may
-install it with uv:
+Formatters and lightweight linters run as git hooks, installed when you enter
+the dev shell. They are declared in [`nix/git-hooks.nix`](./nix/git-hooks.nix)
+and rendered to a generated, gitignored `.pre-commit-config.yaml`. Edit the
+flake module to change a hook.
+
+To run every hook over the whole tree:
 
 ```bash
-uv tool install prek
+nix fmt
 ```
 
-Then install the hooks locally so they run on every commit:
-
-```bash
-prek install
-```
-
-See the [prek documentation](https://prek.j178.dev/) for more details.
+Some hooks shell out to `uv run`, so they need a synced environment and cannot
+run under `nix flake check`, which builds in a sandbox with no network. Use
+`nix fmt` or the git hook instead.
 
 ## Linting, formatting, and type checking
 
-We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting, and
-[`pyrefly`](https://pyrefly.org/) for type checking. All three run in CI and
-must be clean on a PR. You may run them locally via `uv`:
+We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting,
+[`pyrefly`](https://pyrefly.org/) for type checking the Python sources, and
+[`clang-tidy`](https://clang.llvm.org/extra/clang-tidy/) for C++/CUDA.
+All of them run in CI and must be clean on a PR.
+
+`just lint` syncs the environment, then runs `pyrefly` and `clang-tidy` over the
+whole project:
 
 ```bash
-uv run ruff check             # lint
-uv run ruff format            # auto-format (writes changes)
-uv run ruff format --check    # check-only; fails if formatting is off
+just lint                       # from the dev shell
+nix develop --command just lint # or from outside it
+```
+
+You may also run any of them directly:
+
+```bash
 uv run pyrefly check          # type check
+just tidy                     # clang-tidy
 ```
 
 ## Running tests
@@ -91,10 +102,10 @@ Tests are parametrized by device via an autouse fixture in
 backend. Currently CPU and CUDA are supported.
 
 ```bash
-uv run pytest            # run tests on all devices
-uv run pytest -m cpu     # only CPU device
-uv run pytest -m cuda    # only CUDA device
-uv run pytest -m "not cuda"
+just test                # run tests on all devices
+just test -m cpu         # only CPU device
+just test -m cuda        # only CUDA device
+just test -m "not cuda"
 ```
 
 ## Working on the C++ / CUDA extensions
@@ -108,16 +119,16 @@ Editing any C++ or CUDA source rebuilds the extension on the next sync. If a
 change does not seem to have been picked up, sync explicitly:
 
 ```bash
-uv sync --reinstall-package vision3d
+just sync
 ```
 
 If you add a new source file, remember to add it to `setup.py` so it will be
 compiled during the build.
 
-`clang-tidy` can be set to run on the C++/CUDA sources via the `make tidy` target:
+`clang-tidy` runs over the same sources with:
 
 ```bash
-make tidy
+just tidy
 ```
 
 ## Documentation
@@ -126,7 +137,8 @@ The docs are built with Sphinx from [`docs/source/`](./docs/source/). To build
 them locally:
 
 ```bash
-uv run make -C docs html
+just docs html      # build once
+just docs livehtml  # live preview, rebuilds on save
 ```
 
 The output lands in `docs/build/html/`. You may open
@@ -181,6 +193,16 @@ created via the
 > The `announce` (GitHub release creation) and `publish-pypi` jobs both
 > run inside the `pypi` deployment environment, so required reviewers configured
 > there gate the actual release and PyPI push.
+
+To produce the artifacts locally:
+
+```bash
+just wheel
+```
+
+This builds the sdist and wheel in the manylinux_2_28 shell against the oldest
+CUDA version we support. To build against a different one, change `cudaWheel`
+in [`flake.nix`](./flake.nix).
 
 ## License
 

@@ -16,7 +16,8 @@ Documentation is available at [vision3d.dev](https://vision3d.dev).
 - Python 3.12 or newer.
 - PyTorch 2.10 or newer.
 - Recommended: A CUDA-capable NVIDIA GPU for GPU execution.
-- For building from source: the
+- For building from source: [Nix](https://nixos.org/download/), which supplies
+  the toolchain, or a
   [CUDA toolkit](https://developer.nvidia.com/cuda-downloads) matching your
   PyTorch build.
 
@@ -46,27 +47,24 @@ pip install vision3d
 
 ### From source
 
-Clone the repository and sync the environment:
+Clone the repository, enter the dev shell, and sync the environment:
 
 ```bash
 git clone https://github.com/yeetypete/vision3d.git
 cd vision3d
+nix develop # or `direnv allow`, once
 uv sync --all-extras
 ```
 
-`uv sync` compiles the C++/CUDA extension as part of installing the project. On
-machines where CUDA is installed but no GPU is visible (for example, inside
-containers), force a CUDA build with:
+`nix develop` supplies `uv`, the CUDA toolkit and a matching host compiler from
+the checked-in [flake](https://github.com/yeetypete/vision3d/blob/main/flake.nix),
+so none of them have to be installed
+system-wide. Without Nix, these dependencies need to be installed manually.
 
-```bash
-FORCE_CUDA=1 TORCH_CUDA_ARCH_LIST="12.0+PTX" uv sync --all-extras
-```
-
-> [!NOTE]
-> `TORCH_CUDA_ARCH_LIST` selects which NVIDIA compute capabilities to
-> compile CUDA kernels for (e.g. `12.0` for RTX 50-series). See the
-> [PyTorch docs](https://docs.pytorch.org/docs/stable/cpp_extension.html#torch.utils.cpp_extension.CUDAExtension)
-> for the full syntax.
+`uv sync` compiles the C++/CUDA extension as part of installing the project,
+targeting the GPUs it can see. See
+[CONTRIBUTING.md](https://github.com/yeetypete/vision3d/blob/main/CONTRIBUTING.md)
+for how to target a specific GPU on a machine with no GPU.
 
 To produce a wheel locally:
 
@@ -74,16 +72,17 @@ To produce a wheel locally:
 uv build
 ```
 
-By default `uv build` resolves torch from PyPI, which currently ships the `cu130`
-variant. If your local CUDA toolkit is a different major version, point uv at
-the matching PyTorch wheel index instead:
+Inside the dev shell, `uv build` resolves torch from the PyTorch wheel index
+matching the toolkit the shell provides (currently `cu132`), which the shell
+exports as `UV_INDEX`. If you build against a different CUDA version, point uv
+at the matching index instead:
 
 ```bash
 uv build --index https://download.pytorch.org/whl/cu128
 ```
 
-Replace `cu128` with whatever CUDA major version your installed CUDA toolkit
-ships, e.g. `cu130`, `cu132`.
+Replace `cu128` with the CUDA version you are building against, e.g. `cu130`,
+`cu132`.
 
 ### Extras
 

@@ -1,4 +1,4 @@
-# Strict check set for vision3d C++/CUDA sources. Run via ``make tidy``.
+# Strict check set for vision3d C++/CUDA sources. Run via ``just tidy``.
 Checks: >
   bugprone-*,
   -bugprone-easily-swappable-parameters,
@@ -26,8 +26,9 @@ Checks: >
   -readability-uppercase-literal-suffix,
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'src/vision3d/ops/csrc/.*'
-# Drop the nvcc driver flags clang cannot parse. -gencode is machine specific,
-# so the Makefile removes that one.
+# The compile database holds nvcc command lines, so drop the driver flags clang
+# has no equivalent for. None of them change what is analysed. -gencode is
+# machine specific, so the tidy justfile recipe strips that one.
 RemovedArgs:
   - '--expt-relaxed-constexpr'
   - '--compiler-options'

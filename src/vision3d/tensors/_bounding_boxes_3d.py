@@ -102,7 +102,12 @@ class BoundingBoxes3D(TVTensor):
         return bounding_boxes
 
     @classmethod
-    def wrap(cls, tensor: Tensor, like: "BoundingBoxes3D", **kwargs: Any) -> Self:
+    @override
+    def wrap(cls, tensor: Tensor, like: TVTensor, **kwargs: Any) -> Self:
+        if not isinstance(like, BoundingBoxes3D):
+            raise TypeError(
+                f"like must be a BoundingBoxes3D, got {type(like).__name__}"
+            )
         return cls._wrap(tensor, format=kwargs.get("format", like.format))
 
     def __new__(

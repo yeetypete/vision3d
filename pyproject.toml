@@ -68,8 +68,9 @@ filterwarnings = [
   "error",
   # Unrelated warning from `@torch.jit.script_method` in torch/utils/mkldnn.py.
   "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
-  # Inductor warns on every CUDA compile that TF32 matmuls are disabled.
-  # Enabling them would cost the precision the tests assert on.
+  # `torch.compile`'s inductor backend warns on every CUDA compile that TF32
+  # matmuls are available but disabled. Enabling them would trade the
+  # precision the tests assert on for speed we do not need.
   "ignore:TensorFloat32 tensor cores.*:UserWarning",
 ]
 
@@ -103,7 +104,10 @@ override-dependencies = [
   "shapely>=2.1",
   "numpy>=2",
 ]
-
+# uv keys its build cache on `pyproject.toml`/`setup.py` alone by default.
+# Listing the native sources and the environment variables `setup.py` reads
+# makes `uv sync` rebuild on its own. Naming any key replaces the defaults,
+# so the two default files are repeated here.
 cache-keys = [
   { file = "pyproject.toml" },
   { file = "setup.py" },
