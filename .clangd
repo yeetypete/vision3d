@@ -1,5 +1,16 @@
 CompileFlags:
   CompilationDatabase: build
+  # `build/compile_commands.json` is generated from the real nvcc build, so the
+  # .cu entries carry driver flags clang does not accept. See .clang-tidy,
+  # which removes the same flags.
+  Remove:
+    - --expt-relaxed-constexpr
+    - --compiler-options
+    - "'-fPIC'"
+    - --cudart=static
+    - -ccbin
+    - gcc
+    - -gencode=*
 
 # libstdc++'s deduction guides aren't annotated __host__ __device__, which
 # clang flags when parsing .cu files. Harmless in practice, so silence it.

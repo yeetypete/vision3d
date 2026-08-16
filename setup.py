@@ -10,6 +10,7 @@ from torch.utils.cpp_extension import (
     BuildExtension,
     CppExtension,
     CUDAExtension,
+    include_paths,
 )
 
 _ROOT = Path(__file__).resolve().parent
@@ -53,18 +54,34 @@ if _HAS_CUDA:
 # `libcudart_static.a` instead. cudart_static internally calls into
 # pthread/dl/rt, so we link those explicitly to keep the wheel importable on
 # glibc 2.28+ (manylinux_2_28).
+#
+# Without this, clang-tidy reports every `STD_TORCH_CHECK` and
+# `STABLE_TORCH_LIBRARY_*` use in our own sources, because it blames a macro
+# expansion on the expansion site unless the header defining the macro is a
+# system header. Marking the torch and CUDA headers `-isystem` fixes that. The
+# extension classes add them as `-I`, so `include_dirs` is reset below.
+_ISYSTEM = [
+    _arg
+    for _dir in include_paths(device_type="cuda" if _HAS_CUDA else "cpu")
+    for _arg in ("-isystem", _dir)
+]
 _ext = Extension(
     name="vision3d._C",
     sources=_SOURCES,
     include_dirs=[str(_CSRC)],
     define_macros=_DEFINE_MACROS,
     extra_compile_args=(
-        {"cxx": ["-std=c++20"], "nvcc": ["-std=c++20", "--cudart=static"]}
+        {
+            "cxx": ["-std=c++20", *_ISYSTEM],
+            "nvcc": ["-std=c++20", "--cudart=static", *_ISYSTEM],
+        }
         if _HAS_CUDA
-        else {"cxx": ["-std=c++20"]}
+        else {"cxx": ["-std=c++20", *_ISYSTEM]}
     ),
     py_limited_api=True,
 )
+# Drop the `-I` duplicates the constructor added, since `_ISYSTEM` covers them.
+_ext.include_dirs = [str(_CSRC)]
 if _HAS_CUDA:
     _ext.libraries = [lib for lib in _ext.libraries if lib != "cudart"]
     _ext.extra_link_args = ["-l:libcudart_static.a", "-lpthread", "-ldl", "-lrt"]

@@ -26,6 +26,16 @@ Checks: >
   -readability-uppercase-literal-suffix,
 WarningsAsErrors: '*'
 HeaderFilterRegex: 'src/vision3d/ops/csrc/.*'
+# The compile database holds nvcc command lines, so drop the driver flags clang
+# has no equivalent for. None of them change what is analysed. -gencode is
+# machine specific, so the Makefile strips that one.
+RemovedArgs:
+  - '--expt-relaxed-constexpr'
+  - '--compiler-options'
+  - "'-fPIC'"
+  - '--cudart=static'
+  - '-ccbin'
+  - 'gcc'
 CheckOptions:
   # Torch's stable headers re-export from internal *_struct.h / headeronly/* headers.
   # CUDA's <cuda_runtime.h> umbrella forwards to inner headers. Ignore the
