@@ -14,13 +14,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
+  # Every output has to evaluate for both systems, which a runner can do
+  # without being able to build for either.
+  eval:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-    defaults:
-      run:
-        shell: nix develop -c bash -e {0}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,36 +28,26 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup
         with:
-          uv-cache: true
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - name: Check flake
-        run: nix flake check --all-systems
-      - name: Sync environment
-        run: just sync
-      - name: Run git hooks
-        run: nix fmt
-      - name: Show fixer changes
-        if: failure()
-        run: git diff
-      - name: Type check and clang-tidy
-        run: just lint
+      - name: Evaluate every output
+        run: nix flake check --all-systems --no-build
 
   # TODO: Enable GPU tests once we have a GPU runner.
-  test:
+  check:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        variant:
-          - torch210-cu128
-          - torch211-cu128
-          - torch212-cu130
-          - torch213-cu132
-    defaults:
-      run:
-        shell: nix develop .#${{ matrix.variant }} -c bash -e {0}
+        check:
+          - tests-torch210-cu128
+          - tests-torch211-cu130
+          - tests-torch212-cu130
+          - tests-torch213-cu130
+          - pyrefly
+          - clang-tidy
+          - pre-commit
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,18 +56,14 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup
         with:
-          uv-cache: true
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - name: Run CPU tests
-        run: just test -m cpu
+      - name: Run check
+        run: nix build --no-link --print-build-logs '.#checks.x86_64-linux.${{ matrix.check }}'
 
   build:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-    defaults:
-      run:
-        shell: nix develop .#wheel -c bash -e {0}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,11 +72,9 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup
         with:
-          uv-cache: true
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      # Already in the shell `just wheel` enters, so call the inner recipe.
-      - name: Build wheel
-        run: just _wheel
+      - name: Build the release artifacts
+        run: just wheel
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -115,7 +98,6 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup
         with:
-          uv-cache: true
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - name: Cache nuScenes mini
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -131,8 +113,6 @@ jobs:
           key: >-
             kitti-mini-${{ hashFiles('gallery/datasets/plot_kitti.py',
             'src/vision3d/datasets/kitti.py') }}
-      - name: Sync environment
-        run: just sync
       - name: Build docs
         run: just docs html
       - name: Upload docs artifact

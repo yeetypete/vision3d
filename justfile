@@ -6,77 +6,45 @@ set positional-arguments
 mod docs
 
 build := 'build'
-db := build / 'compile_commands.json'
-uv := env('UV', 'uv')
-# Requires clang-tidy 22 or newer, which the dev shell supplies. Override with
-# CLANG_TIDY=<binary> to use another.
-clang_tidy := env('CLANG_TIDY', 'run-clang-tidy')
-uv_args := '--locked --all-extras'
 
 # List the available recipes.
 default:
     @just --list --list-submodules
 
-[doc('Sync the Python environment to uv.lock.')]
+# Compiles the extension into the source tree, which an editable install does
+# not do on its own. The environment itself comes from the dev shell.
+[doc('Rebuild the extension in place.')]
 sync:
-    {{ uv }} sync {{ uv_args }}
+    build-editable
 
 # Type check the Python sources.
 typecheck:
-    {{ uv }} run {{ uv_args }} pyrefly check
+    pyrefly check
 
 # Type check the Python sources and run clang-tidy over the native ones.
-lint: sync typecheck tidy
+lint: typecheck tidy
 
 # Extra arguments go to pytest, e.g. `just test -m cpu -x`.
 [doc('Run the test suite.')]
 test *args: sync
-    {{ uv }} run {{ uv_args }} pytest "$@"
+    pytest "$@"
 
-# The database is regenerated first rather than tracked for staleness, since
-# ninja already recompiles only what changed.
+# `scripts/` holds what these run, so the flake checks of the same names run
+# the same thing. See `nix/uv2nix.nix`.
 [doc('Run clang-tidy on C++/CUDA sources.')]
-tidy: compile-db
-    #!/usr/bin/env bash
-    set -euo pipefail
-    args=()
-    # clang cannot parse .cu files against the CCCL the toolkit bundles, so
-    # point it at the newer one the dev shell exports.
-    if [ -n "${CCCL_INCLUDE_DIRS:-}" ]; then
-        IFS=: read -ra dirs <<<"$CCCL_INCLUDE_DIRS"
-        for dir in "${dirs[@]}"; do
-            args+=("-extra-arg-before=-isystem$dir")
-        done
-    fi
-    # clang cannot parse nvcc's -gencode, and RemovedArgs in .clang-tidy
-    # matches literally, so it cannot strip a flag whose value depends on the
-    # GPU the build saw. Read the values back out of the database instead.
-    while IFS= read -r gencode; do
-        args+=("-removed-arg=$gencode")
-    done < <(grep -oh -- '-gencode=[^ "]*' '{{ db }}' | sort -u)
-    {{ clang_tidy }} -quiet -hide-progress -p '{{ build }}' "${args[@]}" \
-        'src/vision3d/ops/csrc/.*\.(cpp|cu)$'
+tidy:
+    BUILD_DIR='{{ build }}' bash scripts/tidy.sh
 
-# `build_ext` writes `build/build.ninja`, and `ninja -t compdb` turns it into
-# the database.
 [doc('Regenerate the compile database clangd and clang-tidy read.')]
-compile-db: sync
-    {{ uv }} run {{ uv_args }} python setup.py --quiet build_ext --build-temp '{{ build }}'
-    ninja -C '{{ build }}' -t compdb > '{{ db }}'
+compile-db:
+    BUILD_DIR='{{ build }}' bash scripts/compile-db.sh
 
+# `dist` is a derivation, so this only copies what it built out of the store.
+# See `nix/uv2nix.nix`.
 [doc('Build the release sdist and manylinux_2_28 wheel into dist/.')]
 wheel:
-    nix develop .#wheel --command {{ just_executable() }} _wheel
-
-# `uv build` refuses to build while `match-runtime` is declared, having no
-# environment to match against. Its torch comes from `UV_INDEX` in the wheel
-# dev shell instead. See: https://github.com/astral-sh/uv/issues/16066
-[private]
-_wheel:
-    {{ uv }} build --no-config --index-strategy unsafe-first-match
-    auditwheel repair --plat manylinux_2_28_x86_64 --only-plat --exclude '*' \
-        --wheel-dir dist dist/*-linux_x86_64.whl
-    rm dist/*-linux_x86_64.whl
+    mkdir -p dist
+    install -m644 "$(nix build --no-link --print-out-paths '.#dist')"/* dist/
 
 # Remove the build directory.
 clean:

@@ -44,11 +44,13 @@ dev = [
 # One group per (toolkit, torch) pair in `nix/cuda.nix`. Each dev shell leaves
 # the group matching the toolkit it provides enabled and disables the rest, so
 # torch is always built against the toolkit that builds the extension.
-# `tool.uv.conflicts` keeps all of them in one lockfile.
+# `tool.uv.conflicts` keeps all of them in one lockfile. The CUDA suffix names
+# the build PyPI publishes for that release, so the groups need no index of
+# their own.
 torch210-cu128 = ["torch==2.10.*", "torchvision==0.25.*"]
-torch211-cu128 = ["torch==2.11.*", "torchvision==0.26.*"]
+torch211-cu130 = ["torch==2.11.*", "torchvision==0.26.*"]
 torch212-cu130 = ["torch==2.12.*", "torchvision==0.27.*"]
-torch213-cu132 = ["torch==2.13.*", "torchvision==0.28.*"]
+torch213-cu130 = ["torch==2.13.*", "torchvision==0.28.*"]
 docs = [
   "myst-parser>=5.1.0",
   "pydata-sphinx-theme>=0.17.0",
@@ -101,84 +103,22 @@ docstring-code-format = true
 
 [tool.uv]
 # Only one torch variant can be installed at a time. Declaring them conflicting
-# makes uv resolve each into the same lockfile, so `uv sync --locked --group
-# <variant>` needs no relocking.
+# makes uv resolve each into the same lockfile, which uv2nix then picks one of
+# per environment. See `nix/uv2nix.nix`.
 conflicts = [
   [
     { group = "torch210-cu128" },
-    { group = "torch211-cu128" },
+    { group = "torch211-cu130" },
     { group = "torch212-cu130" },
-    { group = "torch213-cu132" },
+    { group = "torch213-cu130" },
   ],
 ]
-# Every variant is a default, and each dev shell disables ones it does not provide
-# through `UV_NO_GROUP`.
-default-groups = [
-  "dev",
-  "docs",
-  "torch210-cu128",
-  "torch211-cu128",
-  "torch212-cu130",
-  "torch213-cu132",
-]
-# The PyTorch wheel index (download.pytorch.org/whl/cuXXX) mirrors a stale
-# subset of PyPI. Use `unsafe-first-match` so the resolver exhausts the
-# user-supplied `--index <pytorch>` first (keeping torch on the requested
-# CUDA variant) and only falls through to PyPI for build dependencies that
-# no version on the PyTorch mirror can satisfy.
-index-strategy = "unsafe-first-match"
 # Fix `nuscenes-devkit`'s stale pins: `Shapely~=2.0.3` has no Python 3.14
 # wheels, and `numpy<2.0.0` conflicts with our `numpy>=2`.
 override-dependencies = [
   "shapely>=2.1",
   "numpy>=2",
 ]
-# uv keys its build cache on `pyproject.toml`/`setup.py` alone by default.
-# Listing the native sources and the environment variables `setup.py` reads
-# makes `uv sync` rebuild on its own. Naming any key replaces the defaults,
-# so the two default files are repeated here.
-cache-keys = [
-  { file = "pyproject.toml" },
-  { file = "setup.py" },
-  { file = "src/vision3d/ops/csrc/**" },
-  { env = "FORCE_CUDA" },
-  { env = "TORCH_CUDA_ARCH_LIST" },
-  { env = "UV_NO_GROUP" },
-]
 
-# `[build-system] requires` is resolved in an isolated environment that reads
-# neither `uv.lock` nor the groups above, so `torch>=2.10` would resolve to the
-# one build PyPI publishes, whose CUDA major nvcc then rejects. `match-runtime`
-# pins the build to the torch the environment resolved instead.
 [tool.uv.extra-build-dependencies]
 vision3d = [{ requirement = "torch", match-runtime = true }]
-
-# Bind each variant group to the PyTorch wheel index carrying that CUDA build.
-[tool.uv.sources]
-torch = [
-  { index = "pytorch-cu128", group = "torch210-cu128" },
-  { index = "pytorch-cu128", group = "torch211-cu128" },
-  { index = "pytorch-cu130", group = "torch212-cu130" },
-  { index = "pytorch-cu132", group = "torch213-cu132" },
-]
-torchvision = [
-  { index = "pytorch-cu128", group = "torch210-cu128" },
-  { index = "pytorch-cu128", group = "torch211-cu128" },
-  { index = "pytorch-cu130", group = "torch212-cu130" },
-  { index = "pytorch-cu132", group = "torch213-cu132" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu132"
-url = "https://download.pytorch.org/whl/cu132"
-explicit = true

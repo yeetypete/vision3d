@@ -1,13 +1,8 @@
 name: Set up Nix and the build caches
 description: >-
-  Installs Nix, points it at the CUDA and vision3d binary caches, and restores
-  uv's cache of downloaded wheels.
+  Installs Nix and points it at the CUDA and vision3d binary caches.
 
 inputs:
-  uv-cache:
-    description: >-
-      Restore and save uv's cache of downloaded wheels.
-    default: "false"
   cachix-auth-token:
     description: >-
       Grants push access to the vision3d cache.
@@ -28,11 +23,3 @@ runs:
       with:
         name: vision3d
         authToken: ${{ inputs.cachix-auth-token }}
-
-    - name: Cache uv downloads
-      if: inputs.uv-cache == 'true'
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      with:
-        path: ~/.cache/uv
-        key: uv-${{ hashFiles('uv.lock') }}
-        restore-keys: uv-
