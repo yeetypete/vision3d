@@ -22,9 +22,8 @@ jobs:
       run:
         shell: nix develop -c bash -e {0}
     env:
-      # The build reads the visible GPUs to decide what to compile and a runner
-      # has none, so torch needs the architectures named. clang-tidy only reads
-      # the compile database, so one of them is enough.
+      # A runner has no GPU for the build to read architectures from, and
+      # clang-tidy needs only the flags, so one architecture is enough.
       TORCH_CUDA_ARCH_LIST: "12.0"
     steps:
       - name: Checkout
@@ -85,7 +84,7 @@ jobs:
         with:
           uv-cache-suffix: build
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      # Already in the shell `just wheel` would enter, so call the inner recipe.
+      # Already in the shell `just wheel` enters, so call the inner recipe.
       - name: Build wheel
         run: just _wheel
       - name: Upload artifacts

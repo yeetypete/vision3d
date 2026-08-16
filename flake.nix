@@ -124,6 +124,14 @@
           # CUDA 12.8 at gcc < 14 before torch 2.12, and `uv build` resolves
           # whatever torch the CUDA index offers.
           wheelStdenv = manylinux.gcc13Stdenv;
+
+          # We use uv-managed python because the nixpkgs one resolves neither
+          # the libraries the manylinux wheels link against nor the NVIDIA
+          # driver. Both shells put it on PATH via their python packages.
+          uvOwnsPython = {
+            env.UV_PYTHON_PREFERENCE = "only-managed";
+            shellHook = "unset PYTHONPATH";
+          };
         in
         {
           _module.args.pkgs = lib.fix (
@@ -140,7 +148,10 @@
           devShells.default = (pkgs.mkShell.override { stdenv = cuda.backendStdenv; }) {
             # Writes `.pre-commit-config.yaml` and installs the git hook automatically
             # when entering the shell. See `nix/git-hooks.nix` for details.
-            inherit (config.pre-commit) shellHook;
+            shellHook = ''
+              ${config.pre-commit.shellHook}
+              ${uvOwnsPython.shellHook}
+            '';
             packages = [
               pkgs.uv
               pkgs.just
@@ -149,7 +160,7 @@
               cudaHome
             ]
             ++ config.pre-commit.settings.enabledPackages;
-            env = {
+            env = uvOwnsPython.env // {
               CUDA_HOME = "${cudaHome}";
               # Workaround: the CCCL bundled with the toolkit annotates the
               # <cuda/std/string_view> deduction guides __host__-only, which
@@ -183,7 +194,8 @@
                 pkgs.auditwheel
                 cudaHomeWheel
               ];
-              env = {
+              inherit (uvOwnsPython) shellHook;
+              env = uvOwnsPython.env // {
                 CUDA_HOME = "${cudaHomeWheel}";
                 # Ensure the torch version uv resolves matches the CUDA toolkit provided
                 # by the dev shell.
