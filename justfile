@@ -52,7 +52,8 @@ tidy:
     while IFS= read -r gencode; do
         args+=("-removed-arg=$gencode")
     done < <(grep -oh -- '-gencode=[^ "]*' '{{ db }}' | sort -u)
-    {{ clang_tidy }} -p '{{ build }}' "${args[@]}" 'src/vision3d/ops/csrc/.*\.(cpp|cu)$'
+    {{ clang_tidy }} -quiet -p '{{ build }}' "${args[@]}" \
+        'src/vision3d/ops/csrc/.*\.(cpp|cu)$'
 
 # Regenerate the compile database clangd and clang-tidy read.
 compile-db:
