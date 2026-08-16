@@ -68,8 +68,9 @@ filterwarnings = [
   "error",
   # Unrelated warning from `@torch.jit.script_method` in torch/utils/mkldnn.py.
   "ignore:.*torch\\.jit\\.script_method.*:DeprecationWarning",
-  # Inductor warns on every CUDA compile that TF32 matmuls are disabled.
-  # Enabling them would cost the precision the tests assert on.
+  # `torch.compile`'s inductor backend warns on every CUDA compile that TF32
+  # matmuls are available but disabled. Enabling them would trade the
+  # precision the tests assert on for speed we do not need.
   "ignore:TensorFloat32 tensor cores.*:UserWarning",
 ]
 
