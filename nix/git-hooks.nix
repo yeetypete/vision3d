@@ -14,16 +14,15 @@
       # Source of truth for `.pre-commit-config.yaml`, which git-hooks
       # generates on shell entry and which is gitignored.
       pre-commit = {
-        # Some hooks shell out to `uv run`, which needs a synced `.venv`
-        # and a network. `nix flake check` has neither, so the hooks run
-        # from `nix fmt` and the git hook instead.
-        check.enable = false;
-
         settings = {
           package = pkgs.prek;
           hooks = {
             actionlint.enable = true;
-            check-added-large-files.enable = true;
+            # `uv.lock` grew past the 500 kB default.
+            check-added-large-files = {
+              enable = true;
+              args = [ "--maxkb=1024" ];
+            };
             check-case-conflicts.enable = true;
             check-merge-conflicts.enable = true;
             check-symlinks.enable = true;
@@ -81,12 +80,13 @@
             };
 
             # `ruff-check` and `ruff-fmt` rather than the built-in `ruff` and
-            # `ruff-format` attributes, because those run nixpkgs' ruff and add
-            # it to the dev shell. We want to track ruff in uv.lock.
+            # `ruff-format` attributes, because those run nixpkgs' ruff. We want
+            # the one `uv.lock` pins, which uv2nix puts in the environment, so
+            # the hooks agree with what CI and the dev shell run.
             ruff-check = {
               enable = true;
               name = "ruff";
-              entry = "uv run --no-sync ruff check --force-exclude";
+              entry = "${config.uv2nix.defaultVenv}/bin/ruff check --force-exclude";
               language = "system";
               types_or = [
                 "python"
@@ -97,7 +97,7 @@
             ruff-fmt = {
               enable = true;
               name = "ruff-format";
-              entry = "uv run --no-sync ruff format --force-exclude";
+              entry = "${config.uv2nix.defaultVenv}/bin/ruff format --force-exclude";
               language = "system";
               types_or = [
                 "python"
@@ -108,7 +108,18 @@
             uv-lock = {
               enable = true;
               name = "uv-lock";
-              entry = "uv lock --check";
+              # By store path, and told which interpreter to evaluate markers
+              # with, because the check derivation this also runs in has
+              # neither uv on `PATH` nor anything to discover a python from.
+              # `--offline` because it has no network either. The lock
+              # carries what verifying it needs.
+              entry = lib.concatStringsSep " " [
+                "env"
+                "UV_PYTHON=${config.uv2nix.python.interpreter}"
+                "UV_PYTHON_DOWNLOADS=never"
+                (lib.getExe pkgs.uv)
+                "lock --check --offline"
+              ];
               language = "system";
               files = "^(pyproject\\.toml|uv\\.lock|uv\\.toml)$";
               pass_filenames = false;
@@ -120,7 +131,13 @@
       # `nix fmt` runs every hook over the whole tree and lets the fixers
       # write to it, the same thing the git hook does on a commit.
       formatter = pkgs.writeShellScriptBin "pre-commit-run" ''
-        ${lib.getExe config.pre-commit.settings.package} run --all-files \
+        # `nix fmt` forwards the paths it was given, and means the whole tree
+        # when given none.
+        if [ "$#" -gt 0 ]; then
+          exec ${lib.getExe config.pre-commit.settings.package} run --files "$@" \
+            --config ${config.pre-commit.settings.configFile}
+        fi
+        exec ${lib.getExe config.pre-commit.settings.package} run --all-files \
           --config ${config.pre-commit.settings.configFile}
       '';
     };

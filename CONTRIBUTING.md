@@ -15,34 +15,52 @@ may be discussed.
 
 ## Setting up the dev environment
 
-Clone the repository, enter the dev shell, and sync the full Python environment
-(runtime extras + dev tooling + docs toolchain):
+Clone the repository and enter the dev shell:
 
 ```bash
 git clone https://github.com/yeetypete/vision3d.git
 cd vision3d
 nix develop  # or `direnv allow`, once
-uv sync --all-extras --all-groups
 ```
 
-Nix supplies the system toolchain. `uv` still manages the Python
-environment. The toolkit is always present, but a GPU may not be, so the shell
-exports `FORCE_CUDA=1` to compile the CUDA sources either way, and
+The shell holds the full Python environment (runtime extras + dev tooling +
+docs toolchain), which [uv2nix](https://pyproject-nix.github.io/uv2nix/) builds
+from `uv.lock`. vision3d itself is installed editable. Entering the shell
+compiles the extension into the source tree. After changing a dependency,
+relock with `uv lock` and re-enter the shell.
+
+The toolkit is always present, but a GPU may not be, so the shell exports
+`FORCE_CUDA=1` to compile the CUDA sources either way, and
 `TORCH_CUDA_ARCH_LIST` to explicitely set the CUDA architectures to build for.
-See `cudaCapabilities` and `cudaForwardCompat` in [`flake.nix`](./flake.nix).
+See `cudaCapabilities` and `cudaForwardCompat` in [`nix/cuda.nix`](./nix/cuda.nix).
 
-### Using a different CUDA toolkit version
+### Torch and CUDA variants
 
-The toolkit that builds the extension must be the one torch was built against.
-torch warns when the minors differ and fails across majors. The shell keeps them
-aligned by setting `UV_INDEX` to the PyTorch wheel index for its toolkit, and
-`uv.lock` pins a torch from that index.
-
-To switch toolkits, change `cuda` in [`flake.nix`](./flake.nix), re-enter the
-shell, and relock:
+The toolkit that builds the extension must be the one torch was built against,
+so each dev shell pairs a toolkit with a torch build. `variants` in
+[`nix/cuda.nix`](./nix/cuda.nix) lists the pairs and `pyproject.toml` carries a
+dependency group per pair. Each shell holds the environment resolved for its own
+group, so the torch in it is always the one its toolkit pairs with. To switch to
+a different pair, enter a different shell:
 
 ```bash
-uv lock --upgrade-package torch --upgrade-package torchvision
+nix develop .#torch210-cu128  # or .#torch211-cu130, .#torch212-cu130, .#torch213-cu130
+```
+
+CI runs the test suite in every variant. A plain `nix develop` gives the newest
+pair (`torch213-cu130`).
+
+To add or move a pair, edit `variants`, add the matching group to
+`pyproject.toml`, and relock with `uv lock`.
+
+### Checks
+
+Everything CI runs, except the docs, is a flake check: the CPU suite in each
+variant, `pyrefly`, `clang-tidy`, and the git hooks.
+
+```bash
+nix flake check                              # all of them
+nix build .#checks.x86_64-linux.clang-tidy   # one of them
 ```
 
 ## Project commands
@@ -68,10 +86,6 @@ To run every hook over the whole tree:
 nix fmt
 ```
 
-Some hooks shell out to `uv run`, so they need a synced environment and cannot
-run under `nix flake check`, which builds in a sandbox with no network. Use
-`nix fmt` or the git hook instead.
-
 ## Linting, formatting, and type checking
 
 We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting,
@@ -79,18 +93,21 @@ We use [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting,
 [`clang-tidy`](https://clang.llvm.org/extra/clang-tidy/) for C++/CUDA.
 All of them run in CI and must be clean on a PR.
 
-`just lint` syncs the environment, then runs `pyrefly` and `clang-tidy` over the
-whole project:
+`just lint` runs `pyrefly` and `clang-tidy` over the whole project, the same
+way the checks of those names do:
 
 ```bash
 just lint                       # from the dev shell
 nix develop --command just lint # or from outside it
 ```
 
+clang-tidy analyses against the GCC and libc headers the extension is compiled
+with, named by `clangToolchainArgs` in [`nix/cuda.nix`](./nix/cuda.nix).
+
 You may also run any of them directly:
 
 ```bash
-uv run pyrefly check          # type check
+pyrefly check                 # type check
 just tidy                     # clang-tidy
 ```
 
@@ -115,8 +132,8 @@ C++ and CUDA. The native sources live under `src/vision3d/ops/csrc/`. The
 extension is built by `setup.py` via
 [`torch.utils.cpp_extension`](https://pytorch.org/docs/stable/cpp_extension.html).
 
-Editing any C++ or CUDA source rebuilds the extension on the next sync. If a
-change does not seem to have been picked up, sync explicitly:
+An editable install points at the sources, so a changed C++ or CUDA source has
+to be compiled into the tree again. To do it manually run:
 
 ```bash
 just sync
@@ -200,9 +217,10 @@ To produce the artifacts locally:
 just wheel
 ```
 
-This builds the sdist and wheel in the manylinux_2_28 shell against the oldest
-CUDA version we support. To build against a different one, change `cudaWheel`
-in [`flake.nix`](./flake.nix).
+Both are built by the `dist` package, so the recipe only copies them out of the
+store. They are compiled against torch 2.10 and CUDA 12.8, the head of
+`variants` in [`nix/cuda.nix`](./nix/cuda.nix), and the manylinux_2_28
+toolchain in [`nix/manylinux.nix`](./nix/manylinux.nix).
 
 ## License
 

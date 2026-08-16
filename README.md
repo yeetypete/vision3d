@@ -47,42 +47,33 @@ pip install vision3d
 
 ### From source
 
-Clone the repository, enter the dev shell, and sync the environment:
+Clone the repository and enter the dev shell:
 
 ```bash
 git clone https://github.com/yeetypete/vision3d.git
 cd vision3d
 nix develop # or `direnv allow`, once
-uv sync --all-extras
 ```
 
-`nix develop` supplies `uv`, the CUDA toolkit and a matching host compiler from
-the checked-in [flake](https://github.com/yeetypete/vision3d/blob/main/flake.nix),
-so none of them have to be installed
-system-wide. Without Nix, these dependencies need to be installed manually.
+`nix develop` supplies the CUDA toolkit, a matching host compiler, and the
+Python environment itself, built from `uv.lock` by
+[uv2nix](https://pyproject-nix.github.io/uv2nix/) as declared in the checked-in
+[flake](https://github.com/yeetypete/vision3d/blob/main/flake.nix), so none of
+them have to be installed system-wide.
 
-`uv sync` compiles the C++/CUDA extension as part of installing the project,
-targeting the GPUs it can see. See
+Entering the shell compiles the C++/CUDA extension, targeting the GPUs it can
+see. See
 [CONTRIBUTING.md](https://github.com/yeetypete/vision3d/blob/main/CONTRIBUTING.md)
 for how to target a specific GPU on a machine with no GPU.
 
-To produce a wheel locally:
+To produce the release sdist and wheel locally:
 
 ```bash
-uv build
+just wheel
 ```
 
-Inside the dev shell, `uv build` resolves torch from the PyTorch wheel index
-matching the toolkit the shell provides (currently `cu132`), which the shell
-exports as `UV_INDEX`. If you build against a different CUDA version, point uv
-at the matching index instead:
-
-```bash
-uv build --index https://download.pytorch.org/whl/cu128
-```
-
-Replace `cu128` with the CUDA version you are building against, e.g. `cu130`,
-`cu132`.
+Both are built as a nix derivation, against torch 2.10, CUDA 12.8, and the
+manylinux_2_28 toolchain.
 
 ### Extras
 
