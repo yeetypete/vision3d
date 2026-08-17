@@ -34,12 +34,12 @@ help:
 # extension is actually compiled with. `build_ext` writes `$(BUILD)/build.ninja`
 # and `ninja -t compdb` turns it into compile_commands.json.
 compile-db:
-	$(UV) run python setup.py --quiet build_ext --build-temp '$(BUILD)'
+	$(UV) run --no-sync python setup.py --quiet build_ext --build-temp '$(BUILD)'
 	ninja -C '$(BUILD)' -t compdb > '$(DB)'
 
 tidy: compile-db
 	@[ -n "$(TIDY_ARGS)" ] \
-	    || { echo "No CCCL headers found; run '$(UV) sync' first" >&2; exit 1; }
+	    || { echo "No CCCL headers found. Run '$(UV) sync' first" >&2; exit 1; }
 	$(CLANG_TIDY) -quiet -hide-progress -p '$(BUILD)' $(TIDY_ARGS) $(GENCODE_ARGS) \
 	    'src/vision3d/ops/csrc/.*\.(cpp|cu)$$'
 
