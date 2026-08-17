@@ -4,9 +4,6 @@ BUILD := build
 DB := $(BUILD)/compile_commands.json
 UV ?= uv
 CLANG_TIDY ?= run-clang-tidy-22
-# Force CUDA to be enabled for the build, so that the compile database contains
-# the flags for compiling .cu files.
-export FORCE_CUDA ?= 1
 
 # clang cannot parse .cu files against the CCCL a toolkit bundles, so tidy reads
 # the newer one `nvidia-cuda-cccl` installs. See the pin in pyproject.toml.
@@ -20,7 +17,9 @@ TIDY_ARGS := $(foreach d,$(subst :, ,$(CCCL_INCLUDE_DIRS)),-extra-arg-before=-I$
 GENCODE_ARGS = $(addprefix -removed-arg=,\
     $(shell grep -oh -- '-gencode=[^ "]*' $(DB) | sort -u))
 
-.PHONY: help tidy compile-db clean-build
+.NOTPARALLEL:
+
+.PHONY: help tidy compile-db check-cccl clean-build
 
 help:
 	@echo "Targets:"
@@ -33,13 +32,16 @@ help:
 # Generated from a real build, so clang-tidy and clangd see the flags the
 # extension is actually compiled with. `build_ext` writes `$(BUILD)/build.ninja`
 # and `ninja -t compdb` turns it into compile_commands.json.
+compile-db: export FORCE_CUDA ?= 1
 compile-db:
-	$(UV) run python setup.py --quiet build_ext --build-temp '$(BUILD)'
+	$(UV) run --no-sync python setup.py --quiet build_ext --build-temp '$(BUILD)'
 	ninja -C '$(BUILD)' -t compdb > '$(DB)'
 
-tidy: compile-db
+check-cccl:
 	@[ -n "$(TIDY_ARGS)" ] \
-	    || { echo "No CCCL headers found; run '$(UV) sync' first" >&2; exit 1; }
+	    || { echo "No CCCL headers found. Run '$(UV) sync' first" >&2; exit 1; }
+
+tidy: check-cccl compile-db
 	$(CLANG_TIDY) -quiet -hide-progress -p '$(BUILD)' $(TIDY_ARGS) $(GENCODE_ARGS) \
 	    'src/vision3d/ops/csrc/.*\.(cpp|cu)$$'
 
