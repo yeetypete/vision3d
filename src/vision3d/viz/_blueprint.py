@@ -16,6 +16,7 @@ def camera_grid(
     *,
     entity_prefix: str = "world/cam",
     overlay_entities: Sequence[str] | None = ("world/gt/boxes", "world/pred/boxes"),
+    max_columns: int = 3,
 ) -> rrb.Grid:
     """Build a 2D camera-panel grid from a dataset's rig metadata.
 
@@ -29,8 +30,10 @@ def camera_grid(
     Args:
         camera_names: Per-camera display names indexed by tensor position.
         grid: Row-major grid of indices into ``camera_names``. ``None`` if
-            the dataset hasn't declared a rig layout. Falls back to a single
-            row in tensor order.
+            the dataset hasn't declared a rig layout, in which case the panels
+            are wrapped into rows of at most ``max_columns`` in tensor order.
+        max_columns: Row width of the fallback layout used when ``grid`` is
+            ``None``. Ignored when ``grid`` is given.
         entity_prefix: Prefix for camera entity origins (e.g. ``"world/cam"``
             -> ``/world/cam_0``, ``/world/cam_1`` ...).
         overlay_entities: Box entities to overlay on every camera panel
@@ -44,12 +47,21 @@ def camera_grid(
         :class:`~rerun.blueprint.Spatial2DView` per declared camera.
 
     Raises:
-        ValueError: If any index is out of range for ``camera_names``.
+        ValueError: If any index is out of range for ``camera_names``, or if
+            ``max_columns`` is not positive.
     """
+    if max_columns < 1:
+        msg = f"max_columns must be >= 1, got {max_columns}."
+        raise ValueError(msg)
     if grid is None:
-        grid = (tuple(range(len(camera_names))),)
+        indices = range(len(camera_names))
+        grid = tuple(
+            tuple(indices[start : start + max_columns])
+            for start in range(0, len(camera_names), max_columns)
+        )
 
-    cols = max(len(row) for row in grid)
+    # ``default`` covers a rig with no cameras, whose grid has no rows at all.
+    cols = max((len(row) for row in grid), default=0)
     overlays = list(overlay_entities or ())
 
     # Box overlays are rendered as wireframes so filled faces don't occlude
@@ -106,6 +118,7 @@ def fusion_layout(
     entity_prefix: str = "world",
     row_shares: Sequence[int] = (3, 2),
     name: str | None = None,
+    max_columns: int = 3,
 ) -> rrb.Vertical:
     """Build a fusion-sample layout with a 3D view above a camera grid.
 
@@ -124,6 +137,8 @@ def fusion_layout(
             ``/{entity_prefix}/pred/boxes``.
         row_shares: Vertical split ratio between the 3D view and camera grid.
         name: Optional display name.
+        max_columns: Fallback row width when ``grid`` is ``None``. See
+            :func:`camera_grid`.
 
     Returns:
         A :class:`~rerun.blueprint.Vertical` container stacking the 3D view
@@ -139,6 +154,7 @@ def fusion_layout(
                 f"{entity_prefix}/gt/boxes",
                 f"{entity_prefix}/pred/boxes",
             ),
+            max_columns=max_columns,
         ),
         row_shares=list(row_shares),
         name=name,
