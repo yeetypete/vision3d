@@ -33,7 +33,7 @@ from vision3d.datasets.nuscenes import (
     _TEST,
     _TRAIN,
     _VAL,
-    _category_to_detection_name,
+    _get_split_scenes,
     _NuScenesDB,
     _quaternion_to_rotation_matrix,
 )
@@ -58,7 +58,7 @@ def test_category_mapping_unknown_returns_none() -> None:
     # None in our wrapper.
     for cat in ("human.pedestrian.personal_mobility", "vehicle.emergency.ambulance"):
         assert devkit_category_to_detection_name(cat) is None
-        assert _category_to_detection_name(cat) is None
+        assert NuScenes3D.category_map.get(cat) is None
 
 
 @pytest.mark.parametrize(
@@ -74,6 +74,22 @@ def test_category_mapping_unknown_returns_none() -> None:
 )
 def test_splits_match_devkit(ours: tuple[str, ...], theirs: list[str]) -> None:
     assert list(ours) == theirs
+
+
+def test_split_all_skips_scene_filtering() -> None:
+    # ``None`` means "keep every scene", so no scene name is consulted.
+    assert _get_split_scenes("v1.0-mini", "all") is None
+
+
+def test_split_all_accepts_an_unofficial_version() -> None:
+    # A dataset merely in the nuScenes layout names its tables directory
+    # whatever it likes, so ``all`` must not be gated on the version.
+    assert _get_split_scenes("v1.0-gravis", "all") is None
+
+
+def test_unsupported_split_error_offers_all() -> None:
+    with pytest.raises(ValueError, match="'all'"):
+        _get_split_scenes("v1.0-test", "train")
 
 
 @given(
@@ -131,6 +147,17 @@ def datasets(mini_root: Path) -> dict[str, NuScenes3D]:
         split: NuScenes3D(mini_root, version="v1.0-mini", split=split)
         for split in ("train", "val")
     }
+
+
+def test_split_all_is_every_scene(
+    mini_root: Path, datasets: dict[str, NuScenes3D]
+) -> None:
+    """``all`` covers the union of the official splits, with nothing left over."""
+    everything = NuScenes3D(mini_root, version="v1.0-mini", split="all")
+    assert len(everything) == len(datasets["train"]) + len(datasets["val"])
+    assert set(everything._sample_tokens) == set(
+        datasets["train"]._sample_tokens
+    ) | set(datasets["val"]._sample_tokens)
 
 
 @pytest.mark.parametrize(

@@ -1309,7 +1309,10 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     Args:
         root (str or pathlib.Path): Root directory of the nuScenes dataset.
         version (str): Dataset version. Default: ``"v1.0-mini"``.
-        split (str): One of ``"train"`` or ``"val"``. Default: ``"train"``.
+        split (str): One of ``"train"`` or ``"val"``, or ``"all"`` for every
+            scene in the tables. ``"all"`` is what a dataset merely *in* the
+            nuScenes layout needs, since its scene names appear in none of the
+            official split lists. Default: ``"train"``.
         transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
         num_sweeps (int): Number of lidar sweeps to aggregate into each sample,
@@ -1344,6 +1347,11 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
     classes: ClassVar[tuple[str, ...]] = _DETECTION_NAMES
     class_to_idx: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(classes)}
+    # Fine-grained ``category.name`` -> entry of ``classes``. Categories absent from
+    # the mapping are skipped, which is how nuScenes drops the 13 of its 23 that are
+    # not part of the detection task. A dataset in the nuScenes layout that annotates
+    # with its own category names overrides this alongside ``classes``.
+    category_map: ClassVar[dict[str, str]] = _CATEGORY_TO_DETECTION
 
     data_url: ClassVar[str] = "https://www.nuscenes.org/data/"
     mini_archive: ClassVar[str] = "v1.0-mini.tgz"
@@ -1377,11 +1385,11 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
         self._nusc = _NuScenesDB(dataroot=self.root, version=version)
 
-        # Collect sample tokens for the requested split
+        # Collect sample tokens for the requested split. ``None`` means every scene.
         split_scenes = _get_split_scenes(version, split)
         self._sample_tokens: list[str] = []
         for scene in self._nusc.scene:
-            if scene["name"] in split_scenes:
+            if split_scenes is None or scene["name"] in split_scenes:
                 token = scene["first_sample_token"]
                 while token:
                     self._sample_tokens.append(token)
@@ -1594,7 +1602,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
         for ann_token in sample["anns"]:
             ann = self._nusc.get("sample_annotation", ann_token)
-            det_name = _category_to_detection_name(ann["category_name"])
+            det_name = self.category_map.get(ann["category_name"])
             if det_name is None:
                 continue
             label_ids.append(self.class_to_idx[det_name])
@@ -1640,29 +1648,26 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         }
 
 
-def _category_to_detection_name(category_name: str) -> str | None:
-    """Map a fine-grained nuScenes category to a detection class.
+def _get_split_scenes(version: str, split: str) -> frozenset[str] | None:
+    """Return the set of scene names for ``(version, split)``.
 
     Returns:
-        The detection class name, or ``None`` for categories that are not
-        part of the detection task (e.g. ``human.pedestrian.personal_mobility``,
-        ``vehicle.emergency.*``).
-    """
-    return _CATEGORY_TO_DETECTION.get(category_name)
-
-
-def _get_split_scenes(version: str, split: str) -> frozenset[str]:
-    """Return the set of scene names for ``(version, split)``.
+        The scene names to keep, or ``None`` for ``split="all"``, meaning every
+        scene in the tables. ``"all"`` is accepted for any ``version``, since a
+        dataset in the nuScenes layout need not be nuScenes itself and so need
+        not use one of the official version names either.
 
     Raises:
         ValueError: If the version/split combination is not supported.
     """
+    if split == "all":
+        return None
     if version not in _VERSION_SPLITS:
         msg = f"Unsupported version: {version!r}"
         raise ValueError(msg)
     split_map = _VERSION_SPLITS[version]
     if split not in split_map:
-        valid = ", ".join(repr(k) for k in split_map)
+        valid = ", ".join(repr(k) for k in (*split_map, "all"))
         msg = f"Unsupported split {split!r} for version {version!r}. Valid combinations are: {valid}"
         raise ValueError(msg)
     return frozenset(split_map[split])
