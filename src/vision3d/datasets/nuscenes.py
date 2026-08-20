@@ -1345,7 +1345,6 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     )
 
     classes: ClassVar[tuple[str, ...]] = _DETECTION_NAMES
-    class_to_idx: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(classes)}
     # Fine-grained ``category.name`` to ``classes`` entry. Unmapped
     # categories are skipped when loading annotations.
     category_map: ClassVar[dict[str, str]] = _CATEGORY_TO_DETECTION
@@ -1364,6 +1363,12 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     ) -> None:
         if num_sweeps < 1:
             raise ValueError(f"num_sweeps must be >= 1, got {num_sweeps}.")
+        self.class_to_idx = {name: i for i, name in enumerate(self.classes)}
+        unknown = sorted(set(self.category_map.values()) - set(self.class_to_idx))
+        if unknown:
+            raise ValueError(
+                f"category_map maps to names missing from classes: {unknown}."
+            )
         self.root = Path(root)
         self.version = version
         self.split = split
