@@ -1309,10 +1309,9 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     Args:
         root (str or pathlib.Path): Root directory of the nuScenes dataset.
         version (str): Dataset version. Default: ``"v1.0-mini"``.
-        split (str): One of ``"train"`` or ``"val"``, or ``"all"`` for every
-            scene in the tables. ``"all"`` is what a dataset merely *in* the
-            nuScenes layout needs, since its scene names appear in none of the
-            official split lists. Default: ``"train"``.
+        split (str): One of ``"train"``, ``"val"``, or ``"test"``, depending on
+            ``version``, or ``"all"`` for every scene in the tables.
+            Default: ``"train"``.
         transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
         num_sweeps (int): Number of lidar sweeps to aggregate into each sample,
@@ -1347,10 +1346,8 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
     classes: ClassVar[tuple[str, ...]] = _DETECTION_NAMES
     class_to_idx: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(classes)}
-    # Fine-grained ``category.name`` -> entry of ``classes``. Categories absent from
-    # the mapping are skipped, which is how nuScenes drops the 13 of its 23 that are
-    # not part of the detection task. A dataset in the nuScenes layout that annotates
-    # with its own category names overrides this alongside ``classes``.
+    # Fine-grained ``category.name`` to ``classes`` entry. Unmapped
+    # categories are skipped when loading annotations.
     category_map: ClassVar[dict[str, str]] = _CATEGORY_TO_DETECTION
 
     data_url: ClassVar[str] = "https://www.nuscenes.org/data/"
@@ -1385,7 +1382,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
         self._nusc = _NuScenesDB(dataroot=self.root, version=version)
 
-        # Collect sample tokens for the requested split. ``None`` means every scene.
+        # Collect sample tokens for the requested split
         split_scenes = _get_split_scenes(version, split)
         self._sample_tokens: list[str] = []
         for scene in self._nusc.scene:
@@ -1653,13 +1650,13 @@ def _get_split_scenes(version: str, split: str) -> frozenset[str] | None:
 
     Returns:
         The scene names to keep, or ``None`` for ``split="all"``, meaning every
-        scene in the tables. ``"all"`` is accepted for any ``version``, since a
-        dataset in the nuScenes layout need not be nuScenes itself and so need
-        not use one of the official version names either.
+        scene in the tables.
 
     Raises:
         ValueError: If the version/split combination is not supported.
     """
+    # Checked before ``version``, so that datasets merely laid out like
+    # nuScenes may use a version name of their own.
     if split == "all":
         return None
     if version not in _VERSION_SPLITS:

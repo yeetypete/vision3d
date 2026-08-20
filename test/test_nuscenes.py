@@ -27,7 +27,6 @@ from pyquaternion import Quaternion
 
 from vision3d.datasets import NuScenes3D
 from vision3d.datasets.nuscenes import (
-    _CATEGORY_TO_DETECTION,
     _MINI_TRAIN,
     _MINI_VAL,
     _TEST,
@@ -49,7 +48,7 @@ def test_detection_names_match_devkit() -> None:
 
 def test_category_mapping_matches_devkit() -> None:
     # Every key/value in our inlined mapping must agree with the devkit.
-    for cat, det in _CATEGORY_TO_DETECTION.items():
+    for cat, det in NuScenes3D.category_map.items():
         assert devkit_category_to_detection_name(cat) == det
 
 
@@ -76,15 +75,10 @@ def test_splits_match_devkit(ours: tuple[str, ...], theirs: list[str]) -> None:
     assert list(ours) == theirs
 
 
-def test_split_all_skips_scene_filtering() -> None:
-    # ``None`` means "keep every scene", so no scene name is consulted.
-    assert _get_split_scenes("v1.0-mini", "all") is None
-
-
-def test_split_all_accepts_an_unofficial_version() -> None:
-    # A dataset merely in the nuScenes layout names its tables directory
-    # whatever it likes, so ``all`` must not be gated on the version.
-    assert _get_split_scenes("v1.0-gravis", "all") is None
+@pytest.mark.parametrize("version", ["v1.0-mini", "v1.0-custom"])
+def test_split_all_skips_scene_filtering(version: str) -> None:
+    # ``None`` means "keep every scene". Unofficial versions are accepted too.
+    assert _get_split_scenes(version, "all") is None
 
 
 def test_unsupported_split_error_offers_all() -> None:
@@ -152,7 +146,7 @@ def datasets(mini_root: Path) -> dict[str, NuScenes3D]:
 def test_split_all_is_every_scene(
     mini_root: Path, datasets: dict[str, NuScenes3D]
 ) -> None:
-    """``all`` covers the union of the official splits, with nothing left over."""
+    """``all`` covers the union of the official splits."""
     everything = NuScenes3D(mini_root, version="v1.0-mini", split="all")
     assert len(everything) == len(datasets["train"]) + len(datasets["val"])
     assert set(everything._sample_tokens) == set(
