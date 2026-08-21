@@ -40,7 +40,7 @@ import rerun as rr
 from mcap_ros2.reader import read_ros2_messages
 
 sys.path.insert(0, str(Path(__file__).parent))
-from mcap_labels import read_from_bag
+from mcap_labels import first_message_time, read_from_bag
 from mcap_source import (
     CameraDecoder,
     TransformTree,
@@ -137,6 +137,47 @@ def log_camera(entity: str, info, tree: TransformTree, time_ns: int) -> bool:
         static=True,
     )
     return True
+
+
+#: Read this much before the requested window so the first keyframe has a pose.
+#: ``/tf`` runs at a few hundred hertz, so this is one chunk's worth of margin.
+TF_PREROLL_NS = 1_000_000_000
+#: ``/tf_static`` is latched -- published once, near the start -- so a windowed
+#: read has to fetch it separately or the transform graph has no fixed edges.
+TF_STATIC_WINDOW_NS = 5_000_000_000
+
+
+def load_static_transforms(bag: Path, tree: TransformTree, start_ns: int) -> int:
+    """Fill ``tree`` with the bag's latched transforms.
+
+    Seeking straight to a window would skip these: the recording carries exactly
+    one ``/tf_static`` message, a fraction of a second in, and without it nothing
+    resolves to the map frame.
+
+    Args:
+        bag: Recording to read.
+        tree: Transform graph to add to.
+        start_ns: The bag's first message time.
+
+    Returns:
+        How many transforms were added.
+    """
+    added = 0
+    for msg in read_ros2_messages(
+        str(bag),
+        topics=["/tf_static"],
+        start_time=start_ns,
+        end_time=start_ns + TF_STATIC_WINDOW_NS,
+    ):
+        for tr in msg.ros_msg.transforms:
+            tree.add(
+                tr.header.frame_id,
+                tr.child_frame_id,
+                stamp_ns(tr.header),
+                transform_matrix(tr.transform.translation, tr.transform.rotation),
+            )
+            added += 1
+    return added
 
 
 def main() -> None:
@@ -268,7 +309,11 @@ def main() -> None:
         if args.color == "camera"
         else {}
     )
-    origin_ns: int | None = None
+    # The bag's own start, not the first message read: with a window the read
+    # begins mid-recording, and progress should still be reported as an offset
+    # into the bag. The annotation topic is excluded because a bag saved by an
+    # older version has a bogus timestamp there.
+    origin_ns = first_message_time(args.bag, exclude=args.annotation_topic)
     last_keyframe_ns = 0
     keyframes = 0
     video_samples = 0
@@ -277,13 +322,34 @@ def main() -> None:
     def elapsed(time_ns: int) -> float:
         return (time_ns - origin_ns) / 1e9
 
-    for msg in read_ros2_messages(str(args.bag), topics=topics):
+    static_edges = load_static_transforms(args.bag, tree, origin_ns)
+    if not static_edges:
+        # Every lookup to the map frame goes through these. Failing here is
+        # silent otherwise -- keyframes just get dropped for want of a transform.
+        print(
+            f"warning: no /tf_static in the first "
+            f"{TF_STATIC_WINDOW_NS / 1e9:.0f}s of {args.bag.name}; "
+            "transforms to the map frame will not resolve"
+        )
+
+    # Seek to the window instead of reading up to it. MCAP keeps a chunk index,
+    # so this is the difference between decompressing the whole recording and
+    # decompressing the part that is wanted.
+    window_start = origin_ns + int(args.start_at * 1e9)
+    read_from = max(origin_ns, window_start - TF_PREROLL_NS)
+    read_to = None if args.all else window_start + int(args.seconds * 1e9)
+    print(
+        f"reading {'to the end' if read_to is None else f'{args.seconds:.0f}s'} "
+        f"from t={args.start_at:.1f}s, {static_edges} static transform(s)"
+    )
+
+    for msg in read_ros2_messages(
+        str(args.bag), topics=topics, start_time=read_from, end_time=read_to
+    ):
         topic = msg.channel.topic
         m = msg.ros_msg
         now = msg.log_time_ns
 
-        if origin_ns is None:
-            origin_ns = now
         seconds = elapsed(now)
         if seconds < args.start_at:
             # Still fill the transform graph, or the first keyframe has no pose.
@@ -298,8 +364,6 @@ def main() -> None:
                         ),
                     )
             continue
-        if not args.all and seconds > args.start_at + args.seconds:
-            break
 
         if topic in ("/tf", "/tf_static"):
             for tr in m.transforms:

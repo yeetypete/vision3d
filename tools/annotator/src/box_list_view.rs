@@ -485,6 +485,19 @@ impl ViewClass for BoxListView {
                             .range(1.0..=600.0)
                             .suffix(" s"),
                     )
+                    .on_hover_text("How much to read")
+                    .changed();
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut options.start_at)
+                            .range(0.0..=3600.0)
+                            .speed(1.0)
+                            .prefix("from "),
+                    )
+                    .on_hover_text(
+                        "Offset into the bag. Seeking there is nearly free -- the \
+                         reader uses the chunk index instead of reading up to it.",
+                    )
                     .changed();
             }
             if changed {

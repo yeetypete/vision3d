@@ -21,10 +21,13 @@ pub struct LoadOptions {
     pub hz: f32,
     /// Past captures kept for the sweeps slider.
     pub sweeps: u32,
-    /// Read to the end of the bag rather than `seconds` from the start.
+    /// Read to the end of the bag rather than `seconds` from `start_at`.
     pub whole: bool,
     /// Length to read when not reading the whole bag.
     pub seconds: f32,
+    /// Offset into the bag to start at, in seconds. Free to change: the reader
+    /// seeks using the bag's chunk index rather than reading up to it.
+    pub start_at: f32,
 }
 
 impl LoadOptions {
@@ -33,6 +36,7 @@ impl LoadOptions {
         sweeps: 5,
         whole: true,
         seconds: 20.0,
+        start_at: 0.0,
     };
 }
 
@@ -108,6 +112,9 @@ fn run_feed(bag: &Path) {
             command.arg("--all");
         } else {
             command.arg("--seconds").arg(options.seconds.to_string());
+        }
+        if options.start_at > 0.0 {
+            command.arg("--start-at").arg(options.start_at.to_string());
         }
         if let Some(root) = repo_root {
             command.current_dir(root);
