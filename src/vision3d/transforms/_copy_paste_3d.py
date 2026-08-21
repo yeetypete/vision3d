@@ -1,8 +1,9 @@
 """3D copy-paste data augmentation with lazy object database."""
 
+import functools
 import math
 from collections import defaultdict, deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, override
 
@@ -12,7 +13,6 @@ import torch.nn.functional as F
 from PIL import Image, ImageDraw
 from torch import Tensor
 from torch.utils._pytree import tree_flatten, tree_unflatten
-from torchvision.tv_tensors import TVTensor
 
 from vision3d.ops import (
     box3d_corners,
@@ -31,6 +31,11 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 from vision3d.transforms._transform import Transform
+from vision3d.transforms._utils import (
+    _default_batch_labels_getter,
+    _parse_labels_getter,
+    _resolve_label_ids,
+)
 
 
 @dataclass
@@ -57,6 +62,7 @@ class ObjectEntry:
             camera-only entries.
         box: Full box tensor ``[K]`` in its original format.
         label: Integer class label.
+        format: The format ``box`` is parameterised in.
         camera_crops: Per-camera crops, or None when no camera data is
             available.  ``camera_crops[i]`` is None if the object is not
             visible in camera ``i``.
@@ -65,6 +71,7 @@ class ObjectEntry:
     points: Tensor | None
     box: Tensor
     label: int
+    format: BoundingBox3DFormat
     camera_crops: list[CameraCrop | None] | None = field(default=None, repr=False)
 
 
@@ -395,6 +402,16 @@ class CopyPaste3D(Transform):
             values raise the chance of placing a genuinely jittered object in a
             crowded scene. Ignored when jittering is disabled. Default: ``5``.
         p: Probability of applying the augmentation. Default: ``1.0``.
+        labels_getter: How to locate each sample's per-box label tensor. Pass a
+            callable that takes the batch and returns the label tensors stored in
+            it, one per sample, as a tuple or list. The returned tensors must be
+            the exact objects stored in the batch, not copies or views, since
+            labels are matched to their leaf by identity. Alternatively, pass the
+            string ``"default"`` (the default) to use the built-in heuristic,
+            which collects each sample's labels from a case-insensitive
+            ``"labels"`` key anywhere in the batch structure, or ``None`` for a
+            batch that carries no labels. Plain tensors that are not labels pass
+            through untouched.
     """
 
     def __init__(
@@ -406,6 +423,7 @@ class CopyPaste3D(Transform):
         offset_std: _OffsetStd = None,
         max_jitter_attempts: int = 5,
         p: float = 1.0,
+        labels_getter: str | Callable[[Any], Any] | None = "default",
     ) -> None:
         super().__init__()
         if not (0.0 <= p <= 1.0):
@@ -439,9 +457,15 @@ class CopyPaste3D(Transform):
         self.max_jitter_attempts = max_jitter_attempts
         self._jitter = any(r != (0.0, 0.0) for r in self.offset_range)
         self.p = p
+        self.labels_getter = labels_getter
+        self._labels_getter = _parse_labels_getter(
+            labels_getter, default=_default_batch_labels_getter
+        )
 
+        # functools.partial rather than a lambda so the transform stays
+        # pickleable, which torch.save and DataLoader's spawn start method need.
         self._database: dict[int, deque[ObjectEntry]] = defaultdict(
-            lambda: deque(maxlen=self.max_database_size)
+            functools.partial(deque, maxlen=self.max_database_size)
         )
 
     @override
@@ -451,15 +475,35 @@ class CopyPaste3D(Transform):
         Accepts any pytree structure containing
         :class:`~vision3d.tensors.PointCloud3D`,
         :class:`~vision3d.tensors.BoundingBoxes3D`, and optionally camera
-        tensors and plain-tensor labels.
+        tensors and per-box labels located via ``labels_getter``.
 
         Returns:
             The same pytree structure with modified leaves.
-        """
-        flat_inputs, spec = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
+
+        Raises:
+            ValueError: If called with no inputs. If the objects already in the
+                database were stored in a different box format than the sample.
+            TypeError: If the batch does not hold one leaf of each type per
+                sample.
+        """  # noqa: DOC502
+        # forward is hand-rolled because labels are plain tensors with no
+        # distinguishing type, so they can only be located via ``labels_getter``
+        # against the nested structure which is gone once the tree is flattened.
+        self._require_inputs(inputs)
+        inputs = inputs if len(inputs) > 1 else inputs[0]
+        flat_inputs, spec = tree_flatten(inputs)
         self.check_inputs(flat_inputs)
 
-        batch_inputs, batch_targets = self._extract_samples(flat_inputs)
+        # Only look for labels when there are boxes to pair them with, since the
+        # default getter raises rather than returning nothing. Walking
+        # ``flat_inputs`` puts them in the order ``_extract_samples`` bins boxes.
+        labels: tuple[Tensor, ...] = ()
+        if any(isinstance(inpt, BoundingBoxes3D) for inpt in flat_inputs):
+            label_ids = _resolve_label_ids(
+                self._labels_getter(inputs), flat_inputs, None
+            )
+            labels = tuple(leaf for leaf in flat_inputs if id(leaf) in label_ids)
+        batch_inputs, batch_targets = self._extract_samples(flat_inputs, labels)
 
         for inp, tgt in zip(batch_inputs, batch_targets):
             self._extract_objects(inp, tgt)
@@ -467,20 +511,43 @@ class CopyPaste3D(Transform):
         if torch.rand(1).item() >= self.p:
             return tree_unflatten(flat_inputs, spec)
 
-        output_inputs = []
-        output_targets = []
+        # Map each replaced leaf to its new value by identity, so writing the
+        # results back never depends on where the leaf sat in the structure.
+        replacements: dict[int, Any] = {}
         for inp, tgt in zip(batch_inputs, batch_targets):
             new_inp, new_tgt = self._paste_objects(inp, tgt)
-            output_inputs.append(new_inp)
-            output_targets.append(new_tgt)
+            for old, new in ((inp, new_inp), (tgt, new_tgt)):
+                for key, old_leaf in old.items():
+                    new_leaf = new.get(key)
+                    if new_leaf is not None and new_leaf is not old_leaf:
+                        replacements[id(old_leaf)] = new_leaf
 
-        self._insert_outputs(flat_inputs, output_inputs, output_targets)
-        return tree_unflatten(flat_inputs, spec)
+        params = {"replacements": replacements}
+        flat_outputs = [self.transform(inpt, params) for inpt in flat_inputs]
+        return tree_unflatten(flat_outputs, spec)
+
+    @override
+    def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
+        """Swap in a leaf's pasted replacement, if it has one.
+
+        Returns:
+            The replacement built for this leaf, or ``inpt`` unchanged.
+        """
+        return params["replacements"].get(id(inpt), inpt)
 
     def _extract_samples(
-        self, flat_inputs: list[Any]
+        self, flat_inputs: list[Any], labels: tuple[Tensor, ...]
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Group flat pytree leaves into per-sample input and target dicts.
+
+        Leaves are binned by type in flatten order, then paired positionally:
+        the i-th point cloud belongs to the same sample as the i-th box set. The
+        per-type count check below rejects batches where that does not hold.
+
+        Args:
+            flat_inputs: Leaves from :func:`torch.utils._pytree.tree_flatten`.
+            labels: Per-sample label tensors in sample order, already resolved
+                via ``labels_getter``. Empty when the batch has no labels.
 
         Returns:
             ``(batch_inputs, batch_targets)``: Lists of per-sample dicts.
@@ -493,7 +560,6 @@ class CopyPaste3D(Transform):
         images: list[CameraImages] = []
         extrinsics: list[CameraExtrinsics] = []
         intrinsics: list[CameraIntrinsics] = []
-        labels: list[Tensor] = []
 
         for obj in flat_inputs:
             if isinstance(obj, PointCloud3D):
@@ -506,10 +572,11 @@ class CopyPaste3D(Transform):
                 extrinsics.append(obj)
             elif isinstance(obj, CameraIntrinsics):
                 intrinsics.append(obj)
-            elif isinstance(obj, Tensor) and not isinstance(obj, TVTensor):
-                labels.append(obj)
 
         n = len(boxes)
+        if n == 0:
+            return [], []
+
         has_points = len(points) > 0
         has_cameras = len(images) > 0
         has_labels = len(labels) > 0
@@ -524,11 +591,11 @@ class CopyPaste3D(Transform):
         if has_cameras and len(intrinsics) != n:
             mismatched.append(f"CameraIntrinsics ({len(intrinsics)})")
         if has_labels and len(labels) != n:
-            mismatched.append(f"plain tensors ({len(labels)})")
+            mismatched.append(f"labels tensors ({len(labels)})")
         if mismatched:
             raise TypeError(
-                f"{type(self).__name__}() requires equal sized lists of "
-                f"inputs per sample. Got {n} BoundingBoxes3D but "
+                f"{type(self).__name__}() requires one leaf of each type per "
+                f"sample. Got {n} BoundingBoxes3D but "
                 f"{', '.join(mismatched)}."
             )
 
@@ -551,42 +618,6 @@ class CopyPaste3D(Transform):
             batch_targets.append(tgt)
 
         return batch_inputs, batch_targets
-
-    def _insert_outputs(
-        self,
-        flat_inputs: list[Any],
-        output_inputs: list[dict[str, Any]],
-        output_targets: list[dict[str, Any]],
-    ) -> None:
-        """Replace modified leaves in *flat_inputs* in-place.
-
-        Uses per-type counters to walk through the flat list and replace
-        each leaf with the corresponding value from the output dicts.
-        """
-        c_pts = 0
-        c_img = 0
-        c_box = 0
-        c_lbl = 0
-
-        for i, obj in enumerate(flat_inputs):
-            if isinstance(obj, PointCloud3D):
-                flat_inputs[i] = output_inputs[c_pts]["points"]
-                c_pts += 1
-            elif isinstance(obj, CameraImages):
-                new_img = output_inputs[c_img].get("images")
-                if new_img is not None:
-                    flat_inputs[i] = new_img
-                c_img += 1
-            elif isinstance(obj, BoundingBoxes3D):
-                flat_inputs[i] = output_targets[c_box]["boxes"]
-                c_box += 1
-            elif isinstance(obj, (CameraExtrinsics, CameraIntrinsics)):
-                pass  # never modified by copy-paste
-            elif isinstance(obj, Tensor) and not isinstance(obj, TVTensor):
-                new_lbl = output_targets[c_lbl].get("labels")
-                if new_lbl is not None:
-                    flat_inputs[i] = new_lbl
-                c_lbl += 1
 
     def _has_camera_data(self, inputs: dict[str, Any]) -> bool:
         return "images" in inputs and "extrinsics" in inputs and "intrinsics" in inputs
@@ -632,6 +663,7 @@ class CopyPaste3D(Transform):
                 points=obj_points.detach().cpu() if obj_points is not None else None,
                 box=boxes[j].detach().cpu(),
                 label=label,
+                format=fmt,
                 camera_crops=camera_crops_map.get(j),
             )
             self._database[label].append(entry)
@@ -814,6 +846,10 @@ class CopyPaste3D(Transform):
 
         Returns:
             Modified ``(inputs, targets)`` dicts.
+
+        Raises:
+            ValueError: If a stored object's box format differs from this
+                sample's.
         """
         points = inputs.get("points")
         boxes = targets["boxes"]
@@ -842,6 +878,14 @@ class CopyPaste3D(Transform):
 
             perm = torch.randperm(len(db)).tolist()
             candidates = [db[i] for i in perm[:n_paste]]
+
+            mismatched = next((c for c in candidates if c.format != fmt), None)
+            if mismatched is not None:
+                msg = (
+                    f"Cannot paste an object stored as {mismatched.format.value} "
+                    f"into a sample whose boxes are {fmt.value}."
+                )
+                raise ValueError(msg)
 
             if self._jitter:
                 # Jitter path: place one at a time so each candidate's jittered
