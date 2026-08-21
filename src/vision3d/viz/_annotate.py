@@ -330,7 +330,7 @@ def log_labels(
     records: list[dict],
     classes: dict[str, int],
     *,
-    fill_mode: rr.components.FillModeLike | None = "majorwireframe",
+    fill_mode: rr.components.FillModeLike | None = None,
 ) -> int:
     """Re-log exported annotations as editable boxes.
 
@@ -344,7 +344,12 @@ def log_labels(
         entity_prefix: Where boxes live (e.g. ``"world/annotations"``).
         records: Rows from :func:`load_labels`.
         classes: Class name to id, for the annotation context.
-        fill_mode: Box fill mode.
+        fill_mode: Box fill mode. Left unset by default, which is what a box
+            created in the annotator carries -- the viewer then falls back to
+            ``TransparentFillMajorWireframe``. Forcing a wireframe here leaves
+            the box with no face for the picker to hit, so a reloaded box could
+            not be dragged in the 3D view; the fill is transparent, so it does
+            not hide the points either way.
 
     Returns:
         The number of boxes logged.
@@ -669,7 +674,7 @@ def log_boxes_3d_editable(
     class_ids: list[int] | None = None,
     label_to_id: dict[str, int] | None = None,
     box_ids: list[str] | None = None,
-    fill_mode: rr.components.FillModeLike | None = "majorwireframe",
+    fill_mode: rr.components.FillModeLike | None = None,
 ) -> list[str]:
     """Log 3D boxes one entity per box so the annotator can edit them singly.
 
@@ -692,8 +697,11 @@ def log_boxes_3d_editable(
         box_ids: Stable per-box identifiers used as the entity leaf name. These
             are the annotator's notion of object identity across frames, so
             they should be stable over time. Defaults to ``"box_0"``, ``"box_1"``…
-        fill_mode: Box fill mode. Wireframe by default, since filled boxes
-            obscure the points you are annotating against.
+        fill_mode: Box fill mode. Left unset by default, so the viewer's
+            ``TransparentFillMajorWireframe`` applies -- the same thing a box
+            created in the annotator gets. A wireframe-only box has no face for
+            the picker, which makes it undraggable in a 3D view, and the default
+            fill is transparent, so it does not obscure the points either.
 
     Returns:
         The entity path of every box that was logged, in input order.
