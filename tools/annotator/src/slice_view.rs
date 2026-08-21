@@ -242,24 +242,9 @@ impl<A: AxisMarker> ViewClass for BoxSliceView<A> {
         let axis = A::AXIS;
         let (iu, iv, in_) = axis.axes();
 
-        // The cloud is in ego coordinates and the box in map coordinates. Bring
-        // the box into ego so the per-point maths below is unchanged, and convert
-        // back when writing. Converting the box is one matrix multiply; converting
-        // the cloud would be one per point, per view, per frame.
-        let map_from_ego = re_view_spatial_fork::frames::map_from_ego(ctx);
-        let ego_from_map = map_from_ego.inverse();
-        let active_bbox = {
-            let (center, rotation) = re_view_spatial_fork::frames::transform_pose(
-                ego_from_map,
-                active.bbox.center,
-                active.bbox.rotation,
-            );
-            Box9Dof {
-                center,
-                rotation,
-                half_size: active.bbox.half_size,
-            }
-        };
+        // Sweeps and boxes are both stored in the map frame, so these views need
+        // no conversion: the anchor and the points already share a frame.
+        let active_bbox = active.bbox;
 
         // Freeze the view frame while dragging so the box visibly moves.
         let anchor = match &state.drag {
@@ -291,7 +276,7 @@ impl<A: AxisMarker> ViewClass for BoxSliceView<A> {
 
         // --- points -------------------------------------------------------
         // Honour the sweeps slider: these views paint their own points, so the
-        // zero-radius trick used for the 3D view has no effect here.
+        // zero-radius trick the 3D view relies on has no effect here.
         let visible: Vec<&SlicePoints> = clouds
             .iter()
             .filter(|cloud| crate::settings::cloud_visible(&cloud.entity))
@@ -439,22 +424,7 @@ impl<A: AxisMarker> ViewClass for BoxSliceView<A> {
             );
 
             if edited != active_bbox {
-                // Back to map, the frame annotations are stored in.
-                let (center, rotation) = re_view_spatial_fork::frames::transform_pose(
-                    map_from_ego,
-                    edited.center,
-                    edited.rotation,
-                );
-                write_box(
-                    ctx,
-                    query,
-                    &drag.entity,
-                    &Box9Dof {
-                        center,
-                        rotation,
-                        half_size: edited.half_size,
-                    },
-                );
+                write_box(ctx, query, &drag.entity, &edited);
             }
         }
 

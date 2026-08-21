@@ -87,6 +87,9 @@ pub struct BoxListState {
     ontology_key: Option<RowId>,
     /// Class assigned to the next created box.
     new_class: Option<u16>,
+    /// How many point clouds the display settings were last applied to, so a
+    /// cloud that appears later still picks them up.
+    applied_clouds: usize,
     /// Copied box shape and class. Position is not copied: a paste lands under
     /// the pointer, or clear of the original when there is nowhere to point.
     clipboard: Option<(Box9Dof, Option<u16>)>,
@@ -396,9 +399,18 @@ impl ViewClass for BoxListView {
         }
 
         let clouds = point_clouds(ctx, query);
+
+        // A feed keeps adding sweep entities as it streams, and each arrives
+        // carrying the radius it was logged with. Re-apply so the settings hold
+        // for everything on screen, not just what existed when the slider moved.
+        if clouds.len() != state.applied_clouds {
+            state.applied_clouds = clouds.len();
+            set_point_radius_on_clouds(ctx, query, crate::settings::point_radius());
+        }
+
         let max_sweeps = clouds
             .iter()
-            .filter_map(|(_, sweep)| *sweep)
+            .filter_map(crate::settings::sweep_index)
             .max()
             .map_or(0, |k| k + 1);
         if max_sweeps > 1 {
@@ -518,25 +530,48 @@ impl ViewClass for BoxListView {
 /// Entities are discovered rather than hard-coded so that a cloud split across
 /// several entities -- one per lidar sweep, say -- is all covered.
 fn set_point_radius_on_clouds(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>, radius: f32) {
-    let sweeps_shown = crate::settings::sweeps_shown();
-    for (path, sweep) in point_clouds(ctx, query) {
-        // Sweeps beyond the slider are collapsed to zero radius rather than
-        // hidden: hiding an entity means writing a blueprint override per view,
-        // and a panel only knows its own view id.
-        let hidden = sweep.is_some_and(|k| k >= sweeps_shown);
-        let archetype = rerun::Points3D::update_fields()
-            .with_radii([if hidden { 0.0 } else { radius }]);
-        append(ctx, query, &path, &archetype);
+    let shown = crate::settings::sweeps_shown();
+    for path in point_clouds(ctx, query) {
+        // Sweeps past the slider collapse to zero radius rather than being
+        // hidden: hiding an entity needs a blueprint override per view, and a
+        // panel only knows its own view id.
+        let hidden = crate::settings::sweep_index(&path).is_some_and(|k| k >= shown);
+        let archetype =
+            rerun::Points3D::update_fields().with_radii([if hidden { 0.0 } else { radius }]);
+        // Static, not at the current time: these are display settings, and the
+        // feed re-logs `radii` on every keyframe, so a temporal write would only
+        // hold until the next one. Static data outranks temporal for the same
+        // component, so one write covers every frame, played or scrubbed.
+        append_static(ctx, &path, &archetype);
     }
 }
 
-/// Entities holding point data under the view origin, with their sweep index if
-/// they follow the `sweep_<k>` naming the feed uses.
+/// Append one row for `entity` with no timeline, so it applies at all times.
+fn append_static(
+    ctx: &ViewerContext<'_>,
+    entity: &EntityPath,
+    archetype: &dyn rerun::AsComponents,
+) {
+    match Chunk::builder(entity.clone())
+        .with_archetype_auto_row(TimePoint::STATIC, archetype)
+        .build()
+    {
+        Ok(chunk) => ctx
+            .command_sender()
+            .send_system(SystemCommand::AppendToStore(
+                ctx.store_id().clone(),
+                vec![chunk],
+            )),
+        Err(err) => re_log::error_once!("failed to build display-setting chunk: {err}"),
+    }
+}
+
+/// Entities holding point data under the view origin.
 ///
 /// Existence is tested with a batch-aware query: a point cloud is a batch of
 /// thousands of positions, so the mono `latest_at_component` accessor returns
 /// nothing for it and would filter every cloud out.
-fn point_clouds(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>) -> Vec<(EntityPath, Option<u32>)> {
+fn point_clouds(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>) -> Vec<EntityPath> {
     let recording = ctx.recording();
     let at = ctx.current_query();
     let positions = rerun::Points3D::descriptor_positions().component;
@@ -550,7 +585,7 @@ fn point_clouds(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>) -> Vec<(EntityPa
                 .component_batch_raw(positions)
                 .is_some_and(|array| !array.is_empty())
         })
-        .map(|path| (path.clone(), crate::settings::sweep_index(path)))
+        .cloned()
         .collect()
 }
 

@@ -71,6 +71,7 @@ def annotator_layout(
     entity_prefix: str = "world/ego/cam",
     box_entity: str = "world/annotations",
     ego: str = "world/ego",
+    extra_contents: Sequence[str] = ("world/sweeps/**",),
     slice_column_share: float = 1.0,
     list_column_share: float = 0.8,
 ) -> rrb.Blueprint:
@@ -110,6 +111,9 @@ def annotator_layout(
         ego: Entity carrying the ego pose. The 3D view is rooted here, so sensor
             data renders in its raw frame and the view rides with the machine,
             while map-frame annotations are transformed into it.
+        extra_contents: Further entity expressions to include in the 3D view.
+            Anything outside the ego subtree, such as map-frame lidar sweeps,
+            has to be named explicitly.
         slice_column_share: Width share of the right-hand slice column relative
             to the main column, which is fixed at 3.
         list_column_share: Width share of the box-list column.
@@ -143,7 +147,7 @@ def annotator_layout(
                 rrb.View(
                     class_identifier=ANNOTATE_3D_VIEW_CLASS,
                     origin=ego,
-                    contents=[f"{ego}/**", f"{box_entity}/**"],
+                    contents=[f"{ego}/**", f"{box_entity}/**", *extra_contents],
                     name="3D",
                 ),
                 camera_grid(

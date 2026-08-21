@@ -68,11 +68,14 @@ pub fn handle(
         ui.input(|i| (i.key_down(BRUSH_KEY), i.pointer.primary_down()));
     let pointer = response.interact_pointer_pos().or_else(|| response.hover_pos());
 
-    let map_from_ego = crate::frames::map_from_ego(ctx);
+    // Sweeps are stored in map coordinates while the view renders in ego, so the
+    // projection has to fold in ego_from_map. The fitted box then needs no
+    // conversion, being map-framed already.
+    let ego_from_map = crate::frames::map_from_ego(ctx).inverse();
 
     if !key_down {
         // Releasing the key finishes any stroke in flight.
-        finish(map_from_ego);
+        finish();
         return;
     }
 
@@ -104,7 +107,7 @@ pub fn handle(
                 *CLOUD.lock() = gather_visible_points(ctx, query);
             }
             let cloud = CLOUD.lock();
-            *SELECTED.lock() = select_points(&cloud, eye, rect, &stroke);
+            *SELECTED.lock() = select_points(&cloud, eye, rect, ego_from_map, &stroke);
         }
         drop(stroke);
 
@@ -129,12 +132,12 @@ pub fn handle(
 
     if !primary_down {
         // Armed but not pressed: the previous stroke, if any, is done.
-        finish(map_from_ego);
+        finish();
     }
 }
 
 /// Fit whatever was covered, and drop the per-stroke caches.
-fn finish(map_from_ego: glam::Affine3A) {
+fn finish() {
     let had_stroke = !STROKE.lock().is_empty();
     if !had_stroke {
         CLOUD.lock().clear();
@@ -147,11 +150,7 @@ fn finish(map_from_ego: glam::Affine3A) {
     CLOUD.lock().clear();
     SELECTED.lock().clear();
 
-    match fit_yaw_aligned(&picked).map(|fit| {
-        // The fit is in ego coordinates; annotations are stored in map.
-        let (center, rotation) = crate::frames::transform_pose(map_from_ego, fit.center, fit.rotation);
-        FittedBox { center, rotation, ..fit }
-    }) {
+    match fit_yaw_aligned(&picked) {
         Some(fit) => {
             re_log::info!(
                 "brush fitted a box to {} points: size {:?}",
@@ -194,13 +193,12 @@ fn gather_visible_points(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>) -> Vec<
     let at = ctx.current_query();
     let recording = ctx.recording();
 
+    // Not restricted to the view origin: sweeps live in the map frame, outside
+    // the ego subtree this view is rooted at, and filtering by origin left the
+    // brush with nothing to select.
+    let _ = query;
     let mut out = Vec::new();
-    for path in recording
-        .sorted_entity_paths()
-        .filter(|path| path.starts_with(query.space_origin))
-        .cloned()
-        .collect::<Vec<_>>()
-    {
+    for path in recording.sorted_entity_paths().cloned().collect::<Vec<_>>() {
         let results = recording.latest_at(&at, &path, [positions_id, radii_id]);
 
         if results
@@ -223,6 +221,7 @@ fn select_points(
     cloud: &[glam::Vec3],
     eye: &Eye,
     rect: egui::Rect,
+    ego_from_map: glam::Affine3A,
     samples: &[egui::Pos2],
 ) -> Vec<(egui::Pos2, glam::Vec3)> {
     re_tracing::profile_function!();
@@ -235,11 +234,13 @@ fn select_points(
         buckets.entry(key).or_default().push(*s);
     }
 
-    let ui_from_world = eye.ui_from_world(rect);
+    // Fold the frame change into the projection rather than transforming every
+    // point separately.
+    let ui_from_map = eye.ui_from_world(rect) * glam::Mat4::from(ego_from_map);
     let mut picked = Vec::new();
 
     for world in cloud {
-        let clip = ui_from_world * world.extend(1.0);
+        let clip = ui_from_map * world.extend(1.0);
         if clip.w <= 0.0 {
             continue; // behind the eye
         }

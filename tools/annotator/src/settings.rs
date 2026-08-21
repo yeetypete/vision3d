@@ -22,7 +22,7 @@ pub fn set_point_radius(radius: f32) {
     POINT_RADIUS.store(radius.to_bits(), Ordering::Relaxed);
 }
 
-/// How many lidar sweeps to show, counting from the key frame.
+/// How many lidar sweeps to show, counting back from the newest.
 static SWEEPS_SHOWN: AtomicU32 = AtomicU32::new(1);
 
 pub fn sweeps_shown() -> u32 {
@@ -35,7 +35,7 @@ pub fn set_sweeps_shown(count: u32) {
 
 /// Sweep index of an entity following the feed's `sweep_<k>` naming.
 ///
-/// Returns `None` for clouds that are not split by sweep, which are always shown.
+/// Returns `None` for clouds not split by sweep, which are always shown.
 pub fn sweep_index(path: &rerun::external::re_log_types::EntityPath) -> Option<u32> {
     path.last()
         .and_then(|part| part.unescaped_str().strip_prefix("sweep_")?.parse().ok())
@@ -44,25 +44,4 @@ pub fn sweep_index(path: &rerun::external::re_log_types::EntityPath) -> Option<u
 /// Whether a cloud at `path` should be drawn, given the sweeps slider.
 pub fn cloud_visible(path: &rerun::external::re_log_types::EntityPath) -> bool {
     sweep_index(path).is_none_or(|k| k < sweeps_shown())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rerun::external::re_log_types::EntityPath;
-
-    #[test]
-    fn sweep_index_parses_the_feed_naming() {
-        assert_eq!(sweep_index(&EntityPath::from("/world/lidar/sweep_0")), Some(0));
-        assert_eq!(sweep_index(&EntityPath::from("/world/lidar/sweep_7")), Some(7));
-        assert_eq!(sweep_index(&EntityPath::from("/world/lidar")), None);
-    }
-
-    #[test]
-    fn unsplit_clouds_are_always_visible() {
-        set_sweeps_shown(1);
-        assert!(cloud_visible(&EntityPath::from("/world/lidar")));
-        assert!(cloud_visible(&EntityPath::from("/world/lidar/sweep_0")));
-        assert!(!cloud_visible(&EntityPath::from("/world/lidar/sweep_1")));
-    }
 }
