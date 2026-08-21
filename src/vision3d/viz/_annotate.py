@@ -10,10 +10,13 @@ needs:
   the yaw-only subset.
 """
 
+import json
 import math
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
+import numpy as np
 import torch
 from torch import Tensor
 
@@ -39,10 +42,13 @@ __all__ = [
     "boxes_to_map",
     "colorize_points_from_cameras",
     "lidar_to_map",
+    "load_labels",
     "log_boxes_3d_editable",
     "log_ego",
+    "log_labels",
     "log_point_cloud_rgb",
     "log_point_cloud_rgb_by_sweep",
+    "log_source",
     "reserve_box_slots",
 ]
 
@@ -271,6 +277,104 @@ def boxes_to_map(boxes: BoundingBoxes3D, lidar_from_map: Tensor) -> BoundingBoxe
             raw[:, 6] += float(torch.atan2(rot[1, 0], rot[0, 0]))
 
     return BoundingBoxes3D(raw, format=boxes.format)
+
+
+def log_source(path: str, entity: str = "meta/source") -> None:
+    """Record which file this recording came from.
+
+    The annotator writes its sidecar next to this path. Without it the tool has
+    no idea what it is looking at and cannot choose an export location.
+
+    Args:
+        path: Source file, typically the bag.
+        entity: Entity to record it at; must match the annotator's
+            ``export::SOURCE_ENTITY``.
+    """
+    rr.log(entity, rr.TextDocument(str(path)), static=True)
+
+
+def load_labels(path: Path) -> tuple[list[dict], dict[str, int]]:
+    """Read a sidecar written by the annotator.
+
+    Args:
+        path: A ``.labels.jsonl`` file.
+
+    Returns:
+        ``(records, class name to id)``. The class map comes from the header, so
+        reloading cannot silently renumber classes -- ids are baked into the
+        exported records and into every colour derived from them.
+
+    Raises:
+        ValueError: If the header is missing or of an unknown schema.
+    """
+    records: list[dict] = []
+    classes: dict[str, int] = {}
+
+    with path.open() as handle:
+        header = json.loads(handle.readline() or "{}")
+        if not str(header.get("schema", "")).startswith("vision3d.annotations/"):
+            msg = f"{path} has no recognisable annotation header"
+            raise ValueError(msg)
+        for entry in header.get("classes", []):
+            classes[entry["name"]] = entry["id"]
+        for line in handle:
+            line = line.strip()
+            if line:
+                records.append(json.loads(line))
+
+    return records, classes
+
+
+def log_labels(
+    entity_prefix: str,
+    records: list[dict],
+    classes: dict[str, int],
+    *,
+    fill_mode: rr.components.FillModeLike | None = "majorwireframe",
+) -> int:
+    """Re-log exported annotations as editable boxes.
+
+    Track names are preserved exactly, which is what lets a correction session
+    edit the same objects rather than create duplicates alongside them.
+
+    Static records are logged without a timeline, matching how the annotator
+    marks an object that does not move.
+
+    Args:
+        entity_prefix: Where boxes live (e.g. ``"world/annotations"``).
+        records: Rows from :func:`load_labels`.
+        classes: Class name to id, for the annotation context.
+        fill_mode: Box fill mode.
+
+    Returns:
+        The number of boxes logged.
+    """
+    if classes:
+        rr.log(
+            entity_prefix,
+            rr.AnnotationContext([(i, name) for name, i in classes.items()]),
+            static=True,
+        )
+
+    for record in records:
+        path = f"{entity_prefix}/{record['track']}"
+        box = rr.Boxes3D(
+            centers=[record["center"]],
+            half_sizes=[record["half_size"]],
+            quaternions=[rr.Quaternion(xyzw=record["quat"])],
+            class_ids=None if record.get("class_id") is None else [record["class_id"]],
+            labels=None if record.get("class") is None else [record["class"]],
+            fill_mode=fill_mode,
+        )
+        if record.get("static") or record.get("t") is None:
+            rr.log(path, box, static=True)
+        else:
+            # Absolute, matching the feed: a duration index here would place
+            # reloaded boxes 56 years before the point clouds.
+            rr.set_time("time", timestamp=np.datetime64(int(record["t"]), "ns"))
+            rr.log(path, box)
+
+    return len(records)
 
 
 def reserve_box_slots(

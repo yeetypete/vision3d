@@ -40,6 +40,7 @@ import rerun as rr
 from mcap_ros2.reader import read_ros2_messages
 
 sys.path.insert(0, str(Path(__file__).parent))
+from mcap_labels import read_from_bag
 from mcap_source import (
     CameraDecoder,
     TransformTree,
@@ -49,7 +50,13 @@ from mcap_source import (
     transform_matrix,
 )
 
-from vision3d.viz import annotator_layout, reserve_box_slots
+from vision3d.viz import (
+    annotator_layout,
+    load_labels,
+    log_labels,
+    log_source,
+    reserve_box_slots,
+)
 
 DEFAULT_BAG = Path(
     "/home/sschlaepfer/docker-data-exchange/rosbags/rosbag2_2026_08_02-19_29_27_0.mcap"
@@ -140,13 +147,16 @@ def main() -> None:
         "--seconds",
         type=float,
         default=20.0,
-        help="Length of bag to read, from --start-at.",
+        help="Length of bag to read, from --start-at. Ignored with --all.",
+    )
+    parser.add_argument(
+        "--all", action="store_true", help="Read to the end of the bag."
     )
     parser.add_argument(
         "--start-at", type=float, default=0.0, help="Offset into the bag, in seconds."
     )
     parser.add_argument(
-        "--hz", type=float, default=2.0, help="Keyframe rate for lidar and boxes."
+        "--hz", type=float, default=10.0, help="Keyframe rate for lidar and boxes."
     )
     parser.add_argument(
         "--num-sweeps",
@@ -158,6 +168,25 @@ def main() -> None:
         ),
     )
     parser.add_argument("--box-slots", type=int, default=64)
+    parser.add_argument(
+        "--labels",
+        type=Path,
+        default=None,
+        help=(
+            "Annotations to load for correction. Defaults to the bag's sidecar "
+            "(<bag>.labels.jsonl) when one exists."
+        ),
+    )
+    parser.add_argument(
+        "--no-labels",
+        action="store_true",
+        help="Ignore annotations already in the bag or in a sidecar.",
+    )
+    parser.add_argument(
+        "--annotation-topic",
+        default="/annotations/boxes",
+        help="SceneUpdate topic carrying annotations or model predictions.",
+    )
     parser.add_argument("--point-radii", type=float, default=0.04)
     parser.add_argument("--save", type=Path, default=None)
     parser.add_argument(
@@ -194,6 +223,26 @@ def main() -> None:
         rr.AnnotationContext(list(enumerate(ANNOTATION_CLASSES))),
         static=True,
     )
+    # So the annotator knows where to put its sidecar.
+    log_source(str(args.bag))
+
+    if not args.no_labels:
+        # The bag itself comes first: that is where corrections are saved back
+        # to, and where a model's predictions arrive. The sidecar is a fallback
+        # for annotations that have not been written into a recording yet.
+        records, classes = read_from_bag(args.bag, args.annotation_topic)
+        origin = f"{args.bag.name}:{args.annotation_topic}"
+
+        if not records:
+            sidecar = args.labels or args.bag.with_name(f"{args.bag.stem}.labels.jsonl")
+            if sidecar.exists():
+                records, classes = load_labels(sidecar)
+                origin = str(sidecar)
+
+        if records:
+            logged = log_labels(BOX_ENTITY, records, classes)
+            tracks = len({r["track"] for r in records})
+            print(f"loaded {logged} record(s) across {tracks} track(s) from {origin}")
 
     tree = TransformTree()
     video_topics = {
@@ -249,7 +298,7 @@ def main() -> None:
                         ),
                     )
             continue
-        if seconds > args.start_at + args.seconds:
+        if not args.all and seconds > args.start_at + args.seconds:
             break
 
         if topic in ("/tf", "/tf_static"):
@@ -282,7 +331,7 @@ def main() -> None:
             if not args.no_video:
                 # Every sample is logged, not just those at keyframes: an h265
                 # stream is only decodable in order.
-                rr.set_time("time", duration=seconds)
+                rr.set_time("time", timestamp=np.datetime64(now, "ns"))
                 rr.log(
                     f"{CAMERA_PREFIX}_{index}",
                     rr.VideoStream(codec=rr.VideoCodec.H265, sample=sample),
@@ -335,7 +384,10 @@ def main() -> None:
             if views:
                 colors, coverage = colorize_from_cameras(points, views)
 
-        rr.set_time("time", duration=seconds)
+        # Absolute, not relative: the timeline value is what the exporter writes
+        # as a SceneUpdate log time, and a bag start of 1970 makes the recording
+        # unreadable everywhere else.
+        rr.set_time("time", timestamp=np.datetime64(now, "ns"))
         rr.log(
             EGO_ENTITY,
             rr.Transform3D(

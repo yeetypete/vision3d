@@ -11,6 +11,12 @@
 //!           own coordinate frame, where the box is an axis-aligned rectangle that can be
 //!           dragged, resized and rotated with the mouse.
 //!
+//! Launch with a recording, or with none to be asked for one:
+//!
+//! ```text
+//! cargo run -- /path/to/recording.mcap
+//! ```
+//!
 //! The three slice views together cover all 9 degrees of freedom:
 //! translation and size from dragging the rectangle body/edges, and one rotation axis
 //! per view from dragging the rotation handle.
@@ -19,6 +25,8 @@ use rerun::external::{re_crash_handler, re_grpc_server, re_log, re_memory, re_vi
 
 mod box_edit;
 mod box_list_view;
+mod export;
+mod loader;
 mod ontology;
 mod settings;
 mod slice_view;
@@ -85,6 +93,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             re_view_spatial_fork::frames::set_ego_path("world/ego".into());
 
             app.add_log_receiver(rx);
+
+            // The panel that hosts "Open bag…" is a view placed by the
+            // blueprint, and the blueprint arrives with the data -- so a viewer
+            // with nothing loaded has no button to press. Bootstrap it: a path on
+            // the command line loads straight away, otherwise ask for one.
+            match std::env::args().skip(1).find(|a| !a.starts_with('-')) {
+                Some(path) => loader::load_path(path.into()),
+                None => loader::pick_and_load(None),
+            }
+
             Ok(Box::new(app))
         }),
         None,

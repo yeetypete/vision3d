@@ -14,6 +14,8 @@ rerun = { version = "0.36.1", default-features = false, features = [
   "server",
 ] }
 glam = "0.30"
+# Already in the tree via re_tracing; declared here for the file dialog.
+rfd = "0.17"
 # Vendored from rerun 0.36.1 so the 3D view's input handling can be modified;
 # the upstream crate offers no way to intercept it. Re-base on each upgrade.
 re_view_spatial_fork = { path = "vendor/re_view_spatial" }

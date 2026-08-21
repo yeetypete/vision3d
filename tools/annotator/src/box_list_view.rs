@@ -87,6 +87,8 @@ pub struct BoxListState {
     ontology_key: Option<RowId>,
     /// Class assigned to the next created box.
     new_class: Option<u16>,
+    /// Result of the most recent export, shown next to the button.
+    last_export: Option<String>,
     /// How many point clouds the display settings were last applied to, so a
     /// cloud that appears later still picks them up.
     applied_clouds: usize,
@@ -436,6 +438,103 @@ impl ViewClass for BoxListView {
             .weak()
             .small(),
         );
+
+        // --- open / export --------------------------------------------------
+        ui.horizontal(|ui| {
+            let source = crate::export::source_path(ctx);
+
+            if ui
+                .button("Open bag…")
+                .on_hover_text("Load an MCAP recording with the settings beside this button")
+                .clicked()
+            {
+                crate::loader::pick_and_load(
+                    crate::loader::default_dir(source.as_deref()).as_deref(),
+                );
+            }
+
+            // Editable before loading, since re-reading a whole bag to change
+            // them is expensive.
+            let mut options = crate::loader::options();
+            let mut changed = false;
+            changed |= ui
+                .add(
+                    egui::DragValue::new(&mut options.hz)
+                        .range(0.5..=20.0)
+                        .speed(0.5)
+                        .suffix(" Hz"),
+                )
+                .on_hover_text("Keyframe rate; the lidars run at about 10 Hz")
+                .changed();
+            changed |= ui
+                .add(
+                    egui::DragValue::new(&mut options.sweeps)
+                        .range(1..=20)
+                        .prefix("sweeps "),
+                )
+                .on_hover_text("Past captures kept for the sweeps slider")
+                .changed();
+            changed |= ui
+                .checkbox(&mut options.whole, "whole bag")
+                .on_hover_text("Otherwise read only the first stretch")
+                .changed();
+            if !options.whole {
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut options.seconds)
+                            .range(1.0..=600.0)
+                            .suffix(" s"),
+                    )
+                    .changed();
+            }
+            if changed {
+                crate::loader::set_options(options);
+            }
+
+            if let Some(status) = crate::loader::status() {
+                ui.label(egui::RichText::new(status).weak().small());
+            }
+        });
+
+        ui.horizontal(|ui| {
+            let source = crate::export::source_path(ctx);
+            let target = source.as_deref().map(crate::export::sidecar_for);
+
+            let enabled = target.is_some();
+            let hint = match &target {
+                Some(_) => format!(
+                    "Write annotations into {} on /annotations/boxes",
+                    source.as_deref().unwrap_or("the bag")
+                ),
+                None => "The feed did not record a source file to sit next to".to_owned(),
+            };
+
+            if ui
+                .add_enabled(enabled, egui::Button::new("Export labels \u{2192} bag"))
+                .on_hover_text(hint)
+                .clicked()
+                && let (Some(path), Some(source)) = (target, source)
+            {
+                match crate::export::export(ctx, &box_prefix, query.timeline, &ontology, &path) {
+                    Ok(count) => {
+                        state.last_export = Some(format!("{count} records"));
+                        // Straight on into the recording; the sidecar is an
+                        // intermediate, not the deliverable.
+                        crate::export::save_into_bag(&source, &path);
+                    }
+                    Err(err) => {
+                        state.last_export = Some(format!("failed: {err}"));
+                        re_log::error!("annotation export failed: {err}");
+                    }
+                }
+            }
+
+            if let Some(status) = crate::export::save_status() {
+                ui.label(egui::RichText::new(status).weak().small());
+            } else if let Some(status) = &state.last_export {
+                ui.label(egui::RichText::new(status).weak().small());
+            }
+        });
 
         ui.separator();
 
