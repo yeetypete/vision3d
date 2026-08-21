@@ -1,0 +1,26 @@
+[package]
+name = "vision3d-annotator"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT"
+publish = false
+description = "PoC 3D bounding-box annotation tool built on the Rerun viewer"
+
+[dependencies]
+rerun = { version = "0.36.1", default-features = false, features = [
+  "native_viewer",
+  "sdk",
+  "server",
+] }
+glam = "0.30"
+# Vendored from rerun 0.36.1 so the 3D view's input handling can be modified;
+# the upstream crate offers no way to intercept it. Re-base on each upgrade.
+re_view_spatial_fork = { path = "vendor/re_view_spatial" }
+mimalloc = "0.1"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

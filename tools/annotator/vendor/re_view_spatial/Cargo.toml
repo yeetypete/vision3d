@@ -1,0 +1,71 @@
+[package]
+authors = ["vendored from rerun 0.36.1"]
+description = "Views that show entities in a 2D or 3D spatial relationship."
+edition = "2024"
+license = "MIT OR Apache-2.0"
+name = "re_view_spatial_fork"
+publish = false
+readme = "README.md"
+rust-version = "1.96"
+version = "0.36.1"
+
+[features]
+## Enable faster native video decoding with assembly.
+## You need to install [nasm](https://github.com/netwide-assembler/nasm) to compile with this feature.
+nasm = ["re_video/nasm"]
+
+[dependencies]
+
+re_byte_size = { version = "0.36.1", features = ["ecolor", "egui", "glam", "macaw"] }
+re_chunk = "0.36.1"
+re_chunk_store = "0.36.1"
+re_data_ui = "0.36.1"
+re_entity_db = "0.36.1"
+re_error = "0.36.1"
+re_format = "0.36.1"
+re_gamepad = "0.36.1"
+re_int = "0.36.1"
+re_log = "0.36.1"
+re_log_types = "0.36.1"
+re_query = "0.36.1"
+re_renderer = { version = "0.36.1", features = [
+  "import-gltf",
+  "import-obj",
+  "import-stl",
+  "import-dae",
+] }
+re_rvl = "0.36.1"
+re_sdk_types = { version = "0.36.1", features = ["ecolor", "glam", "image"] }
+re_tf = "0.36.1"
+re_tracing = "0.36.1"
+re_ui = "0.36.1"
+re_video = "0.36.1"
+re_view = "0.36.1"
+re_viewer_context = "0.36.1"
+re_viewport_blueprint = "0.36.1"
+
+ahash = "0.8.12"
+anyhow = "1.0"
+arrow = "58.3"
+bitflags = "2.13"
+bytemuck = "1.25"
+egui = { version = "0.36.1", features = ["serde"] }
+glam = "0.30.10"
+half = "2.7"
+hexasphere = "16.0"
+image = { version = "0.25.10", features = [
+  "png",
+] } # For loading images/icons for the gui into textures.
+itertools = "0.15.0"
+macaw = { version = "0.30.0", features = ["serde"] }
+nohash-hasher = "0.2.0"
+ordered-float = "5.3"
+parking_lot = "0.12.5"
+serde = "1.0"
+smallvec = { version = "1.15", features = ["serde"] }
+thiserror = "2.0"
+vec1 = "1.12"
+
+
+[lib]
+bench = false
