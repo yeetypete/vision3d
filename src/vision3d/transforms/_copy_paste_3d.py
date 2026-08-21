@@ -237,6 +237,88 @@ def _apply_offset(
     return out
 
 
+def _scale_boxes_about_bottom(
+    boxes: Tensor,
+    fmt: BoundingBox3DFormat,
+    factors: Tensor,
+    height_axis: int,
+) -> Tensor:
+    """Return a copy of *boxes* scaled about their bottom-centre.
+
+    Each box's size is multiplied per-dimension by *factors* (in the box's own
+    length/width/height axes) while the centre of its bottom face is held
+    fixed, so objects grow or shrink from the ground up rather than from their
+    geometric centre. Equal factors scale isotropically; distinct factors
+    stretch the box per axis. The bottom face is the one facing negative
+    ``height_axis`` in the box's own frame, so the anchor stays correct under
+    pitch/roll and only the height-axis factor moves the centre.
+
+    Args:
+        boxes: ``[M, K]`` boxes.
+        fmt: Box format.
+        factors: ``[M, 3]`` per-box, per-dimension scale factors, in the box's
+            ``(length, width, height)`` axis order.
+        height_axis: Index (``0``, ``1``, or ``2``) of the height dimension.
+
+    Returns:
+        A new ``[M, K]`` tensor with updated position and size; rotation is
+        unchanged.
+    """
+    centers, half_dims, rot = extract_box3d_params(boxes, fmt)
+    # Column ``height_axis`` of ``rot`` is the box's local "up" axis in world
+    # coordinates (its columns are the box's local axes).
+    axis_dir = rot[:, :, height_axis]  # [M, 3]
+    shift = (factors[:, height_axis] - 1.0) * half_dims[:, height_axis]  # [M]
+    new_centers = centers + shift.unsqueeze(-1) * axis_dir
+    new_half = half_dims * factors
+    out = boxes.clone()
+    if fmt is BoundingBox3DFormat.XYZXYZ:
+        out[:, :3] = new_centers - new_half
+        out[:, 3:6] = new_centers + new_half
+    else:
+        out[:, :3] = new_centers
+        out[:, 3:6] = new_half * 2
+    return out
+
+
+def _scale_points_about_bottom(
+    points: Tensor,
+    box: Tensor,
+    fmt: BoundingBox3DFormat,
+    factors: Tensor,
+    height_axis: int,
+) -> Tensor:
+    """Return a copy of *points* scaled about *box*'s bottom-centre.
+
+    The points are mapped into the box's local frame, scaled per-dimension
+    about the bottom-centre anchor, and mapped back, so the result stays
+    consistent with :func:`_scale_boxes_about_bottom` under any rotation and for
+    anisotropic factors.
+
+    Args:
+        points: ``[P, 3+C]`` points in scene frame; only the first three columns
+            are transformed.
+        box: The single ``[K]`` source box the points belong to.
+        fmt: Box format.
+        factors: ``[3]`` per-dimension scale factors (box-local order).
+        height_axis: Index of the height dimension.
+
+    Returns:
+        A new ``[P, 3+C]`` tensor with the coordinates scaled.
+    """
+    centers, half_dims, rot = extract_box3d_params(box.unsqueeze(0), fmt)
+    center, rot0 = centers[0], rot[0]
+    anchor = torch.zeros(3, dtype=points.dtype, device=points.device)
+    anchor[height_axis] = -half_dims[0, height_axis]
+    out = points.clone()
+    # World offset -> box-local (local = R^T (p - c) = (p - c) @ R), scale about
+    # the anchor, then map back (p' = c + R local' = c + local' @ R^T).
+    local = (out[:, :3] - center) @ rot0
+    local = anchor + factors * (local - anchor)
+    out[:, :3] = center + local @ rot0.transpose(0, 1)
+    return out
+
+
 def _batch_hull_masks(
     boxes: Tensor,
     fmt: BoundingBox3DFormat,
@@ -271,6 +353,7 @@ def _batch_hull_masks(
 _AxisRange = tuple[float, float]
 _OffsetRange = _AxisRange | Sequence[_AxisRange]
 _OffsetStd = float | Sequence[float | None] | None
+_ScaleRange = _AxisRange | Sequence[_AxisRange]
 
 
 def _normalize_offset_range(offset_range: _OffsetRange) -> tuple[_AxisRange, ...]:
@@ -345,6 +428,65 @@ def _normalize_offset_std(offset_std: _OffsetStd) -> tuple[float | None, ...]:
     return seq
 
 
+def _normalize_scale_range(
+    scale_range: _ScaleRange,
+) -> tuple[tuple[_AxisRange, ...], bool]:
+    """Expand *scale_range* into one ``(min, max)`` pair per l/w/h dimension.
+
+    Accepts a single ``(min, max)`` pair, which is shared across all three
+    dimensions and drawn once per object (isotropic scaling), or a sequence of
+    three ``(min, max)`` pairs sampled independently per dimension (anisotropic
+    scaling).
+
+    Args:
+        scale_range: Scale range specification.
+
+    Returns:
+        ``(ranges, isotropic)`` where ``ranges`` is a tuple of three
+        ``(min, max)`` float pairs and ``isotropic`` is ``True`` when a single
+        shared pair was given.
+
+    Raises:
+        TypeError: If a per-dimension entry is a scalar rather than a pair.
+        ValueError: If the shape is neither a pair nor three pairs, any pair
+            has ``min > max``, or any bound is not positive.
+    """
+    seq = list(scale_range)
+    msg_per_axis = "Each per-axis `scale_range` entry must be a (min, max) pair."
+    if (
+        len(seq) == 2
+        and isinstance(seq[0], (int, float))
+        and isinstance(seq[1], (int, float))
+    ):
+        pair = (seq[0], seq[1])
+        ranges = [pair, pair, pair]
+        isotropic = True
+    elif len(seq) == 3:
+        ranges = []
+        for axis in seq:
+            if isinstance(axis, (int, float)):
+                raise TypeError(msg_per_axis)
+            entry = tuple(axis)
+            if len(entry) != 2:
+                raise ValueError(msg_per_axis)
+            ranges.append((entry[0], entry[1]))
+        isotropic = False
+    else:
+        msg = (
+            "`scale_range` should be a (min, max) pair applied to all "
+            "dimensions or a 3-tuple of (min, max) pairs."
+        )
+        raise ValueError(msg)
+    for lo, hi in ranges:
+        if lo <= 0 or hi <= 0:
+            msg = "`scale_range` values should be positive."
+            raise ValueError(msg)
+        if lo > hi:
+            msg = "`scale_range` min must not exceed max."
+            raise ValueError(msg)
+    return tuple(ranges), isotropic
+
+
 class CopyPaste3D(Transform):
     """Batch-level 3D copy-paste data augmentation.
 
@@ -394,6 +536,24 @@ class CopyPaste3D(Transform):
             before falling back to its original (un-jittered) pose. Larger
             values raise the chance of placing a genuinely jittered object in a
             crowded scene. Ignored when jittering is disabled. Default: ``5``.
+        scale_range: Random scale factor drawn uniformly per pasted object,
+            anchored at the object's bottom-centre (see ``height_axis``) so it
+            grows or shrinks from the ground up and keeps its resting height.
+            The scaled box and points are what the overlap check sees, so
+            placements stay collision-free at the scaled size. Either a single
+            ``(min, max)`` interval, drawn once and applied to all three
+            dimensions equally (isotropic, aspect ratio preserved), or a 3-tuple
+            of per-dimension intervals
+            ``((l_min, l_max), (w_min, w_max), (h_min, h_max))`` in the box's
+            ``(length, width, height)`` axis order, each sampled independently
+            (anisotropic, may distort shape). ``(1.0, 1.0)`` disables scaling.
+            Default: ``(1.0, 1.0)``.
+        height_axis: Index of the box size dimension that measures height,
+            used as the axis along which bottom-centre scaling is anchored.
+            ``0`` = length (x/dx), ``1`` = width (y/dy), ``2`` = height (z/dz).
+            Defaults to ``2`` for the common Z-up convention; datasets with a
+            different vertical axis can override it. Ignored when scaling is
+            disabled. Default: ``2``.
         p: Probability of applying the augmentation. Default: ``1.0``.
     """
 
@@ -405,6 +565,8 @@ class CopyPaste3D(Transform):
         offset_range: _OffsetRange = (0.0, 0.0),
         offset_std: _OffsetStd = None,
         max_jitter_attempts: int = 5,
+        scale_range: _ScaleRange = (1.0, 1.0),
+        height_axis: int = 2,
         p: float = 1.0,
     ) -> None:
         super().__init__()
@@ -420,6 +582,10 @@ class CopyPaste3D(Transform):
         if max_jitter_attempts < 1:
             msg = "`max_jitter_attempts` should be a positive integer."
             raise ValueError(msg)
+        if height_axis not in (0, 1, 2):
+            msg = "`height_axis` should be 0, 1, or 2."
+            raise ValueError(msg)
+        self.scale_range, self._isotropic_scale = _normalize_scale_range(scale_range)
         self.offset_range = _normalize_offset_range(offset_range)
         self.offset_std = _normalize_offset_std(offset_std)
         for (lo, hi), std in zip(self.offset_range, self.offset_std):
@@ -437,7 +603,9 @@ class CopyPaste3D(Transform):
         self.min_points = min_points
         self.max_database_size = max_database_size
         self.max_jitter_attempts = max_jitter_attempts
+        self.height_axis = height_axis
         self._jitter = any(r != (0.0, 0.0) for r in self.offset_range)
+        self._scale = any(r != (1.0, 1.0) for r in self.scale_range)
         self.p = p
 
         self._database: dict[int, deque[ObjectEntry]] = defaultdict(
@@ -755,6 +923,65 @@ class CopyPaste3D(Transform):
         ]
         return torch.stack(cols, dim=1)
 
+    def _sample_scales(self, n: int, device: torch.device) -> Tensor:
+        """Draw ``n`` per-object ``(l, w, h)`` scale factors from ``scale_range``.
+
+        When ``scale_range`` was given as a single interval the scaling is
+        isotropic: one factor is drawn per object and shared across all three
+        dimensions, preserving the aspect ratio. When it was given per axis,
+        each dimension is sampled independently.
+
+        Args:
+            n: Number of factors to sample.
+            device: Device for the output tensor.
+
+        Returns:
+            ``[n, 3]`` tensor of scale factors.
+        """
+        if self._isotropic_scale:
+            lo, hi = self.scale_range[0]
+            s = torch.empty(n, device=device).uniform_(lo, hi)
+            return s.unsqueeze(1).expand(n, 3)
+        cols = [
+            torch.empty(n, device=device).uniform_(lo, hi)
+            for lo, hi in self.scale_range
+        ]
+        return torch.stack(cols, dim=1)
+
+    def _scale_candidate(
+        self,
+        entry: ObjectEntry,
+        factors: Tensor,
+        fmt: BoundingBox3DFormat,
+    ) -> ObjectEntry:
+        """Return a copy of *entry* scaled about its bottom-centre.
+
+        Each box dimension is multiplied by the matching entry of *factors* and
+        the centre is shifted along the height axis so the bottom face stays
+        put; the object's points are scaled about the same bottom-centre so they
+        remain consistent with the scaled box. The database entry itself is
+        never mutated.
+
+        Args:
+            entry: Source object entry (box and optional points on CPU).
+            factors: ``[3]`` per-dimension scale factors.
+            fmt: Box format.
+
+        Returns:
+            A new :class:`ObjectEntry` with the scaled box and points.
+        """
+        box = entry.box
+        f = factors.to(box)
+        scaled_box = _scale_boxes_about_bottom(
+            box.unsqueeze(0), fmt, f.unsqueeze(0), self.height_axis
+        )[0]
+        new_points = entry.points
+        if new_points is not None:
+            new_points = _scale_points_about_bottom(
+                new_points, box, fmt, f.to(new_points), self.height_axis
+            )
+        return replace(entry, box=scaled_box, points=new_points)
+
     def _place_candidate(
         self,
         box: Tensor,
@@ -842,6 +1069,16 @@ class CopyPaste3D(Transform):
 
             perm = torch.randperm(len(db)).tolist()
             candidates = [db[i] for i in perm[:n_paste]]
+
+            if self._scale:
+                # Scale each candidate about its bottom-centre before placement
+                # so the overlap check sees the box at its actual pasted size.
+                # Factors are sampled on CPU to match the database entries.
+                factors = self._sample_scales(len(candidates), torch.device("cpu"))
+                candidates = [
+                    self._scale_candidate(c, factors[i], fmt)
+                    for i, c in enumerate(candidates)
+                ]
 
             if self._jitter:
                 # Jitter path: place one at a time so each candidate's jittered
