@@ -11,6 +11,7 @@ from ._camera import (
     vertical_flip_camera_extrinsics,
     vertical_flip_camera_intrinsics,
 )
+from ._fov import get_fov_mask
 from ._geometry import (
     flip_3d,
     flip_3d_bounding_boxes,
@@ -50,6 +51,7 @@ __all__ = [
     "flip_3d",
     "flip_3d_bounding_boxes",
     "flip_3d_point_cloud",
+    "get_fov_mask",
     "horizontal_flip_bounding_boxes_3d",
     "horizontal_flip_camera_extrinsics",
     "horizontal_flip_camera_intrinsics",

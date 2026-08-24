@@ -25,6 +25,7 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
+from vision3d.transforms.functional import get_fov_mask
 
 
 class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
@@ -170,7 +171,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         K = calib["intrinsics"][0]  # [3, 3]
         ext = calib["extrinsics"][0]  # [4, 4]
         lidar_to_img = K @ ext[:3, :]  # [3, 4]
-        fov_mask = _get_fov_mask(points[:, :3], lidar_to_img, img_h, img_w)
+        fov_mask = get_fov_mask(points[:, :3], lidar_to_img, (img_h, img_w))
         points = points[fov_mask]
 
         inputs: FusionInputs = {
@@ -398,41 +399,6 @@ def _cam_to_lidar_boxes(boxes_cam: Tensor, extrinsics: Tensor) -> Tensor:
         ],
         dim=-1,
     )
-
-
-def _get_fov_mask(
-    points_3d: Tensor,
-    proj_matrix: Tensor,
-    img_h: int,
-    img_w: int,
-) -> Tensor:
-    """Get boolean mask for points that project into the camera image.
-
-    Args:
-        points_3d: ``[N, 3]`` 3D points.
-        proj_matrix: ``[3, 4]`` projection matrix that maps ``points_3d`` to
-            image coordinates (e.g. ``P2`` for camera-frame points, or
-            ``P2 @ R0 @ Tr`` for lidar-frame points).
-        img_h: Image height in pixels.
-        img_w: Image width in pixels.
-
-    Returns:
-        Boolean mask ``[N]``. True for points with positive depth that project
-        within image bounds.
-    """
-    n = points_3d.shape[0]
-    ones = torch.ones(n, 1, dtype=points_3d.dtype)
-    pts_hom = torch.cat([points_3d, ones], dim=1)  # [N, 4]
-
-    # Project: [3, 4] @ [4, N] -> [3, N]
-    pts_img = (proj_matrix @ pts_hom.T).T  # [N, 3]
-
-    depth = pts_img[:, 2]
-    u = pts_img[:, 0] / depth.clamp(min=1e-6)
-    v = pts_img[:, 1] / depth.clamp(min=1e-6)
-
-    valid = (depth > 0) & (u >= 0) & (u < img_w) & (v >= 0) & (v < img_h)
-    return valid
 
 
 class _HttpRangeFile(io.RawIOBase):
