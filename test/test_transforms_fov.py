@@ -9,21 +9,21 @@ class TestGetFovMask:
     def test_selects_points_within_image(self) -> None:
         projection_matrix = torch.tensor(
             [
-                [10.0, .0, 5.0, .0],
-                [.0, 10.0, 4.0, .0],
-                [.0, .0, 1.0, .0],
+                [10.0, 0.0, 5.0, 0.0],
+                [0.0, 10.0, 4.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
             ]
         )
         points = torch.tensor(
             [
-                [.0, .0, 1.0],  # Inside: (5, 4). --> True.
-                [-.5, -.4, 1.0],  # Top-left boundary: (0, 0). --> True.
-                [-.6, 0.0, 1.0],  # Left of image.  --> False.
-                [.5, .0, 1.0],  # Right boundary: u == width. --> False.
-                [.0, -.5, 1.0],  # Above image. --> False.
-                [.0, .4, 1.0],  # Bottom boundary: v == height. --> False.
-                [.0, .0, .0],  # Zero depth. --> False.
-                [.0, .0, -1.0],  # Behind camera. Confusion. --> False.
+                [0.0, 0.0, 1.0],  # Inside: (5, 4). --> True.
+                [-0.5, -0.4, 1.0],  # Top-left boundary: (0, 0). --> True.
+                [-0.6, 0.0, 1.0],  # Left of image.  --> False.
+                [0.5, 0.0, 1.0],  # Right boundary: u == width. --> False.
+                [0.0, -0.5, 1.0],  # Above image. --> False.
+                [0.0, 0.4, 1.0],  # Bottom boundary: v == height. --> False.
+                [0.0, 0.0, 0.0],  # Zero depth. --> False.
+                [0.0, 0.0, -1.0],  # Behind camera. Confusion. --> False.
             ]
         )
 
@@ -50,7 +50,7 @@ class TestGetFovMask:
         assert torch.equal(projection_matrix, original_projection_matrix)
 
     def test_preserves_device(self, device: torch.device) -> None:
-        points = torch.tensor([[.0, .0, 1.0]], device=device)
+        points = torch.tensor([[0.0, 0.0, 1.0]], device=device)
         projection_matrix = torch.eye(3, 4, device=device)
 
         mask = get_fov_mask(points, projection_matrix, (1, 1))
