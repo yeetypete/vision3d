@@ -17,6 +17,7 @@ from torchvision.datasets.utils import download_and_extract_archive
 from torchvision.io import ImageReadMode, decode_image
 
 from vision3d.datasets import FusionInputs, SampleTargets
+from vision3d.ops import points_in_image
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -25,7 +26,6 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
-from vision3d.transforms.functional import get_fov_mask
 
 
 class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
@@ -166,12 +166,11 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         calib = self._load_calib(base, frame_id)
         image = self._load_image(base, frame_id)
 
-        # Filter points to camera FOV using K @ extrinsics[:3, :]
+        # Filter points to the field of view of the camera.
         img_h, img_w = image.shape[2], image.shape[3]
         K = calib["intrinsics"][0]  # [3, 3]
         ext = calib["extrinsics"][0]  # [4, 4]
-        lidar_to_img = K @ ext[:3, :]  # [3, 4]
-        fov_mask = get_fov_mask(points[:, :3], lidar_to_img, (img_h, img_w))
+        fov_mask = points_in_image(points[:, :3], ext, K, (img_h, img_w))
         points = points[fov_mask]
 
         inputs: FusionInputs = {
