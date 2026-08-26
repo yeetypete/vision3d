@@ -41,10 +41,8 @@ from ._point_cloud import (
     shuffle_points_point_cloud,
 )
 from ._registry import register_kernel
-from ._sweeps import accumulate_sweeps
 
 __all__ = [
-    "accumulate_sweeps",
     "center_crop_camera_intrinsics",
     "crop_camera_intrinsics",
     "flip_3d",

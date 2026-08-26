@@ -1,4 +1,4 @@
-"""Functional kernel for temporal lidar sweep accumulation."""
+"""Temporal lidar sweep accumulation operator."""
 
 from collections.abc import Sequence
 

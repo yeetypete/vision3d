@@ -19,6 +19,7 @@ from torchvision.datasets.utils import download_and_extract_archive
 from torchvision.io import ImageReadMode, decode_image
 
 from vision3d.datasets import FusionInputs, SampleTargets
+from vision3d.ops import accumulate_sweeps
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -27,7 +28,6 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
-from vision3d.transforms.functional import accumulate_sweeps
 
 # Detection class set used for evaluation, Mirrors
 # ``nuscenes.eval.detection.constants.DETECTION_NAMES``.
