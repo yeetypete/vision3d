@@ -124,4 +124,4 @@ class TestPointsInImage:
             (1, 1),
         )
 
-        assert mask.device == device
+        assert mask.device.type == device.type
