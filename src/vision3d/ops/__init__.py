@@ -10,10 +10,12 @@ from ._points_in_boxes_3d import (
     points_in_boxes_3d_indices,
 )
 from ._project import points_in_image, project_to_image
+from ._sweeps import accumulate_sweeps
 from ._voxelize import voxelize
 from .boxes3d import box3d_convert
 
 __all__ = [
+    "accumulate_sweeps",
     "batched_nms_3d",
     "box3d_convert",
     "box3d_corners",
