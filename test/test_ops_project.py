@@ -76,21 +76,21 @@ class TestPointsInImage:
     def test_selects_points_within_image(self) -> None:
         intrinsics = torch.tensor(
             [
-                [10.0, .0, 5.0],
-                [.0, 10.0, 4.0],
-                [.0, .0, 1.0],
+                [10.0, 0.0, 5.0],
+                [0.0, 10.0, 4.0],
+                [0.0, 0.0, 1.0],
             ]
         )
         points = torch.tensor(
             [
-                [.0, .0, 1.0],  # Inside: (5, 4). --> True.
-                [-.5, -.4, 1.0],  # Top-left boundary: (0, 0). --> True.
-                [-.6, .0, 1.0],  # Left of image. --> False.
-                [.5, .0, 1.0],  # Right boundary: u == width. --> False.
-                [.0, -.5, 1.0],  # Above image.   --> False.
-                [.0, .4, 1.0],  # Bottom boundary: v == height. --> False.
-                [.0, .0, .0],  # Zero depth. --> False.
-                [.0, .0, -1.0],  # Behind camera. --> False.
+                [0.0, 0.0, 1.0],  # Inside: (5, 4). --> True.
+                [-0.5, -0.4, 1.0],  # Top-left boundary: (0, 0). --> True.
+                [-0.6, 0.0, 1.0],  # Left of image. --> False.
+                [0.5, 0.0, 1.0],  # Right boundary: u == width. --> False.
+                [0.0, -0.5, 1.0],  # Above image.   --> False.
+                [0.0, 0.4, 1.0],  # Bottom boundary: v == height. --> False.
+                [0.0, 0.0, 0.0],  # Zero depth. --> False.
+                [0.0, 0.0, -1.0],  # Behind camera. --> False.
             ]
         )
 
@@ -100,7 +100,7 @@ class TestPointsInImage:
         assert torch.equal(mask, expected)
 
     def test_applies_extrinsics(self) -> None:
-        points = torch.tensor([[.0, .0, -1.0]])
+        points = torch.tensor([[0.0, 0.0, -1.0]])
         extrinsics = torch.eye(4)
         extrinsics[2, 3] = 2.0
 
@@ -115,7 +115,7 @@ class TestPointsInImage:
         assert mask.dtype == torch.bool
 
     def test_preserves_device(self, device: torch.device) -> None:
-        points = torch.tensor([[.0, .0, 1.0]], device=device)
+        points = torch.tensor([[0.0, 0.0, 1.0]], device=device)
 
         mask = points_in_image(
             points,
