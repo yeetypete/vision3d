@@ -32,10 +32,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from mcap_labels import (
+    MANUAL_TOPIC,
     first_message_time,
     load_jsonl,
     read_from_bag,
+    sidecar_for,
     write_into_bag,
+    write_sidecar,
 )
 
 DEFAULT_BAG = Path(
@@ -110,6 +113,16 @@ def main() -> None:
     )
     parser.add_argument("--topic", default="/annotations/boxes")
     parser.add_argument(
+        "--sidecar",
+        nargs="?",
+        const="-",
+        default=None,
+        metavar="PATH",
+        help="Write a standalone <bag>.labels.mcap instead of rewriting the "
+        "recording, which is left untouched. With no value, the path is "
+        "derived from --bag. This is what the annotator uses.",
+    )
+    parser.add_argument(
         "--from-bag",
         nargs="?",
         const="-",
@@ -161,19 +174,35 @@ def main() -> None:
         f"lifetime={interval / 1e9:.2f}s"
     )
 
-    copied, written = write_into_bag(
-        args.bag,
-        records,
-        topic=args.topic,
-        frame=frame,
-        keyframe_interval_ns=interval,
-        output=args.output,
-    )
-    target = args.output or args.bag
-    print(f"copied {copied} message(s), added {written} on {args.topic} -> {target}")
+    if args.sidecar is not None:
+        target = sidecar_for(args.bag) if args.sidecar == "-" else Path(args.sidecar)
+        written = write_sidecar(
+            target,
+            records,
+            frame=frame,
+            keyframe_interval_ns=interval,
+            source_bag=args.bag,
+            start_time_ns=first_message_time(args.bag, exclude=args.topic),
+        )
+        read_topic = MANUAL_TOPIC
+        print(f"wrote {written} message(s) -> {target}")
+    else:
+        copied, written = write_into_bag(
+            args.bag,
+            records,
+            topic=args.topic,
+            frame=frame,
+            keyframe_interval_ns=interval,
+            output=args.output,
+        )
+        target = args.output or args.bag
+        read_topic = args.topic
+        print(
+            f"copied {copied} message(s), added {written} on {args.topic} -> {target}"
+        )
 
-    # Read it back rather than trusting the write: this is the user's recording.
-    back, classes = read_from_bag(target, args.topic)
+    # Read it back rather than trusting the write: these are the user's labels.
+    back, classes = read_from_bag(target, read_topic)
     print(f"verified {len(back)} record(s) readable, classes={classes}")
 
 

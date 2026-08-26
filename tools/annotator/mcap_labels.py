@@ -264,6 +264,110 @@ def _cdr_encoder(datatype: str, msgdef: str):
     return types[datatype]
 
 
+#: Topic the sidecar publishes on. Deliberately not the topic a recording uses
+#: for its own annotations, so a bag and its sidecar can be open together
+#: without one shadowing the other.
+MANUAL_TOPIC = "/annotations/manual"
+
+
+def sidecar_for(bag: Path) -> Path:
+    """Where a recording's labels live.
+
+    Beside the recording rather than inside it: the sidecar is this tool's
+    output and the recording stays read-only. The annotator derives the same
+    path, so the two agree without passing it around.
+
+    Args:
+        bag: The recording being labelled.
+
+    Returns:
+        ``<bag stem>.labels.mcap`` in the recording's directory.
+    """
+    return bag.with_name(f"{bag.stem}.labels.mcap")
+
+
+def write_sidecar(
+    path: Path,
+    records: list[dict],
+    *,
+    topic: str = MANUAL_TOPIC,
+    frame: str = "map",
+    keyframe_interval_ns: int = 500_000_000,
+    source_bag: Path | None = None,
+    start_time_ns: int | None = None,
+) -> int:
+    """Write annotations to a standalone MCAP beside the recording.
+
+    The recording itself is never opened for writing. That keeps the original
+    bytes authoritative -- a labelling pass cannot corrupt a recording it does
+    not touch -- and makes a save cost milliseconds rather than the seconds a
+    full passthrough rewrite took.
+
+    The file is a valid MCAP carrying the same ``foxglove_msgs/SceneUpdate``
+    schema a recording would, so Foxglove opens it directly and a model's
+    predictions and a human's labels stay interchangeable.
+
+    Args:
+        path: Sidecar to write. Replaced atomically.
+        records: Rows from the annotator's exporter.
+        topic: Topic to publish the SceneUpdates on.
+        frame: Frame the poses are in.
+        keyframe_interval_ns: Lifetime of a per-frame entity.
+        source_bag: Recording these labels belong to, recorded as metadata.
+        start_time_ns: The recording's start, used to stamp static boxes. A
+            static box has no time of its own, and a timestamp of zero puts it
+            in 1970 where no transform to ``frame`` exists.
+
+    Returns:
+        The number of messages written.
+    """
+    updates = scene_updates(records, frame, keyframe_interval_ns, start_time_ns)
+    temp = path.with_suffix(path.suffix + ".partial")
+
+    msgdef = SCHEMA_PATH.read_text()
+    encode = _cdr_encoder(SCENE_UPDATE_TYPE, msgdef)
+
+    with temp.open("wb") as sink:
+        writer = Writer(sink, compression=CompressionType.ZSTD)
+        writer.start(profile="ros2", library="vision3d-annotator")
+
+        schema_id = writer.register_schema(
+            name=SCENE_UPDATE_TYPE,
+            encoding=SchemaEncoding.ROS2,
+            data=msgdef.encode(),
+        )
+        channel_id = writer.register_channel(
+            topic=topic,
+            message_encoding=MessageEncoding.CDR,
+            schema_id=schema_id,
+        )
+
+        # Provenance, so a sidecar found on its own can still be tied back to
+        # the recording it describes -- and a place to hang versioning later.
+        writer.add_metadata(
+            "vision3d.annotations",
+            {
+                "schema": "vision3d.annotations/1",
+                "frame": frame,
+                "source_bag": source_bag.name if source_bag else "",
+                "tracks": str(len({r["track"] for r in records})),
+            },
+        )
+
+        for sequence, (log_time, update) in enumerate(updates):
+            writer.add_message(
+                channel_id=channel_id,
+                log_time=log_time,
+                data=encode(update),
+                publish_time=log_time,
+                sequence=sequence,
+            )
+        writer.finish()
+
+    os.replace(temp, path)
+    return len(updates)
+
+
 def write_into_bag(
     bag: Path,
     records: list[dict],

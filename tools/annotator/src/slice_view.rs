@@ -365,24 +365,30 @@ impl<A: AxisMarker> ViewClass for BoxSliceView<A> {
 
         // Show which manipulation the pointer is over, so the mode is legible
         // before committing to a drag.
+        // The recording's own boxes are reference material: no drag, and no
+        // affordances suggesting there might be one.
+        let editable = !re_view_spatial_fork::read_only::is_read_only(&active.entity);
+
         let hover_kind = state.drag.as_ref().map(|d| d.kind).or_else(|| {
-            response
-                .hover_pos()
-                .map(|p| proj.to_plane(p))
-                .and_then(|(u, v)| hit_test(u, v, hu, hv, tol))
+            editable.then(|| {
+                response
+                    .hover_pos()
+                    .map(|p| proj.to_plane(p))
+                    .and_then(|(u, v)| hit_test(u, v, hu, hv, tol))
+            })?
         });
 
         if let Some(kind) = hover_kind {
             ui.ctx().set_cursor_icon(cursor_for(kind, axis));
         }
 
-
         // egui has no rotate cursor, so draw the affordance instead.
         if hover_kind == Some(DragKind::Rotate) {
             paint_rotation_glyph(&painter, handle, 11.0, accent);
         }
 
-        if response.drag_started()
+        if editable
+            && response.drag_started()
             && let Some(pointer) = response.interact_pointer_pos()
         {
             let (u, v) = proj.to_plane(pointer);

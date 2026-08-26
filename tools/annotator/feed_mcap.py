@@ -40,7 +40,12 @@ import rerun as rr
 from mcap_ros2.reader import read_ros2_messages
 
 sys.path.insert(0, str(Path(__file__).parent))
-from mcap_labels import first_message_time, read_from_bag
+from mcap_labels import (
+    MANUAL_TOPIC,
+    first_message_time,
+    read_from_bag,
+    sidecar_for,
+)
 from mcap_source import (
     CameraDecoder,
     TransformTree,
@@ -52,7 +57,6 @@ from mcap_source import (
 
 from vision3d.viz import (
     annotator_layout,
-    load_labels,
     log_labels,
     log_source,
     reserve_box_slots,
@@ -72,6 +76,11 @@ EGO_ENTITY = "world/ego"
 LIDAR_ENTITY = "world/sweeps"
 CAMERA_PREFIX = f"{EGO_ENTITY}/cam"
 BOX_ENTITY = "world/annotations"
+#: The recording's own boxes -- predictions, or a previous pass's labels. Shown
+#: for reference and never written back to: the recording stays immutable.
+SOURCE_ENTITY = f"{BOX_ENTITY}/source"
+#: Boxes this session owns. These are what the exporter saves to the sidecar.
+MANUAL_ENTITY = f"{BOX_ENTITY}/manual"
 
 LIDAR_TOPICS = {
     "/livox/lidar_front_left/self_filtered": "livox_front_left",
@@ -85,6 +94,66 @@ CAMERA_GRID = ((1, 0, 2), (3, 4))
 KEYFRAME_LIDAR = "/livox/lidar_front_left/self_filtered"
 
 ANNOTATION_CLASSES = ("truck", "truck_cabin", "truck_bed")
+
+
+def merged_ontology(
+    defaults: tuple[str, ...], loaded: dict[str, int]
+) -> tuple[dict[str, int], dict[int, int]]:
+    """Combine the session's classes with those a bag's annotations carry.
+
+    The annotation context is logged statically, so logging a second one
+    replaces the first outright. Handing the loader only the classes found in
+    the bag therefore shrank the ontology to those, and the panel's dropdown
+    with it.
+
+    The session's own classes are never displaced -- they are what the operator
+    expects to pick from, whatever the bag happens to contain. Two things can
+    collide with that, and both are resolved by renumbering the bag's boxes
+    rather than dropping a class:
+
+    * the bag calls one of our classes by a different id, so its boxes are
+      renumbered onto ours;
+    * the bag has a different class occupying one of our ids, so that class
+      moves to a free id and its boxes follow.
+
+    Args:
+        defaults: The classes this session offers, in id order.
+        loaded: Class name to id, as read from a bag's annotations.
+
+    Returns:
+        ``(class name to id, old id to new id)``. The remap is empty unless a
+        bag's numbering collided; apply it to the records before logging them,
+        or their boxes will come back wearing the wrong label.
+    """
+    classes = {name: i for i, name in enumerate(defaults)}
+    taken = set(classes.values())
+    remap: dict[int, int] = {}
+
+    # By id, so the outcome does not depend on dict ordering.
+    for name, class_id in sorted(loaded.items(), key=lambda kv: kv[1]):
+        if name in classes:
+            if classes[name] != class_id:
+                print(
+                    f"note: the bag numbers '{name}' as {class_id}, this session "
+                    f"as {classes[name]}; renumbering its boxes"
+                )
+                remap[class_id] = classes[name]
+            continue
+
+        if class_id in taken:
+            free = max(taken) + 1
+            print(
+                f"note: class id {class_id} is already "
+                f"'{next(n for n, i in classes.items() if i == class_id)}' here, so "
+                f"the bag's '{name}' moves to {free}"
+            )
+            remap[class_id] = free
+            class_id = free
+
+        classes[name] = class_id
+        taken.add(class_id)
+
+    return classes, remap
 
 
 def stamp_ns(header) -> int:
@@ -214,9 +283,15 @@ def main() -> None:
         type=Path,
         default=None,
         help=(
-            "Annotations to load for correction. Defaults to the bag's sidecar "
-            "(<bag>.labels.jsonl) when one exists."
+            "Sidecar holding this tool's own annotations. Defaults to "
+            "<bag>.labels.mcap when one exists. The recording is never written "
+            "to; labels live here."
         ),
+    )
+    parser.add_argument(
+        "--manual-topic",
+        default=MANUAL_TOPIC,
+        help="Topic the sidecar publishes its SceneUpdates on.",
     )
     parser.add_argument(
         "--no-labels",
@@ -226,7 +301,10 @@ def main() -> None:
     parser.add_argument(
         "--annotation-topic",
         default="/annotations/boxes",
-        help="SceneUpdate topic carrying annotations or model predictions.",
+        help=(
+            "SceneUpdate topic in the recording itself, read as reference "
+            "boxes. Never written to."
+        ),
     )
     parser.add_argument("--point-radii", type=float, default=0.04)
     parser.add_argument("--save", type=Path, default=None)
@@ -259,31 +337,63 @@ def main() -> None:
             ego=EGO_ENTITY,
         )
     )
-    rr.log(
-        BOX_ENTITY,
-        rr.AnnotationContext(list(enumerate(ANNOTATION_CLASSES))),
-        static=True,
-    )
-    # So the annotator knows where to put its sidecar.
+    # So the annotator knows which recording it is labelling, and where its
+    # sidecar belongs.
     log_source(str(args.bag))
 
+    source_records: list[dict] = []
+    manual_records: list[dict] = []
+    loaded_classes: dict[str, int] = {}
+
     if not args.no_labels:
-        # The bag itself comes first: that is where corrections are saved back
-        # to, and where a model's predictions arrive. The sidecar is a fallback
-        # for annotations that have not been written into a recording yet.
-        records, classes = read_from_bag(args.bag, args.annotation_topic)
-        origin = f"{args.bag.name}:{args.annotation_topic}"
+        # Two independent sets. The recording's own annotations are reference
+        # material -- a model's predictions, or an earlier pass -- and the
+        # sidecar holds what this tool has produced. Neither is written into the
+        # recording.
+        source_records, source_classes = read_from_bag(args.bag, args.annotation_topic)
+        loaded_classes.update(source_classes)
 
-        if not records:
-            sidecar = args.labels or args.bag.with_name(f"{args.bag.stem}.labels.jsonl")
-            if sidecar.exists():
-                records, classes = load_labels(sidecar)
-                origin = str(sidecar)
+        sidecar = args.labels or sidecar_for(args.bag)
+        if sidecar.exists():
+            manual_records, manual_classes = read_from_bag(sidecar, args.manual_topic)
+            loaded_classes.update(manual_classes)
 
-        if records:
-            logged = log_labels(BOX_ENTITY, records, classes)
-            tracks = len({r["track"] for r in records})
-            print(f"loaded {logged} record(s) across {tracks} track(s) from {origin}")
+    # One ontology for both sections, logged on the shared parent so each
+    # inherits it. Logging it per section would have them shadow one another.
+    classes, remap = merged_ontology(ANNOTATION_CLASSES, loaded_classes)
+    renumbered = 0
+    for record in (*source_records, *manual_records):
+        if record.get("class_id") in remap:
+            record["class_id"] = remap[record["class_id"]]
+            renumbered += 1
+    if renumbered:
+        print(f"renumbered {renumbered} box(es) onto this session's classes")
+
+    rr.log(
+        BOX_ENTITY,
+        rr.AnnotationContext([(i, name) for name, i in classes.items()]),
+        static=True,
+    )
+
+    # `classes={}` so neither call re-logs a context of its own.
+    if source_records:
+        # Wireframe: the recording's boxes are reference material, so they are
+        # drawn without a face. That reads as transparent against the points,
+        # tells them apart from your own boxes at a glance, and leaves nothing
+        # for the 3D view's drag to pick -- which is what makes them immutable
+        # in practice rather than only by convention.
+        logged = log_labels(
+            SOURCE_ENTITY, source_records, {}, fill_mode="majorwireframe"
+        )
+        tracks = len({r["track"] for r in source_records})
+        print(
+            f"{logged} box(es) across {tracks} track(s) from the recording "
+            f"({args.annotation_topic})"
+        )
+    if manual_records:
+        logged = log_labels(MANUAL_ENTITY, manual_records, {})
+        tracks = len({r["track"] for r in manual_records})
+        print(f"{logged} box(es) across {tracks} track(s) from {sidecar.name}")
 
     tree = TransformTree()
     video_topics = {
@@ -476,7 +586,7 @@ def main() -> None:
         if keyframes == 0:
             # Reserve creation slots once the timeline has started, so the
             # clears that register them cannot mask a later annotation.
-            reserve_box_slots(BOX_ENTITY, args.box_slots)
+            reserve_box_slots(MANUAL_ENTITY, args.box_slots)
 
         keyframes += 1
         if keyframes % 5 == 1:

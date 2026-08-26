@@ -35,14 +35,35 @@ pub fn source_path(ctx: &ViewerContext<'_>) -> Option<String> {
 /// Entity the feed records the source file at.
 pub const SOURCE_ENTITY: &str = "meta/source";
 
-/// Sidecar name for a bag, alongside it so the two travel together.
-pub fn sidecar_for(bag: &str) -> PathBuf {
+/// Entity-path segment holding the recording's own boxes, shown for reference.
+pub const SOURCE_SECTION: &str = "source";
+/// Entity-path segment holding this session's boxes, saved to the sidecar.
+pub const MANUAL_SECTION: &str = "manual";
+
+fn beside(bag: &str, extension: &str) -> PathBuf {
     let path = Path::new(bag);
     let stem = path.file_stem().map_or_else(
         || "annotations".to_owned(),
         |s| s.to_string_lossy().into_owned(),
     );
-    path.with_file_name(format!("{stem}.labels.jsonl"))
+    path.with_file_name(format!("{stem}.{extension}"))
+}
+
+/// Where a recording's labels live.
+///
+/// Beside the recording, never inside it. The recording is evidence and stays
+/// byte-identical; the sidecar is this tool's output, and can be deleted,
+/// versioned or shipped without touching what it describes.
+pub fn sidecar_for(bag: &str) -> PathBuf {
+    beside(bag, "labels.mcap")
+}
+
+/// Hand-off file between the exporter and the writer that produces the sidecar.
+///
+/// Deleted once the sidecar is written; it exists only because the exporter
+/// reads the store from Rust and the MCAP writer lives in Python.
+pub fn staging_for(bag: &str) -> PathBuf {
+    beside(bag, "labels.jsonl")
 }
 
 /// One box at one instant.
@@ -125,49 +146,8 @@ fn rows_for(
         }
     }
 
-    events.sort_by_key(|(time, row_id, _)| (*time, *row_id));
-
-    let mut out: BTreeMap<Option<i64>, Row> = BTreeMap::new();
-    for (time, _, row) in events {
-        match row {
-            None => {
-                out.remove(&time);
-            }
-            Some(row) => {
-                // A partial write -- a class change, say -- carries no geometry;
-                // fold it onto whatever that timestamp already had.
-                let merged = match out.get(&time) {
-                    Some(existing) if !row.has_geometry => Row {
-                        center: existing.center,
-                        half_size: existing.half_size,
-                        quaternion: existing.quaternion,
-                        class_id: row.class_id.or(existing.class_id),
-                        has_geometry: true,
-                    },
-                    _ => row,
-                };
-                if merged.has_geometry {
-                    out.insert(time, merged);
-                }
-            }
-        }
-    }
-
-    // Rerun's own rule: static data outranks temporal for the same component.
-    // Ticking a box static leaves its earlier per-frame writes in the store, and
-    // exporting both produced two SceneUpdate entities sharing one track id --
-    // one of them missing the class, which is only ever written temporally.
-    if let Some(mut fixed) = out.remove(&None) {
-        if fixed.class_id.is_none() {
-            fixed.class_id = out.values().rev().find_map(|row| row.class_id);
-        }
-        out.clear();
-        out.insert(None, fixed);
-    }
-
-    out
+    fold_events(events)
 }
-
 /// Write every annotation under `prefix` to `path`.
 ///
 /// Returns the number of records written.
@@ -256,11 +236,11 @@ pub fn save_status() -> Option<String> {
 ///
 /// The rewrite takes several seconds on a 900 MB bag, so it runs on its own
 /// thread; blocking here would freeze the viewer mid-save.
-pub fn save_into_bag(bag: &str, sidecar: &Path) {
+pub fn save_sidecar(bag: &str, staging: &Path) {
     let bag = bag.to_owned();
-    let sidecar = sidecar.to_path_buf();
+    let staging = staging.to_path_buf();
 
-    *SAVE_STATUS.lock() = Some("writing into bag…".to_owned());
+    *SAVE_STATUS.lock() = Some("writing sidecar…".to_owned());
 
     std::thread::spawn(move || {
         // The script lives beside this crate; run it from the repo root, which
@@ -277,7 +257,8 @@ pub fn save_into_bag(bag: &str, sidecar: &Path) {
             .arg("--bag")
             .arg(&bag)
             .arg("--labels")
-            .arg(&sidecar);
+            .arg(&staging)
+            .arg("--sidecar");
         if let Some(root) = repo_root {
             command.current_dir(root);
         }
@@ -288,13 +269,13 @@ pub fn save_into_bag(bag: &str, sidecar: &Path) {
                 let summary = stdout
                     .lines()
                     .last()
-                    .map_or_else(|| "written into bag".to_owned(), str::to_owned);
+                    .map_or_else(|| "sidecar written".to_owned(), str::to_owned);
 
-                // The sidecar was only ever a hand-off to the writer; the bag is
-                // the record now, and leaving it behind invites editing the wrong
-                // one. Only removed once the write reported success.
-                if let Err(err) = std::fs::remove_file(&sidecar) {
-                    re_log::warn!("could not remove {}: {err}", sidecar.display());
+                // The staging file was only ever a hand-off to the writer; the
+                // sidecar is the record now, and leaving it behind invites
+                // editing the wrong one. Only removed once the write succeeded.
+                if let Err(err) = std::fs::remove_file(&staging) {
+                    re_log::warn!("could not remove {}: {err}", staging.display());
                 }
                 summary
             }
@@ -314,4 +295,147 @@ pub fn save_into_bag(bag: &str, sidecar: &Path) {
 
         *SAVE_STATUS.lock() = Some(status);
     });
+}
+
+/// Reduce a box entity's write history to one row per instant.
+///
+/// Kept separate from the querying so it can be tested: this fold encodes three
+/// rules that are easy to get wrong and have each caused a bug --
+///
+/// * a clear is a tombstone that removes the instant it lands on, which is what
+///   keeps the 64 reserved-but-cleared slots out of the export;
+/// * a partial write (a class change) inherits the pose in force at that
+///   moment, which may have been written earlier or statically;
+/// * static data outranks temporal data, as it does everywhere in Rerun, and a
+///   static row inherits the class of the temporal rows it supersedes.
+fn fold_events(
+    mut events: Vec<(Option<i64>, re_chunk::RowId, Option<Row>)>,
+) -> BTreeMap<Option<i64>, Row> {
+    events.sort_by_key(|(time, row_id, _)| (*time, *row_id));
+
+    let mut out: BTreeMap<Option<i64>, Row> = BTreeMap::new();
+    for (time, _, row) in events {
+        match row {
+            None => {
+                out.remove(&time);
+            }
+            Some(row) => {
+                // A partial write -- a class change, say -- carries no geometry.
+                // Fold it onto the pose in force at that moment, which may have
+                // been written earlier, or statically, rather than at this exact
+                // timestamp. Requiring an exact match discarded the write, so a
+                // box whose class was set at a different moment from its pose
+                // was exported unclassified.
+                let merged = if row.has_geometry {
+                    row
+                } else {
+                    match out.range(..=&time).next_back().map(|(_, r)| r) {
+                        Some(existing) => Row {
+                            center: existing.center,
+                            half_size: existing.half_size,
+                            quaternion: existing.quaternion,
+                            class_id: row.class_id.or(existing.class_id),
+                            has_geometry: true,
+                        },
+                        None => row,
+                    }
+                };
+                if merged.has_geometry {
+                    out.insert(time, merged);
+                }
+            }
+        }
+    }
+
+    // Rerun's own rule: static data outranks temporal for the same component.
+    // Ticking a box static leaves its earlier per-frame writes in the store, and
+    // exporting both produced two SceneUpdate entities sharing one track id --
+    // one of them missing the class, which is only ever written temporally.
+    if let Some(mut fixed) = out.remove(&None) {
+        if fixed.class_id.is_none() {
+            fixed.class_id = out.values().rev().find_map(|row| row.class_id);
+        }
+        out.clear();
+        out.insert(None, fixed);
+    }
+
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(class_id: Option<u16>, has_geometry: bool) -> Row {
+        Row {
+            center: [1.0, 2.0, 3.0],
+            half_size: if has_geometry {
+                [1.0, 1.0, 1.0]
+            } else {
+                [0.0; 3]
+            },
+            quaternion: [0.0, 0.0, 0.0, 1.0],
+            class_id,
+            has_geometry,
+        }
+    }
+
+    fn ids() -> impl Iterator<Item = re_chunk::RowId> {
+        std::iter::successors(Some(re_chunk::RowId::ZERO), |id| Some(id.incremented_by(1)))
+    }
+
+    /// A class set at a different moment from the pose still reaches the file.
+    ///
+    /// The class combo writes at the current time, which is rarely the instant
+    /// the box was placed. Requiring an exact match dropped that write, and the
+    /// box was saved unclassified.
+    #[test]
+    fn a_later_class_change_inherits_the_pose() {
+        let mut id = ids();
+        let folded = fold_events(vec![
+            (Some(100), id.next().unwrap(), Some(row(None, true))),
+            (Some(500), id.next().unwrap(), Some(row(Some(7), false))),
+        ]);
+
+        let at_change = folded.get(&Some(500)).expect("the class write was dropped");
+        assert_eq!(at_change.class_id, Some(7));
+        assert_eq!(
+            at_change.half_size,
+            [1.0, 1.0, 1.0],
+            "pose was not inherited"
+        );
+    }
+
+    /// Static outranks temporal, and takes the class with it.
+    ///
+    /// Ticking "static" writes a fresh row with no timeline. Exporting both it
+    /// and the temporal rows it supersedes produced two entities sharing one
+    /// track id, the static one missing its class.
+    #[test]
+    fn static_supersedes_temporal_and_keeps_the_class() {
+        let mut id = ids();
+        let folded = fold_events(vec![
+            (Some(100), id.next().unwrap(), Some(row(Some(2), true))),
+            (None, id.next().unwrap(), Some(row(None, true))),
+        ]);
+
+        assert_eq!(
+            folded.len(),
+            1,
+            "temporal rows survived alongside the static one"
+        );
+        assert_eq!(folded[&None].class_id, Some(2));
+    }
+
+    /// A cleared instant is gone: the reserved slots must not be exported.
+    #[test]
+    fn a_clear_removes_the_instant_it_lands_on() {
+        let mut id = ids();
+        let folded = fold_events(vec![
+            (Some(100), id.next().unwrap(), Some(row(Some(1), true))),
+            (Some(100), id.next().unwrap(), None),
+        ]);
+
+        assert!(folded.is_empty(), "a cleared box was still exported");
+    }
 }

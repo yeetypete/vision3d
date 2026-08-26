@@ -20,6 +20,9 @@ rfd = "0.17"
 # the upstream crate offers no way to intercept it. Re-base on each upgrade.
 re_view_spatial_fork = { path = "vendor/re_view_spatial" }
 mimalloc = "0.1"
+# Already in the tree via rerun; declared here to parse view ids out of
+# blueprint entity paths when toggling a section's visibility.
+uuid = "1"
 
 [profile.dev]
 opt-level = 1

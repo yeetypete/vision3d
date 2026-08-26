@@ -11326,6 +11326,7 @@ dependencies = [
  "re_view_spatial_fork",
  "rerun",
  "rfd",
+ "uuid",
 ]
 
 [[package]]

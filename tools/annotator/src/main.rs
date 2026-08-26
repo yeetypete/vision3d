@@ -31,6 +31,7 @@ mod ontology;
 mod settings;
 mod slice_view;
 mod slice_visualizer;
+mod visibility;
 
 // Keeps Rerun's memory accounting working, and mimalloc is simply faster.
 #[global_allocator]
@@ -43,6 +44,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     re_log::setup_logging();
     re_crash_handler::install_crash_handlers(re_viewer::build_info());
+
+    // Register the annotation-context subscriber before any data can arrive.
+    // It is otherwise registered lazily, on the first lookup, and registration
+    // does not replay: chunks already in the store are invisible to it for the
+    // rest of the session. The feed logs its `AnnotationContext` once, as static
+    // data, in its first moments -- so losing that race left the class ontology
+    // permanently empty, and with it the panel's class dropdown.
+    rerun::external::re_viewer_context::AnnotationContextStoreSubscriber::subscription_handle();
 
     // Listen for gRPC connections from the Python SDK, exactly like the stock viewer.
     let (rx, _grpc_server_handle) = re_grpc_server::spawn_with_recv(
@@ -91,6 +100,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // the view's frame and the frame annotations are stored in. Must match
             // `EGO_ENTITY` in the feed.
             re_view_spatial_fork::frames::set_ego_path("world/ego".into());
+            // The recording's own boxes are read-only; the fork's drag handler
+            // has to know which section that is.
+            re_view_spatial_fork::read_only::set_section(export::SOURCE_SECTION);
 
             app.add_log_receiver(rx);
 

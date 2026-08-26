@@ -218,6 +218,13 @@ fn hovered_box(ctx: &ViewerContext<'_>, state: &SpatialViewState) -> Option<BoxP
         .entity_path_from_hash(&hit.instance_path_hash.entity_path_hash)?
         .clone();
 
+    // The recording's own boxes are reference material. Refusing them here is
+    // what makes them immutable: with no pose to drag, the handler falls
+    // through and the camera keeps the gesture.
+    if crate::read_only::is_read_only(&entity) {
+        return None;
+    }
+
     let query = ctx.current_query();
     let db = ctx.recording();
 

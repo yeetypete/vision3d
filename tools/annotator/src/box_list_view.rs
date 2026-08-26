@@ -20,10 +20,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use glam::Vec3;
 use rerun::external::egui;
-use rerun::external::re_chunk::{Chunk, RowId, TimePoint};
+use rerun::external::re_chunk::{Chunk, LatestAtQuery, RowId, TimePoint};
 use rerun::external::re_entity_db::InstancePath;
 use rerun::external::re_log;
-use rerun::external::re_log_types::EntityPath;
+use rerun::external::re_log_types::{EntityPath, TimeInt};
 use rerun::external::re_sdk_types::ViewClassIdentifier;
 use rerun::external::re_ui::{self, Help};
 use rerun::external::re_viewer_context::{
@@ -85,6 +85,15 @@ pub struct BoxListState {
     /// row id so it is only rebuilt when the context actually changes.
     ontology: Vec<(u16, String)>,
     ontology_key: Option<RowId>,
+    /// Boxes whose staticness has already been read back from the recording.
+    synced_static: std::collections::HashSet<EntityPath>,
+    /// Which recording that was read from. Opening a second bag reuses the same
+    /// entity names, so the sync has to start over rather than trust the first.
+    synced_store: Option<rerun::external::re_log_types::StoreId>,
+    /// Section visibility, stored as "hidden" so the derived `Default` -- false
+    /// -- means both sections start visible.
+    hidden_source: bool,
+    hidden_manual: bool,
     /// Class assigned to the next created box.
     new_class: Option<u16>,
     /// Result of the most recent export, shown next to the button.
@@ -239,7 +248,10 @@ impl ViewClass for BoxListView {
                         .filter_map(|item| item.entity_path())
                         .find_map(|p| boxes.iter().find(|b| &b.entity == p)),
                 ) {
-                    state.grab = Some((selected.entity.clone(), selected.bbox.center - hover));
+                    // Not the recording's own boxes: those are read-only.
+                    if !re_view_spatial_fork::read_only::is_read_only(&selected.entity) {
+                        state.grab = Some((selected.entity.clone(), selected.bbox.center - hover));
+                    }
                 }
             }
             (true, Some((entity, offset))) => {
@@ -260,10 +272,12 @@ impl ViewClass for BoxListView {
             (false, None) => {}
         }
 
-        let box_prefix = boxes
-            .first()
-            .and_then(|b| b.entity.parent())
+        // From the store, not from the visualizer: a hidden section produces no
+        // boxes to read a path out of, and the panel still has to know where to
+        // write its visibility override to bring it back.
+        let annotations_root = annotations_root(ctx)
             .unwrap_or_else(|| query.space_origin.join(&FALLBACK_BOX_PREFIX.into()));
+        let box_prefix = annotations_root.join(&crate::export::MANUAL_SECTION.into());
 
         // A finished brush stroke becomes a box here rather than in the fork,
         // which has no notion of slot naming or the active class.
@@ -336,10 +350,11 @@ impl ViewClass for BoxListView {
                 }
             }
 
-            if delete {
-                if let Some(b) = selected_box {
-                    delete_box(ctx, query, &b.entity);
-                }
+            if delete
+                && let Some(b) = selected_box
+                && !re_view_spatial_fork::read_only::is_read_only(&b.entity)
+            {
+                delete_box(ctx, query, &b.entity);
             }
         }
 
@@ -511,29 +526,29 @@ impl ViewClass for BoxListView {
 
         ui.horizontal(|ui| {
             let source = crate::export::source_path(ctx);
-            let target = source.as_deref().map(crate::export::sidecar_for);
+            let staging = source.as_deref().map(crate::export::staging_for);
 
-            let enabled = target.is_some();
-            let hint = match &target {
-                Some(_) => format!(
-                    "Write annotations into {} on /annotations/boxes",
-                    source.as_deref().unwrap_or("the bag")
+            let enabled = staging.is_some();
+            let hint = match source.as_deref() {
+                Some(bag) => format!(
+                    "Write these labels to {}. The recording is not modified.",
+                    crate::export::sidecar_for(bag).display()
                 ),
                 None => "The feed did not record a source file to sit next to".to_owned(),
             };
 
             if ui
-                .add_enabled(enabled, egui::Button::new("Export labels \u{2192} bag"))
+                .add_enabled(enabled, egui::Button::new("Save labels \u{2192} sidecar"))
                 .on_hover_text(hint)
                 .clicked()
-                && let (Some(path), Some(source)) = (target, source)
+                && let (Some(path), Some(source)) = (staging, source)
             {
                 match crate::export::export(ctx, &box_prefix, query.timeline, &ontology, &path) {
                     Ok(count) => {
                         state.last_export = Some(format!("{count} records"));
-                        // Straight on into the recording; the sidecar is an
+                        // On into the sidecar; the staging file is an
                         // intermediate, not the deliverable.
-                        crate::export::save_into_bag(&source, &path);
+                        crate::export::save_sidecar(&source, &path);
                     }
                     Err(err) => {
                         state.last_export = Some(format!("failed: {err}"));
@@ -551,81 +566,154 @@ impl ViewClass for BoxListView {
 
         ui.separator();
 
-        if boxes.is_empty() {
-            ui.label("No boxes in this frame.");
-            return Ok(Default::default());
+        // The static registry only learns about a box when its checkbox is
+        // ticked, so one loaded from a bag starts out unknown to it -- and every
+        // edit would then be written at the current time, where the box's own
+        // static row silently outranks it. Read the truth out of the recording
+        // the first time each box is seen; after that the session's own toggles
+        // are authoritative.
+        if state.synced_store.as_ref() != Some(ctx.store_id()) {
+            state.synced_static.clear();
+            state.synced_store = Some(ctx.store_id().clone());
+        }
+        for b in boxes {
+            if state.synced_static.insert(b.entity.clone()) {
+                let stored = is_static_in_store(ctx, query.timeline, &b.entity);
+                re_view_spatial_fork::static_boxes::set_static(&b.entity, stored);
+
+                // Names loaded from a sidecar were themselves created as
+                // `new_N`, so a fresh session starting its counter at zero would
+                // write straight over one of them. Start past the highest name
+                // already present instead.
+                if let Some(index) = slot_index(&b.entity) {
+                    NEW_BOX_COUNTER.fetch_max(index + 1, Ordering::Relaxed);
+                }
+            }
         }
 
-        // --- the list ------------------------------------------------------
+        // --- the list, in two sections -------------------------------------
         let selected: Vec<&EntityPath> = ctx
             .selection()
             .iter_items()
             .filter_map(|item| item.entity_path())
             .collect();
 
-        ui.label(format!("{} boxes", boxes.len()));
+        let source_prefix = annotations_root.join(&crate::export::SOURCE_SECTION.into());
+        let ego = Vec3::from(map_from_ego.translation);
+
+        // From the recording, so the list is the same whether or not a section
+        // is being drawn: unticking a section is a display choice and must not
+        // change what the panel knows about.
+        let source_boxes = stored_boxes(ctx, &source_prefix);
+        let manual_boxes = stored_boxes(ctx, &box_prefix);
+        let (source_count, manual_count) = (source_boxes.len(), manual_boxes.len());
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                for b in boxes {
-                    let is_selected = selected.contains(&&b.entity);
-                    let name = b
-                        .entity
-                        .last()
-                        .map(|part| part.ui_string())
-                        .unwrap_or_default();
-                    let class = b
-                        .class_id
-                        .and_then(|id| class_name(&ontology, id))
-                        .unwrap_or("(unclassified)");
-                    // Distance from the machine, which is what matters when
-                    // scanning the list; the map origin is arbitrary.
-                    let distance = (b.bbox.center - Vec3::from(map_from_ego.translation)).length();
-
-                    ui.horizontal(|ui| {
-                        let label = format!("{class}  ·  {distance:.1} m");
-                        let row = ui.selectable_label(is_selected, label).on_hover_text(&name);
-                        if row.clicked() {
-                            ctx.command_sender()
-                                .send_system(SystemCommand::set_selection(Item::InstancePath(
-                                    InstancePath::entity_all(b.entity.clone()),
-                                )));
-                        }
-
-                        let mut is_static =
-                            re_view_spatial_fork::static_boxes::is_static(&b.entity);
-                        if ui
-                            .checkbox(&mut is_static, "static")
-                            .on_hover_text(
-                                "Show this box on every frame, for objects that do not move",
-                            )
-                            .changed()
-                        {
-                            set_static(ctx, query, b, is_static);
-                        }
-
-                        row.context_menu(|ui| {
-                            if ui.button("Delete box").clicked() {
-                                delete_box(ctx, query, &b.entity);
-                                ui.close();
+                // The recording's own boxes: a model's predictions, or an
+                // earlier pass. Read-only -- the recording is never written to,
+                // so an edit here would have nowhere to go. Copy one across to
+                // work on it.
+                let mut hidden = state.hidden_source;
+                if section_header(
+                    ui,
+                    "From the recording",
+                    source_count,
+                    &mut hidden,
+                    "Show the boxes already in the recording",
+                ) {
+                    state.hidden_source = hidden;
+                    crate::visibility::set_visible(ctx, &source_prefix, !hidden);
+                }
+                {
+                    for b in &source_boxes {
+                        ui.horizontal(|ui| {
+                            row_label(ui, ctx, b, &ontology, &selected, ego);
+                            if ui
+                                .button("copy")
+                                .on_hover_text(
+                                    "Copy this box into your labels, where it can be edited",
+                                )
+                                .clicked()
+                            {
+                                create_box(
+                                    ctx,
+                                    query,
+                                    &box_prefix,
+                                    b.class_id,
+                                    &ontology,
+                                    Some(b.bbox.center),
+                                    Some((b.bbox.half_size, b.bbox.rotation)),
+                                );
                             }
                         });
+                    }
+                    if source_boxes.is_empty() {
+                        ui.label(egui::RichText::new("  none").weak().small());
+                    }
+                }
 
-                        egui::ComboBox::from_id_salt(("class", &b.entity))
-                            .selected_text("edit")
-                            .width(60.0)
-                            .show_ui(ui, |ui| {
-                                for (id, cname) in &ontology {
-                                    if ui
-                                        .selectable_label(b.class_id == Some(*id), cname)
-                                        .clicked()
-                                    {
-                                        write_class(ctx, query, &b.entity, *id, cname);
-                                    }
+                ui.add_space(4.0);
+
+                // This session's own boxes. These are what gets saved.
+                let mut hidden = state.hidden_manual;
+                if section_header(
+                    ui,
+                    "My labels",
+                    manual_count,
+                    &mut hidden,
+                    "Show the boxes you have annotated",
+                ) {
+                    state.hidden_manual = hidden;
+                    crate::visibility::set_visible(ctx, &box_prefix, !hidden);
+                }
+                {
+                    for b in &manual_boxes {
+                        ui.horizontal(|ui| {
+                            let row = row_label(ui, ctx, b, &ontology, &selected, ego);
+
+                            let mut is_static =
+                                re_view_spatial_fork::static_boxes::is_static(&b.entity);
+                            if ui
+                                .checkbox(&mut is_static, "static")
+                                .on_hover_text(
+                                    "Show this box on every frame, for objects that do not move",
+                                )
+                                .changed()
+                            {
+                                set_static(ctx, query, b, &ontology, is_static);
+                            }
+
+                            row.context_menu(|ui| {
+                                if ui.button("Delete box").clicked() {
+                                    delete_box(ctx, query, &b.entity);
+                                    ui.close();
                                 }
                             });
-                    });
+
+                            egui::ComboBox::from_id_salt(("class", &b.entity))
+                                .selected_text("edit")
+                                .width(60.0)
+                                .show_ui(ui, |ui| {
+                                    for (id, cname) in &ontology {
+                                        if ui
+                                            .selectable_label(b.class_id == Some(*id), cname)
+                                            .clicked()
+                                        {
+                                            write_class(ctx, query, &b.entity, *id, cname);
+                                        }
+                                    }
+                                });
+                        });
+                    }
+                    if manual_boxes.is_empty() {
+                        ui.label(
+                            egui::RichText::new("  none yet \u{2014} press N or copy one above")
+                                .weak()
+                                .small(),
+                        );
+                    }
                 }
             });
 
@@ -728,6 +816,167 @@ fn refresh_ontology(state: &mut BoxListState, annotations: Option<&Annotations>)
     state.ontology_key = Some(annotations.row_id());
 }
 
+/// Whether the recording holds this box's pose as static data.
+///
+/// Asked at the earliest representable time, where only static data can
+/// resolve: a temporal row sits at one of the recording's own timestamps. That
+/// makes this a question about the store rather than about the session, which
+/// is what a box loaded from a bag needs.
+fn is_static_in_store(
+    ctx: &ViewerContext<'_>,
+    timeline: rerun::external::re_log_types::TimelineName,
+    entity: &EntityPath,
+) -> bool {
+    let half_sizes = rerun::Boxes3D::descriptor_half_sizes().component;
+    let at = LatestAtQuery::new(timeline, TimeInt::MIN);
+    ctx.recording()
+        .latest_at(&at, entity, [half_sizes])
+        .component_batch_raw(half_sizes)
+        .is_some_and(|array| !array.is_empty())
+}
+
+/// The entity holding both box sections, found in the recording.
+///
+/// Read from the store rather than from the drawn boxes: hiding a section
+/// removes its boxes from every visualizer, and the panel still needs the path
+/// to write the override that brings them back.
+fn annotations_root(ctx: &ViewerContext<'_>) -> Option<EntityPath> {
+    // Matched on a *box* path, `<root>/<section>/<track>`. The section node
+    // itself carries no data of its own, so it never appears among the store's
+    // entity paths -- looking for it found nothing, and new boxes went to a
+    // fallback prefix that no reserved slot backs, so they never rendered.
+    ctx.recording()
+        .sorted_entity_paths()
+        .find(|path| {
+            path.parent()
+                .and_then(|section| section.last().cloned())
+                .is_some_and(|part| {
+                    let name = part.unescaped_str();
+                    name == crate::export::SOURCE_SECTION || name == crate::export::MANUAL_SECTION
+                })
+        })
+        .and_then(|path| path.parent())
+        .and_then(|section| section.parent())
+}
+
+/// Every box a section holds, read from the recording.
+///
+/// Not from the visualizers: hiding a section stops it being drawn, and the
+/// list, the counts and the copy button all have to keep working regardless --
+/// unticking a section is a display choice and nothing more.
+fn stored_boxes(ctx: &ViewerContext<'_>, prefix: &EntityPath) -> Vec<SliceBox> {
+    use rerun::components::{ClassId, HalfSize3D, RotationQuat, Translation3D};
+
+    let recording = ctx.recording();
+    let at = ctx.current_query();
+    let half_d = rerun::Boxes3D::descriptor_half_sizes().component;
+    let center_d = rerun::Boxes3D::descriptor_centers().component;
+    let quat_d = rerun::Boxes3D::descriptor_quaternions().component;
+    let class_d = rerun::Boxes3D::descriptor_class_ids().component;
+
+    recording
+        .sorted_entity_paths()
+        .filter(|path| path.starts_with(prefix) && *path != prefix)
+        .filter_map(|path| {
+            let results = recording.latest_at(&at, path, [half_d, center_d, quat_d, class_d]);
+            // A reserved slot is logged and immediately cleared; `latest_at`
+            // honours that tombstone, so the 64 of them drop out here.
+            let half = *results.component_batch::<HalfSize3D>(half_d)?.first()?;
+            let center = results
+                .component_batch::<Translation3D>(center_d)
+                .and_then(|v| v.first().copied());
+            let quat = results
+                .component_batch::<RotationQuat>(quat_d)
+                .and_then(|v| v.first().copied());
+            let class = results
+                .component_batch::<ClassId>(class_d)
+                .and_then(|v| v.first().copied());
+
+            Some(SliceBox {
+                entity: path.clone(),
+                class_id: class.map(|c| c.0.0),
+                bbox: Box9Dof {
+                    center: center.map_or(Vec3::ZERO, |c| Vec3::from_array(c.0.0)),
+                    half_size: Vec3::from_array(half.0.0),
+                    rotation: quat.map_or(glam::Quat::IDENTITY, |q| {
+                        let [x, y, z, w] = q.0.0;
+                        glam::Quat::from_xyzw(x, y, z, w)
+                    }),
+                },
+            })
+        })
+        .collect()
+}
+
+/// The `N` of a box named `new_N`, if it is one.
+fn slot_index(entity: &EntityPath) -> Option<u64> {
+    entity
+        .last()
+        .map(|part| part.unescaped_str().to_owned())?
+        .strip_prefix("new_")?
+        .parse()
+        .ok()
+}
+
+/// A section heading with a tick box controlling the whole section.
+///
+/// Returns whether the tick box changed.
+fn section_header(
+    ui: &mut egui::Ui,
+    title: &str,
+    count: usize,
+    hidden: &mut bool,
+    hint: &str,
+) -> bool {
+    let mut shown = !*hidden;
+    let changed = ui
+        .horizontal(|ui| {
+            let changed = ui.checkbox(&mut shown, "").on_hover_text(hint).changed();
+            ui.strong(format!("{title} ({count})"));
+            changed
+        })
+        .inner;
+    if changed {
+        *hidden = !shown;
+    }
+    changed
+}
+
+/// The selectable part of a row: class, distance, and selection wiring.
+fn row_label(
+    ui: &mut egui::Ui,
+    ctx: &ViewerContext<'_>,
+    b: &SliceBox,
+    ontology: &[(u16, String)],
+    selected: &[&EntityPath],
+    ego: Vec3,
+) -> egui::Response {
+    let is_selected = selected.contains(&&b.entity);
+    let name = b
+        .entity
+        .last()
+        .map(|part| part.ui_string())
+        .unwrap_or_default();
+    let class = b
+        .class_id
+        .and_then(|id| class_name(ontology, id))
+        .unwrap_or("(unclassified)");
+    // Distance from the machine, which is what matters when scanning the list;
+    // the map origin is arbitrary.
+    let distance = (b.bbox.center - ego).length();
+
+    let row = ui
+        .selectable_label(is_selected, format!("{class}  \u{b7}  {distance:.1} m"))
+        .on_hover_text(&name);
+    if row.clicked() {
+        ctx.command_sender()
+            .send_system(SystemCommand::set_selection(Item::InstancePath(
+                InstancePath::entity_all(b.entity.clone()),
+            )));
+    }
+    row
+}
+
 fn class_name(ontology: &[(u16, String)], id: u16) -> Option<&str> {
     ontology
         .iter()
@@ -741,16 +990,30 @@ fn class_name(ontology: &[(u16, String)], id: u16) -> Option<&str> {
 /// delete that row -- recordings are append-only -- so it writes an empty static
 /// batch, which is how a component is cleared, and then re-writes the pose at
 /// the current time so the box does not vanish.
-fn set_static(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>, b: &SliceBox, make_static: bool) {
-    let pose = rerun::Boxes3D::from_centers_and_half_sizes(
+fn set_static(
+    ctx: &ViewerContext<'_>,
+    query: &ViewQuery<'_>,
+    b: &SliceBox,
+    ontology: &[(u16, String)],
+    make_static: bool,
+) {
+    let mut pose = rerun::Boxes3D::from_centers_and_half_sizes(
         [(b.bbox.center.x, b.bbox.center.y, b.bbox.center.z)],
-        [(
-            b.bbox.half_size.x,
-            b.bbox.half_size.y,
-            b.bbox.half_size.z,
-        )],
+        [(b.bbox.half_size.x, b.bbox.half_size.y, b.bbox.half_size.z)],
     )
     .with_quaternions([rerun::Quaternion::from_xyzw(b.bbox.rotation.to_array())]);
+
+    // The class rides along with the pose. Writing the pose alone left the
+    // class behind on the temporal timeline, where the new static row outranked
+    // it -- so ticking "static" silently unclassified the box, and that is what
+    // got saved. Unticking took it further: `clear_fields` wipes every
+    // component, the class included.
+    if let Some(id) = b.class_id {
+        pose = pose.with_class_ids([id]);
+        if let Some(name) = class_name(ontology, id) {
+            pose = pose.with_labels([name]);
+        }
+    }
 
     if make_static {
         re_view_spatial_fork::static_boxes::set_static(&b.entity, true);
@@ -906,5 +1169,32 @@ fn append(
                 ));
         }
         Err(err) => re_log::error_once!("failed to build box chunk: {err}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use re_view_spatial_fork::read_only;
+    use rerun::external::re_log_types::EntityPath;
+
+    /// Only boxes directly inside the read-only section refuse edits.
+    ///
+    /// Four separate paths consult this -- the 3D drag, the slice-view drag,
+    /// the grab key and the delete key -- so getting the shape of the path
+    /// wrong would quietly unlock all of them, or lock the wrong tree.
+    #[test]
+    fn only_the_recordings_own_boxes_are_read_only() {
+        read_only::set_section(crate::export::SOURCE_SECTION);
+
+        let from_recording: EntityPath = "world/annotations/source/new_0".into();
+        let mine: EntityPath = "world/annotations/manual/new_0".into();
+        let section_itself: EntityPath = "world/annotations/source".into();
+        let elsewhere: EntityPath = "world/sweeps/sweep_0".into();
+
+        assert!(read_only::is_read_only(&from_recording));
+        assert!(!read_only::is_read_only(&mine));
+        // The section node is not a box, and nothing edits it.
+        assert!(!read_only::is_read_only(&section_itself));
+        assert!(!read_only::is_read_only(&elsewhere));
     }
 }

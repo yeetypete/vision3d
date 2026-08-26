@@ -340,6 +340,12 @@ def log_labels(
     Static records are logged without a timeline, matching how the annotator
     marks an object that does not move.
 
+    Note:
+        ``classes`` is logged as a static ``rr.AnnotationContext``, which
+        *replaces* any context already on ``entity_prefix`` rather than merging
+        with it. Pass the full ontology, not just the classes these records
+        happen to use, or the session is left able to name only those.
+
     Args:
         entity_prefix: Where boxes live (e.g. ``"world/annotations"``).
         records: Rows from :func:`load_labels`.

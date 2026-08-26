@@ -5,6 +5,7 @@
 mod box_drag;
 pub mod brush;
 pub mod frames;
+pub mod read_only;
 pub mod static_boxes;
 mod caches;
 mod contexts;
