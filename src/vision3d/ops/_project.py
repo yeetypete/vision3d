@@ -43,3 +43,27 @@ def project_to_image(
 
     uv = torch.stack([u, v], dim=-1)  # [N, 2]
     return uv, depth
+
+
+def points_in_image(
+    points_3d: Tensor,
+    extrinsics: Tensor,
+    intrinsics: Tensor,
+    image_size: tuple[int, int],
+) -> Tensor:
+    """Return a mask selecting 3D points that project inside an image.
+
+    Args:
+        points_3d: Points in lidar frame ``[N, 3]``.
+        extrinsics: Lidar-to-camera transformation ``[4, 4]``.
+        intrinsics: Camera intrinsic matrix ``[3, 3]``.
+        image_size: Image height and width in pixels as ``(height, width)``.
+
+    Returns:
+        Boolean mask ``[N]``. An entry is true when the point has positive
+        camera-frame depth and projects within the image bounds.
+    """
+    height, width = image_size
+    uv, depth = project_to_image(points_3d, extrinsics, intrinsics)
+    u, v = uv.unbind(dim=-1)
+    return (depth > 0) & (u >= 0) & (u < width) & (v >= 0) & (v < height)
