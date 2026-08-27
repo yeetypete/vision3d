@@ -36,6 +36,7 @@ from vision3d.datasets.nuscenes import (
     _NuScenesDB,
     _quaternion_to_rotation_matrix,
 )
+from vision3d.transforms import ClosePointFilter
 
 # Datasets return CPU tensors by convention.
 pytestmark = pytest.mark.skip_device("cuda")
@@ -317,15 +318,13 @@ def test_nuscenes3d_outputs_match_devkit(
 
 
 def _devkit_multisweep(
-    nusc: devkit_NuScenes, sample_token: str, num_sweeps: int
+    nusc: devkit_NuScenes,
+    sample_token: str,
+    num_sweeps: int,
+    min_distance: float = 0.0,
 ) -> torch.Tensor:
-    # Accumulate sweeps with the nuscenes-devkit. ``min_distance=0`` disables
-    # its close-point removal (which our loader does not do) so the point clouds
-    # match. The devkit keeps (x, y, z, intensity) and a separate time vector.
-    # it drops the ring column.
-    # TODO: provide close-point removal as a reusable distance-filter transform
-    # rather than baking it into NuScenes3D, so ego self-returns can be filtered
-    # like the devkit.
+    # Accumulate sweeps with the nuscenes-devkit. The devkit keeps
+    # (x, y, z, intensity) and a separate time vector; it drops the ring column.
     sample = nusc.get("sample", sample_token)
     pc, times = LidarPointCloud.from_file_multisweep(
         nusc,
@@ -333,7 +332,7 @@ def _devkit_multisweep(
         chan="LIDAR_TOP",
         ref_chan="LIDAR_TOP",
         nsweeps=num_sweeps,
-        min_distance=0.0,
+        min_distance=min_distance,
     )
     return torch.cat(
         [torch.from_numpy(pc.points.T), torch.from_numpy(times.T)], dim=1
@@ -387,3 +386,24 @@ def test_nuscenes3d_sweeps_scene_start(
     torch.testing.assert_close(
         _drop_ring(points), _devkit_multisweep(devkit_db, token, 10), atol=1e-3, rtol=0
     )
+
+
+def test_nuscenes3d_close_point_filter_matches_devkit(
+    mini_root: Path, devkit_db: devkit_NuScenes
+) -> None:
+    """ClosePointFilter matches devkit removal for a single lidar sweep."""
+    ds = NuScenes3D(
+        mini_root,
+        version="v1.0-mini",
+        split="train",
+        transforms=ClosePointFilter(),
+    )
+    index = len(ds) // 2
+    points = ds[index][0]["points"]
+    ref = _devkit_multisweep(
+        devkit_db, ds._sample_tokens[index], num_sweeps=1, min_distance=1.0
+    )
+
+    # A single-sweep dataset cloud has (x, y, z, intensity, ring), while the
+    # devkit result has (x, y, z, intensity, time). Compare their shared data.
+    torch.testing.assert_close(points[:, :4], ref[:, :4], atol=1e-6, rtol=0)
