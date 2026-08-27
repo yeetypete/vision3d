@@ -20,8 +20,8 @@ class ClosePointFilter(Transform):
 
     Points are removed from the open square
     ``abs(x) < radius and abs(y) < radius``. The z coordinate is ignored here
-        aswell, like it is the case in the ego self-return filtering used by
-        the nuScenes devkit.
+    aswell, like it is the case in the ego self-return filtering used by
+    the nuScenes devkit.
 
     Args:
         radius: Half-width of the excluded square in the xy plane, in the
