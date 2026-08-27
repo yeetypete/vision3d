@@ -8,9 +8,10 @@ from ._registry import register_kernel
 
 
 def filter_close_points(inpt: Tensor, *, radius: float) -> Tensor:
-    """Dispatcher entry point for close-point filtering. So this does
-        not do anything but makes sure the programm does not crash when
-        the input is not a point cloud.
+    """Dispatcher entry point for close-point filtering.
+
+    So this does not do anything but makes sure the programm does not crash when
+    the input is not a point cloud.
 
     Returns:
         Input unchanged (passthrough for non-point types).
