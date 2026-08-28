@@ -1,0 +1,339 @@
+"""
+Logging training metrics with vision3d
+======================================
+
+This example demonstrates tracking a 3D detector's training run with
+`Rerun <https://rerun.io/>`_, driven by :class:`vision3d.viz.RerunLogger`
+-- the high-level entry point that turns a :class:`rerun.RecordingStream`
+into a one-line-per-step metric logger. It covers per-step scalar metrics,
+comparing several runs in one plot, and watching predictions converge on a
+fixed sample over training (:func:`vision3d.viz.log_boxes_3d` with
+``static=True``). Everything is logged to a single recording and arranged
+into one dashboard with :func:`vision3d.viz.time_series_view` and
+:func:`vision3d.viz.lidar_view`. Because every panel shares the ``step``
+timeline, playing it draws the loss curves *and* converges the 3D boxes at
+the same time.
+
+Training itself lives outside vision3d, but the logging does not. To keep
+the example self-contained we synthesize a plausible run rather than
+training a real model; in practice the scalars come from your loop and the
+validation metrics from :mod:`vision3d.metrics`.
+"""
+
+# %%
+# Synthesize a training run
+# -------------------------
+# A real loop would compute these from a model and a dataset. Here we fake a
+# BEVFusion-style run: a total loss that decays with noise, split into
+# classification, regression, and heatmap components, plus a learning rate
+# following linear warmup then cosine decay. ``simulate_run`` takes a
+# ``RunConfig``, so the same definitions drive both the single run below and
+# the run comparison later.
+
+import math
+from typing import NamedTuple
+
+import torch
+
+EPOCHS = 6
+STEPS_PER_EPOCH = 50
+WARMUP_STEPS = 30
+TOTAL_STEPS = EPOCHS * STEPS_PER_EPOCH
+
+
+def lr_at(step: int, base_lr: float) -> float:
+    """Linear warmup then cosine decay to zero.
+
+    Returns:
+        The learning rate for the given global ``step``.
+    """
+    if step < WARMUP_STEPS:
+        return base_lr * (step + 1) / WARMUP_STEPS
+    progress = (step - WARMUP_STEPS) / (TOTAL_STEPS - WARMUP_STEPS)
+    return 0.5 * base_lr * (1 + math.cos(math.pi * progress))
+
+
+class RunConfig(NamedTuple):
+    """Hyperparameters and plot style for one synthetic run."""
+
+    name: str
+    base_lr: float
+    decay: float
+    seed: int
+    color: tuple[int, int, int]
+
+
+RUNS = [
+    RunConfig("baseline", base_lr=1e-3, decay=3.0, seed=0, color=(31, 119, 180)),
+    RunConfig("high_lr", base_lr=3e-3, decay=2.0, seed=1, color=(255, 127, 14)),
+]
+
+
+def simulate_run(run: RunConfig) -> list[tuple[dict[str, torch.Tensor], float]]:
+    """Synthesize per-step losses and learning rates for one run.
+
+    Returns:
+        One ``(losses, lr)`` pair per step, where ``losses`` maps component
+        name to a scalar-tensor loss.
+    """
+    generator = torch.Generator().manual_seed(run.seed)
+    steps = []
+    for step in range(TOTAL_STEPS):
+        d = math.exp(-run.decay * step / TOTAL_STEPS)
+
+        def noise() -> torch.Tensor:
+            return 1 + 0.15 * torch.randn(1, generator=generator)
+
+        losses = {
+            "loss/cls": torch.tensor(1.2 * d) * noise(),
+            "loss/reg": torch.tensor(0.8 * d + 0.1) * noise(),
+            "loss/heatmap": torch.tensor(0.6 * d) * noise(),
+        }
+        steps.append((losses, lr_at(step, run.base_lr)))
+    return steps
+
+
+# %%
+# Set up the recording, dashboard, and logger
+# -------------------------------------------
+# You own the Rerun recording: create it, attach whichever sink you want
+# (``spawn``, ``save``, ``connect_grpc``, ...) and a dashboard blueprint,
+# then hand it to :class:`~vision3d.viz.RerunLogger`, which adds the
+# training-loop conveniences on top -- entity namespacing, throttling, and
+# an ``enabled`` switch that turns every method into a no-op, so the logger
+# is safe to call from shared multi-GPU loop code. The blueprint composes
+# :func:`~vision3d.viz.time_series_view` (scalars under each prefix:
+# ``train``, ``sched``, ``runs``, ``val``) and :func:`~vision3d.viz.lidar_view`
+# (the 3D scene), all driven by the shared ``step`` timeline.
+
+import rerun as rr
+import rerun.blueprint as rrb
+
+from vision3d.viz import (
+    RerunLogger,
+    lidar_view,
+    time_series_view,
+)
+
+# One Y axis per view, so the learning rate gets its own ``sched`` panel
+# instead of flattening against losses ~1000x larger.
+dashboard = rrb.Blueprint(
+    rrb.Vertical(
+        rrb.Horizontal(
+            time_series_view(entity_prefix="train", name="loss (baseline)"),
+            time_series_view(entity_prefix="sched", name="learning rate"),
+            time_series_view(entity_prefix="runs", name="total loss (runs)"),
+            time_series_view(entity_prefix="val", name="val metrics"),
+        ),
+        lidar_view(entity_prefix="val_sample", name="pred vs gt over training"),
+        row_shares=(2, 3),
+    )
+)
+
+# A real (often multi-GPU) run writes to a file, records from one rank, and
+# lets the stream's context manager own the lifecycle -- on exit it flushes
+# and finalizes the sink, so the ``.rrd`` is readable right after the block::
+#
+#     with rr.RecordingStream("bevfusion") as rec:
+#         rec.save("run.rrd")
+#         rec.send_blueprint(dashboard)
+#         logger = RerunLogger(rec, enabled=rank == 0)
+#         ...  # training loop
+#
+# No ``with`` block can span this example's cells, so we register a
+# process-global recording with :func:`rerun.init` and pass ``None`` to
+# target it. That also lets the docs build capture the run for the viewer.
+rr.init("vision3d_training", spawn=True)
+rr.send_blueprint(dashboard)
+
+logger = RerunLogger(None)
+
+# Run-wide settings become recording properties; per-run hyperparameters are
+# logged in the run-comparison section below.
+logger.log_config({"epochs": EPOCHS, "steps_per_epoch": STEPS_PER_EPOCH})
+
+# The 3D scene shares this recording: the logger's scene methods route into
+# it and no-op when disabled. Raw archetypes with no method -- like these
+# view coordinates -- go through ``rr.log`` on ``logger.recording``, guarded
+# by ``logger.enabled`` so they honour the switch too.
+if logger.enabled:
+    rr.log(
+        "val_sample",
+        rr.ViewCoordinates.RIGHT_HAND_Z_UP,
+        static=True,
+        recording=logger.recording,
+    )
+
+# %%
+# Log per-step training metrics
+# -----------------------------
+# Inside the training loop, call :meth:`~vision3d.viz.RerunLogger.log` once per
+# optimizer step. Metrics default to the ``"train"`` group; names containing
+# ``/`` (e.g. ``"loss/cls"``) nest, so the component losses group under
+# ``train/loss``. ``group=`` overrides that -- the learning rate goes to
+# ``sched`` for its own axis. In a hot loop, pass ``every=N`` to throttle
+# logging (and the ``.item()`` GPU sync it costs) to every N steps.
+
+for step, (losses, lr) in enumerate(simulate_run(RUNS[0])):
+    total = sum(losses.values())
+    logger.log({"loss/total": total, **losses}, step=step)
+    logger.log({"lr": lr}, step=step, group="sched")
+
+# %%
+# Compare several runs in one plot
+# --------------------------------
+# Rerun overlays scalars logged to sibling entities in the same view. Giving
+# each run its own ``group`` (``runs/<name>``) puts their curves on one plot;
+# :meth:`~vision3d.viz.RerunLogger.style_series` then gives each a stable
+# legend name and color, and :meth:`~vision3d.viz.RerunLogger.log_config`
+# records each run's hyperparameters (namespaced by run) so you can tell the
+# curves apart later. Rerun has no sweep table or parallel-coordinate view,
+# so for experiment *management* you would still pair it with wandb or MLflow.
+
+for run in RUNS:
+    group = f"runs/{run.name}"
+    logger.style_series(
+        "loss/total", group=group, legend=run.name, color=run.color, width=2.0
+    )
+    logger.log_config(
+        {f"{run.name}/base_lr": run.base_lr, f"{run.name}/decay": run.decay}
+    )
+    for step, (losses, _lr) in enumerate(simulate_run(run)):
+        logger.log({"loss/total": sum(losses.values())}, step=step, group=group)
+
+# %%
+# Log per-epoch validation metrics
+# --------------------------------
+# Validation runs less often, so log it under the ``"val"`` group on the
+# ``"epoch"`` timeline (we also pass ``step`` so the points line up with the
+# training curves when viewed against steps). In a real loop these come
+# straight from :mod:`vision3d.metrics` -- e.g.
+# ``logger.log(metric.compute(), epoch=epoch, group="val")`` for nuScenes mAP
+# and NDS. Here we synthesize values that climb as training progresses.
+
+val_gen = torch.Generator().manual_seed(3)
+for epoch in range(EPOCHS):
+    progress = (epoch + 1) / EPOCHS
+    jitter = 0.02 * torch.randn(1, generator=val_gen).item()
+    logger.log(
+        {"mAP": 0.25 + 0.4 * progress + jitter, "NDS": 0.30 + 0.35 * progress + jitter},
+        step=(epoch + 1) * STEPS_PER_EPOCH - 1,
+        epoch=epoch,
+        group="val",
+    )
+
+# %%
+# Watch predictions converge on a fixed sample
+# --------------------------------------------
+# The most useful qualitative signal for a detector is seeing predictions snap
+# onto objects as it learns. Pick a fixed validation sample; its point cloud and
+# ground truth are constant, so log them once with ``static=True``. We then
+# re-log the predictions on the same ``step`` timeline as the losses, so in the
+# viewer the boxes converge in lockstep with the loss curves above.
+
+from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
+
+scene_gen = torch.Generator().manual_seed(7)
+
+# Three ground-truth objects (XYZLWHY: center, size, yaw).
+gt = BoundingBoxes3D(
+    torch.tensor(
+        [
+            [6.0, 2.0, 0.0, 4.5, 2.0, 1.6, 0.2],
+            [-8.0, -5.0, 0.0, 4.0, 1.8, 1.5, 1.4],
+            [12.0, -10.0, 0.0, 4.8, 2.1, 1.7, -0.6],
+        ]
+    ),
+    format=BoundingBox3DFormat.XYZLWHY,
+)
+class_ids = [0, 0, 0]
+label_to_id = {"car": 0}
+
+# Ground plane plus a cluster of returns inside each object, so the converging
+# predictions have visible structure to land on.
+ground = torch.empty(3000, 3)
+ground[:, :2] = ground[:, :2].uniform_(-20, 20, generator=scene_gen)
+ground[:, 2] = ground[:, 2].uniform_(-2.0, -1.7, generator=scene_gen)
+
+clusters = []
+for cx, cy, cz, length, width, height, yaw in gt.tolist():
+    local = torch.empty(400, 3).uniform_(-0.5, 0.5, generator=scene_gen)
+    local *= torch.tensor([length, width, height])
+    cos, sin = math.cos(yaw), math.sin(yaw)
+    clusters.append(
+        torch.stack(
+            [
+                cx + local[:, 0] * cos - local[:, 1] * sin,
+                cy + local[:, 0] * sin + local[:, 1] * cos,
+                cz + local[:, 2],
+            ],
+            dim=1,
+        )
+    )
+points = torch.cat([ground, *clusters])
+
+logger.log_point_cloud("val_sample/lidar", points, static=True)
+logger.log_boxes_3d(
+    "val_sample/gt/boxes",
+    gt,
+    class_ids=class_ids,
+    label_to_id=label_to_id,
+    fill_mode="transparentfillmajorwireframe",
+    static=True,
+)
+
+# Each object starts from a fixed but badly-wrong guess -- far off, 0.3x-2.5x
+# the true size, heading off by up to 180 degrees -- and converges at its own
+# rate. Confidence climbs noisily from near-zero.
+n = gt.shape[0]
+gt_raw = gt.as_subclass(torch.Tensor)
+
+pred_gen = torch.Generator().manual_seed(11)
+
+
+def rand(*shape: int, lo: float, hi: float) -> torch.Tensor:
+    """Draw a uniform tensor in ``[lo, hi)`` from the shared generator.
+
+    Returns:
+        A tensor of the requested shape.
+    """
+    return torch.empty(*shape).uniform_(lo, hi, generator=pred_gen)
+
+
+init_offset = torch.empty(n, 3)
+init_offset[:, :2] = rand(n, 2, lo=-8.0, hi=8.0)
+init_offset[:, 2] = rand(n, lo=-1.5, hi=1.5)
+size_scale = rand(n, 3, lo=0.3, hi=2.5)
+yaw_error = rand(n, lo=-math.pi, hi=math.pi)
+decay_k = rand(n, lo=2.0, hi=5.0)  # per-box convergence speed
+
+# The validation loop left the ``epoch`` cursor set, and Rerun stamps every
+# log with all active cursors. Clear it so these predictions ride the
+# ``step`` timeline alone instead of carrying a stale epoch.
+logger.reset_time()
+
+for step in range(TOTAL_STEPS):
+    alpha = 1 - torch.exp(-decay_k * step / TOTAL_STEPS)  # [n], 0 -> ~1
+    remaining = (1 - alpha).unsqueeze(1)  # [n, 1] for broadcasting over xyz
+    raw = gt_raw.clone()
+    # Position: glide from the far-off guess onto the GT center.
+    raw[:, :3] += remaining * init_offset
+    # Shape: interpolate the size distortion back to the true dimensions.
+    raw[:, 3:6] *= 1 + remaining * (size_scale - 1)
+    # Heading: unwind the yaw error.
+    raw[:, 6] += (1 - alpha) * yaw_error
+    # Confidence climbs from near-zero as the predictions sharpen, but noisily.
+    scores = (0.05 + 0.9 * alpha + 0.06 * torch.randn(n, generator=pred_gen)).clamp(
+        0.02, 0.99
+    )
+
+    logger.set_time(step=step)
+    logger.log_boxes_3d(
+        "val_sample/pred/boxes",
+        BoundingBoxes3D(raw, format=BoundingBox3DFormat.XYZLWHY),
+        class_ids=class_ids,
+        label_to_id=label_to_id,
+        scores=scores,
+        fill_mode="majorwireframe",
+        show_labels=True,
+    )
