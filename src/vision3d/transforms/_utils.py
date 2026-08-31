@@ -5,7 +5,7 @@ from typing import Any
 
 from torch import Tensor
 
-from vision3d.tensors import BoundingBoxes3D
+from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 
 def _find_boxes(flat_inputs: list[Any]) -> BoundingBoxes3D | None:
@@ -27,10 +27,59 @@ def _find_boxes(flat_inputs: list[Any]) -> BoundingBoxes3D | None:
     if len(boxes) > 1:
         msg = (
             "found multiple BoundingBoxes3D leaves in the sample; "
-            "RangeFilter3D supports exactly one box set"
+            "this transform supports exactly one box set"
         )
         raise ValueError(msg)
     return boxes[0] if boxes else None
+
+
+def _find_points(flat_inputs: list[Any]) -> PointCloud3D | None:
+    """Return the sole ``PointCloud3D`` leaf, or ``None`` if absent.
+
+    Args:
+        flat_inputs: Leaves from :func:`torch.utils._pytree.tree_flatten`.
+
+    Returns:
+        The single :class:`~vision3d.tensors.PointCloud3D` in ``flat_inputs``,
+        or ``None`` when the sample carries no point cloud.
+
+    Raises:
+        ValueError: If the sample holds more than one ``PointCloud3D`` leaf,
+            since callers that operate on a single point cloud cannot tell
+            which one to use.
+    """
+    points = [inpt for inpt in flat_inputs if isinstance(inpt, PointCloud3D)]
+    if len(points) > 1:
+        msg = (
+            "found multiple PointCloud3D leaves in the sample; "
+            "this transform supports exactly one point cloud"
+        )
+        raise ValueError(msg)
+    return points[0] if points else None
+
+
+def _filter_boxes_and_labels(inpt: Any, box_keep: Tensor, label_ids: set[int]) -> Any:
+    """Apply a box keep-mask to a boxes leaf or a per-box label leaf.
+
+    Shared by the filtering transforms so the box/label branch of their
+    per-leaf dispatch stays in one place.
+
+    Args:
+        inpt: A single leaf from :func:`torch.utils._pytree.tree_flatten`.
+        box_keep: 1D boolean keep-mask ``[M]`` over the boxes.
+        label_ids: ``id()`` values of the label leaves to filter in sync,
+            as returned by :func:`_resolve_label_ids`.
+
+    Returns:
+        The box set or per-box label tensor filtered by ``box_keep`` when
+        ``inpt`` is the ``BoundingBoxes3D`` leaf or one of the label leaves in
+        ``label_ids``; otherwise ``inpt`` unchanged.
+    """
+    if isinstance(inpt, BoundingBoxes3D):
+        return BoundingBoxes3D(inpt.as_subclass(Tensor)[box_keep], format=inpt.format)
+    if id(inpt) in label_ids:
+        return inpt[box_keep]
+    return inpt
 
 
 def _resolve_label_ids(

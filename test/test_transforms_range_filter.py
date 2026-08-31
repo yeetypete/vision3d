@@ -265,8 +265,9 @@ class TestLabelsGetter:
         assert out["frame_id"] == 7
 
     def test_invalid_labels_getter_raises(self) -> None:
+        bad_getter: Any = 123
         with pytest.raises(ValueError, match="labels_getter"):
-            RangeFilter3D(point_cloud_range=_RANGE, labels_getter=123)  # type: ignore[arg-type]
+            RangeFilter3D(point_cloud_range=_RANGE, labels_getter=bad_getter)
 
     def test_getter_returning_copy_raises(self) -> None:
         inputs, targets = _make_two_dict_sample()
