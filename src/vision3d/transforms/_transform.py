@@ -81,6 +81,22 @@ class Transform(nn.Module):
         """
         return [check_type(inpt, self._transformed_types) for inpt in flat_inputs]
 
+    def _require_inputs(self, inputs: tuple[Any, ...]) -> None:
+        """Reject a ``forward`` call that was given nothing to transform.
+
+        Subclasses that hand-roll :meth:`forward` should this themselves, since
+        they do not run the base implementation.
+
+        Args:
+            inputs: The ``*inputs`` tuple as received by ``forward``.
+
+        Raises:
+            ValueError: If ``inputs`` is empty.
+        """
+        if not inputs:
+            msg = f"{type(self).__name__}.forward requires at least one input sample"
+            raise ValueError(msg)
+
     @override
     def forward(self, *inputs: Any) -> Any:
         """Apply the transform to one or more inputs (dicts, tuples, etc.).
@@ -90,6 +106,7 @@ class Transform(nn.Module):
         Returns:
             Transformed inputs in the same structure as the input.
         """
+        self._require_inputs(inputs)
         flat_inputs, spec = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
 
         self.check_inputs(flat_inputs)
@@ -143,6 +160,7 @@ class _RandomApplyTransform(Transform):
         Returns:
             Transformed inputs, or the original inputs if skipped.
         """
+        self._require_inputs(inputs)
         inputs = inputs if len(inputs) > 1 else inputs[0]
         flat_inputs, spec = tree_flatten(inputs)
 

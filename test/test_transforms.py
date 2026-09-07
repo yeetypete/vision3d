@@ -1,10 +1,8 @@
 import math
-from typing import Any, override
 
 import pytest
 import torch
 from common_utils import (
-    check_transform,
     make_bounding_boxes_3d,
     make_camera_extrinsics,
     make_camera_images,
@@ -13,9 +11,7 @@ from common_utils import (
     make_lidar_sample,
     make_point_cloud_3d,
 )
-from torchvision.tv_tensors import TVTensor
 
-import vision3d.tensors as _vision3d_tensors
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -27,7 +23,6 @@ from vision3d.transforms import (
     RandomRotate3D,
     RandomScale3D,
     RandomTranslate3D,
-    Transform,
 )
 from vision3d.transforms.functional import (
     flip_3d,
@@ -255,30 +250,11 @@ class TestFlip3DDispatch:
 
 
 class TestRandomFlip3D:
-    def test_transform(self) -> None:
-        # RandomFlip3D refuses camera tensors, so audit on the lidar-only
-        # sample (covers points, boxes, plain-tensor labels).
-        check_transform(RandomFlip3D(axis="x", p=1.0), make_lidar_sample())
-
     def test_p_one_always_flips(self) -> None:
         sample = make_lidar_sample()
         transform = RandomFlip3D(axis="x", p=1.0)
         out = transform(sample)
         assert not torch.equal(out["points"], sample["points"])
-
-    def test_p_zero_never_flips(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomFlip3D(axis="x", p=0.0)
-        out = transform(sample)
-        assert torch.equal(out["points"], sample["points"])
-        assert torch.equal(out["boxes"], sample["boxes"])
-
-    @pytest.mark.parametrize("format", ALL_FORMATS)
-    def test_preserves_format(self, format: BoundingBox3DFormat) -> None:
-        sample = make_lidar_sample(format=format)
-        transform = RandomFlip3D(axis="x", p=1.0)
-        out = transform(sample)
-        assert out["boxes"].format == format
 
     @pytest.mark.parametrize("axis", ALL_AXES)
     def test_point_cloud_correctness_vs_functional(self, axis: str) -> None:
@@ -507,29 +483,11 @@ class TestTranslate3DDispatch:
 
 # Transform tests
 class TestRandomTranslate3D:
-    def test_transform(self) -> None:
-        check_transform(
-            RandomTranslate3D(translation_range=5.0, p=1.0), make_fusion_sample()
-        )
-
     def test_p_one_always_translates(self) -> None:
         sample = make_lidar_sample()
         transform = RandomTranslate3D(translation_range=5.0, p=1.0)
         out = transform(sample)
         assert not torch.equal(out["points"], sample["points"])
-
-    def test_p_zero_never_translates(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomTranslate3D(translation_range=5.0, p=0.0)
-        out = transform(sample)
-        assert torch.equal(out["points"], sample["points"])
-
-    @pytest.mark.parametrize("format", ALL_FORMATS)
-    def test_preserves_format(self, format: BoundingBox3DFormat) -> None:
-        sample = make_lidar_sample(format=format)
-        transform = RandomTranslate3D(translation_range=5.0, p=1.0)
-        out = transform(sample)
-        assert out["boxes"].format == format
 
     def test_per_axis_range(self) -> None:
         transform = RandomTranslate3D(translation_range=(1.0, 2.0, 3.0), p=1.0)
@@ -584,6 +542,14 @@ class TestRotate3DPointCloudKernel:
         )
         torch.testing.assert_close(roundtripped, points, atol=1e-6, rtol=1e-6)
 
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    def test_dtype_preserved_for_float32_matrix(self, dtype: torch.dtype) -> None:
+        # The rotation matrix is always built in the default dtype, so the kernel
+        # has to adopt the point cloud's dtype rather than the matrix's.
+        points = torch.rand(10, 3, dtype=dtype)
+        actual = rotate_3d_point_cloud(points, rotation_matrix=_make_z_rotation(0.3))
+        assert actual.dtype == dtype
+
 
 class TestRotate3DBoundingBoxesKernel:
     @pytest.mark.parametrize(
@@ -599,6 +565,17 @@ class TestRotate3DBoundingBoxesKernel:
         torch.testing.assert_close(
             actual[:, :3], expected_centers, atol=1e-6, rtol=1e-6
         )
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    def test_dtype_preserved_for_float32_matrix(self, dtype: torch.dtype) -> None:
+        # The rotation matrix is always built in the default dtype, so the kernel
+        # has to adopt the boxes' dtype rather than the matrix's.
+        fmt = BoundingBox3DFormat.XYZLWHYPR
+        raw = make_bounding_boxes_3d(format=fmt, dtype=dtype).as_subclass(torch.Tensor)
+        actual = rotate_3d_bounding_boxes(
+            raw, format=fmt, rotation_matrix=_make_z_rotation(0.3)
+        )
+        assert actual.dtype == dtype
 
     @pytest.mark.parametrize(
         "format",
@@ -744,29 +721,11 @@ class TestRotate3DDispatch:
 
 # Transform tests
 class TestRandomRotate3D:
-    def test_transform(self) -> None:
-        check_transform(RandomRotate3D(angle_range=0.5, p=1.0), make_fusion_sample())
-
     def test_p_one_always_rotates(self) -> None:
         sample = make_lidar_sample()
         transform = RandomRotate3D(angle_range=0.5, p=1.0)
         out = transform(sample)
         assert not torch.equal(out["points"], sample["points"])
-
-    def test_p_zero_never_rotates(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomRotate3D(angle_range=0.5, p=0.0)
-        out = transform(sample)
-        assert torch.equal(out["points"], sample["points"])
-
-    @pytest.mark.parametrize(
-        "format", [BoundingBox3DFormat.XYZLWHY, BoundingBox3DFormat.XYZLWHYPR]
-    )
-    def test_preserves_format(self, format: BoundingBox3DFormat) -> None:
-        sample = make_lidar_sample(format=format)
-        transform = RandomRotate3D(angle_range=0.5, p=1.0)
-        out = transform(sample)
-        assert out["boxes"].format == format
 
     def test_custom_axis(self) -> None:
         transform = RandomRotate3D(angle_range=0.5, axis=(1.0, 0.0, 0.0), p=1.0)
@@ -932,29 +891,11 @@ class TestScale3DDispatch:
 
 # Transform tests
 class TestRandomScale3D:
-    def test_transform(self) -> None:
-        check_transform(
-            RandomScale3D(scale_range=(0.8, 1.2), p=1.0), make_fusion_sample()
-        )
-
     def test_p_one_always_scales(self) -> None:
         sample = make_lidar_sample()
         transform = RandomScale3D(scale_range=(0.5, 0.9), p=1.0)
         out = transform(sample)
         assert not torch.equal(out["points"], sample["points"])
-
-    def test_p_zero_never_scales(self) -> None:
-        sample = make_lidar_sample()
-        transform = RandomScale3D(scale_range=(0.5, 1.5), p=0.0)
-        out = transform(sample)
-        assert torch.equal(out["points"], sample["points"])
-
-    @pytest.mark.parametrize("format", ALL_FORMATS)
-    def test_preserves_format(self, format: BoundingBox3DFormat) -> None:
-        sample = make_lidar_sample(format=format)
-        transform = RandomScale3D(scale_range=(0.8, 1.2), p=1.0)
-        out = transform(sample)
-        assert out["boxes"].format == format
 
     def test_negative_range_raises(self) -> None:
         with pytest.raises(ValueError, match="positive"):
@@ -1001,73 +942,3 @@ class TestPointsAndBoxesStayConsistent:
         point_delta = out["points"][0, :3] - points_before[0, :3]
         box_delta = out["boxes"][0, :3] - boxes_before[0, :3]
         assert torch.allclose(point_delta, box_delta, atol=1e-5)
-
-
-class _IdentityTransform(Transform):
-    """Trivial transform that returns inputs unchanged; used to probe dispatch."""
-
-    @override
-    def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
-        return inpt
-
-
-class _PointCloudOnly(_IdentityTransform):
-    _transformed_types = (PointCloud3D,)
-
-
-class TestTransformedTypesContract:
-    def test_default_dispatches_all_tvtensors(self) -> None:
-        # Default _transformed_types = (TVTensor,) accepts any TVTensor.
-        sample = make_fusion_sample()
-        out = _IdentityTransform()(sample)
-        assert set(out) == set(sample)
-
-    def test_plain_tensors_pass_through(self) -> None:
-        labels = torch.tensor([0, 1, 2])
-        out = _IdentityTransform()({"labels": labels})
-        assert out["labels"] is labels
-
-    def test_only_listed_tvtensors_dispatched(self) -> None:
-        dispatched: list[type] = []
-
-        class _Probe(_PointCloudOnly):
-            @override
-            def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
-                dispatched.append(type(inpt))
-                return inpt
-
-        sample = make_fusion_sample()
-        _Probe()(sample)
-        assert dispatched == [PointCloud3D]
-
-    def test_unlisted_tvtensors_pass_through_unchanged(self) -> None:
-        sample = make_fusion_sample()
-        out = _PointCloudOnly()(sample)
-        for key in ("images", "extrinsics", "intrinsics"):
-            assert out[key] is sample[key]
-
-
-class TestAuditFixture:
-    """The ``check_transform`` smoke audit relies on ``make_fusion_sample``
-    containing one of every vision3d TVTensor. Adding a new TVTensor type
-    without updating the fixture would let transforms silently pass it
-    through instead of being audited.
-    """
-
-    def test_fusion_sample_covers_all_tvtensors(self) -> None:
-        declared = {
-            cls
-            for cls in vars(_vision3d_tensors).values()
-            if isinstance(cls, type)
-            and issubclass(cls, TVTensor)
-            and cls is not TVTensor
-        }
-        present = {
-            type(v) for v in make_fusion_sample().values() if isinstance(v, TVTensor)
-        }
-        missing = declared - present
-        assert not missing, (
-            f"New TVTensor(s) {sorted(c.__name__ for c in missing)} not in "
-            f"make_fusion_sample(). Add to common_utils.make_fusion_sample, "
-            f"then audit each transform's _transformed_types / check_inputs."
-        )

@@ -3,6 +3,7 @@
 from typing import Any, override
 
 import torch
+from torch import Tensor
 
 from vision3d.tensors import PointCloud3D
 
@@ -17,6 +18,8 @@ from .functional._point_cloud import (
 class PointShuffle(_RandomApplyTransform):
     """Randomly permute point order with probability ``p``.
 
+    Each point cloud in the sample is permuted independently.
+
     Args:
         p: Probability of applying. Default: ``0.5``.
     """
@@ -28,10 +31,11 @@ class PointShuffle(_RandomApplyTransform):
         """Sample a random permutation.
 
         Returns:
-            Dict with ``"perm"`` key.
+            Dict with ``"perm"`` keyed by each point cloud's ``id()``.
         """
-        n = flat_inputs[0].shape[0]
-        return {"perm": torch.randperm(n)}
+        return {
+            "perm": {id(inpt): torch.randperm(inpt.shape[0]) for inpt in flat_inputs}
+        }
 
     @override
     def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
@@ -40,7 +44,7 @@ class PointShuffle(_RandomApplyTransform):
         Returns:
             Shuffled input.
         """
-        return self._call_kernel(shuffle_points, inpt, perm=params["perm"])
+        return self._call_kernel(shuffle_points, inpt, perm=params["perm"][id(inpt)])
 
 
 class PointSample(Transform):
@@ -49,6 +53,8 @@ class PointSample(Transform):
     If the point cloud has more than ``n`` points, a random subset is
     selected. If fewer, points are sampled with replacement to reach
     ``n``.
+
+    Each point cloud in the sample is resampled independently.
 
     Args:
         n: Target number of points.
@@ -65,13 +71,15 @@ class PointSample(Transform):
         """Sample indices to reach exactly ``n`` points.
 
         Returns:
-            Dict with ``"indices"`` key.
+            Dict with ``"indices"`` keyed by each point cloud's ``id()``.
         """
-        num_points = flat_inputs[0].shape[0]
-        if num_points >= self.n:
-            indices = torch.randperm(num_points)[: self.n]
-        else:
-            indices = torch.randint(0, num_points, (self.n,))
+        indices: dict[int, Tensor] = {}
+        for inpt in flat_inputs:
+            num_points = inpt.shape[0]
+            if num_points >= self.n:
+                indices[id(inpt)] = torch.randperm(num_points)[: self.n]
+            else:
+                indices[id(inpt)] = torch.randint(0, num_points, (self.n,))
         return {"indices": indices}
 
     @override
@@ -81,11 +89,15 @@ class PointSample(Transform):
         Returns:
             Sampled input.
         """
-        return self._call_kernel(sample_points, inpt, indices=params["indices"])
+        return self._call_kernel(
+            sample_points, inpt, indices=params["indices"][id(inpt)]
+        )
 
 
 class PointJitter(_RandomApplyTransform):
     """Add Gaussian noise to point xyz coordinates with probability ``p``.
+
+    Each point cloud in the sample receives independent noise.
 
     Args:
         sigma: Standard deviation of the Gaussian noise. Default: ``0.01``.
@@ -103,10 +115,14 @@ class PointJitter(_RandomApplyTransform):
         """Sample Gaussian noise.
 
         Returns:
-            Dict with ``"noise"`` key containing ``[N, 3]`` tensor.
+            Dict with ``"noise"`` keyed by each point cloud's ``id()``.
         """
-        n = flat_inputs[0].shape[0]
-        return {"noise": torch.randn(n, 3) * self.sigma}
+        return {
+            "noise": {
+                id(inpt): torch.randn(inpt.shape[0], 3) * self.sigma
+                for inpt in flat_inputs
+            }
+        }
 
     @override
     def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
@@ -115,4 +131,4 @@ class PointJitter(_RandomApplyTransform):
         Returns:
             Jittered input.
         """
-        return self._call_kernel(jitter_points, inpt, noise=params["noise"])
+        return self._call_kernel(jitter_points, inpt, noise=params["noise"][id(inpt)])

@@ -1,11 +1,12 @@
 """Tests for CopyPaste3D transform."""
 
 import math
+import pickle
 from typing import Any
 
 import pytest
 import torch
-from common_utils import make_bounding_boxes_3d
+from common_utils import box_at, make_bounding_boxes_3d
 
 from vision3d.ops import box3d_overlap, points_in_boxes_3d
 from vision3d.tensors import (
@@ -41,6 +42,11 @@ _FILL_TOL = 0.1
 # Absolute tolerance for float comparisons in scene units (centres, bounds).
 _ATOL = 1e-4
 
+# Fix the geometry for the jitter tests so that objects cannot collide
+# and a paste is guaranteed.
+_SOURCE_CENTERS = [(0.0, 0.0, 0.0), (20.0, 0.0, 0.0), (40.0, 0.0, 0.0)]
+_TARGET_CENTER = [(100.0, 100.0, 100.0)]
+
 
 def _uniform_std(lo: float, hi: float) -> float:
     # Population std of a uniform distribution on [lo, hi].
@@ -63,7 +69,10 @@ def _make_lidar_batch(
     num_boxes: int = 3,
     labels: list[int] | None = None,
     format: BoundingBox3DFormat = BoundingBox3DFormat.XYZLWHY,
+    centers: list[tuple[float, float, float]] | None = None,
 ) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+    if centers is not None:
+        num_boxes = len(centers)
     if labels is None:
         labels = [CAR] * num_boxes
     assert len(labels) == num_boxes
@@ -71,13 +80,21 @@ def _make_lidar_batch(
     inputs = []
     targets = []
     for _ in range(batch_size):
-        boxes = make_bounding_boxes_3d(format=format, num_boxes=num_boxes)
-        raw = boxes.as_subclass(torch.Tensor)
+        if centers is None:
+            boxes = make_bounding_boxes_3d(format=format, num_boxes=num_boxes)
+            raw = boxes.as_subclass(torch.Tensor)
+            extents = [
+                (raw[j, 0], raw[j, 1], raw[j, 2], raw[j, 3], raw[j, 4], raw[j, 5])
+                for j in range(num_boxes)
+            ]
+        else:
+            boxes = BoundingBoxes3D(
+                torch.tensor([box_at(*c, fmt=format) for c in centers]), format=format
+            )
+            extents = [(cx, cy, cz, 2.0, 2.0, 2.0) for cx, cy, cz in centers]
 
         all_points = []
-        for j in range(num_boxes):
-            cx, cy, cz = raw[j, 0], raw[j, 1], raw[j, 2]
-            l, w, h = raw[j, 3], raw[j, 4], raw[j, 5]
+        for cx, cy, cz, l, w, h in extents:
             local = (torch.rand(num_points_per_box, 3) - 0.5) * torch.tensor([l, w, h])
             local[:, 0] += cx
             local[:, 1] += cy
@@ -253,6 +270,14 @@ class TestDatabase:
         for _ in range(10):
             cp(*_make_lidar_batch(batch_size=2, num_boxes=3))
         assert len(cp._database[CAR]) <= 5
+
+    def test_pickle_round_trip_preserves_database(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1, max_database_size=7)
+        cp(*_make_lidar_batch(batch_size=2, num_boxes=3))
+        restored = pickle.loads(pickle.dumps(cp))
+        assert len(restored._database[CAR]) == len(cp._database[CAR])
+        assert restored._database[CAR].maxlen == 7
+        assert restored._database[PED].maxlen == 7
 
     def test_min_points_filter(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=9999)
@@ -571,16 +596,17 @@ class TestOffset:
             min_points=1,
             offset_range=((ox, ox), (oy, oy), (oz, oz)),
         )
-        cp(*_make_lidar_batch(batch_size=3, num_boxes=3, format=fmt))
+        # Unit cubes 20 apart, and a target scene far from every shifted copy,
+        # so no jittered pose can collide and at least one paste must land.
+        cp(*_make_lidar_batch(batch_size=3, centers=_SOURCE_CENTERS, format=fmt))
         n_original = 1
         _, out_targets = cp(
-            *_make_lidar_batch(batch_size=1, num_boxes=n_original, format=fmt)
+            *_make_lidar_batch(batch_size=1, centers=_TARGET_CENTER, format=fmt)
         )
 
         out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
         pasted = out_boxes[n_original:]
-        if pasted.shape[0] == 0:
-            pytest.skip("no objects pasted")
+        assert pasted.shape[0] > 0, "expected at least one pasted object"
 
         # Each pasted centre must equal some unmodified source centre, either
         # shifted by the per-axis offset or (when every jittered pose collided)
@@ -612,16 +638,15 @@ class TestOffset:
             min_points=1,
             offset_range=((3.0, 3.0), (-4.0, -4.0), (7.0, 7.0)),
         )
-        cp(*_make_lidar_batch(batch_size=3, num_boxes=3, format=fmt))
+        cp(*_make_lidar_batch(batch_size=3, centers=_SOURCE_CENTERS, format=fmt))
         n_original = 1
         out_inputs, out_targets = cp(
-            *_make_lidar_batch(batch_size=1, num_boxes=n_original, format=fmt)
+            *_make_lidar_batch(batch_size=1, centers=_TARGET_CENTER, format=fmt)
         )
 
         out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
         pasted = BoundingBoxes3D(out_boxes[n_original:], format=fmt)
-        if pasted.shape[0] == 0:
-            pytest.skip("no objects pasted")
+        assert pasted.shape[0] > 0, "expected at least one pasted object"
 
         points = out_inputs[0]["points"]
         inside = points_in_boxes_3d(points, pasted, fmt)
@@ -785,8 +810,7 @@ class TestOffset:
         )
 
         out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
-        if out_boxes.shape[0] <= n_original:
-            pytest.skip("no objects pasted")
+        assert out_boxes.shape[0] > n_original, "expected at least one pasted object"
 
         # Camera reprojection of the jittered box succeeded: crop pixels (0.9)
         # appear over the original fill (0.1), confirming the re-bound box gave
@@ -831,6 +855,25 @@ class TestDeterminism:
 
 # Validation
 class TestValidation:
+    def test_box_format_change_between_calls_raises(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(
+            *_make_lidar_batch(
+                batch_size=3,
+                centers=_SOURCE_CENTERS,
+                format=BoundingBox3DFormat.XYZLWHYPR,
+            )
+        )
+
+        with pytest.raises(ValueError, match="Cannot paste an object stored as"):
+            cp(
+                *_make_lidar_batch(
+                    batch_size=1,
+                    centers=_TARGET_CENTER,
+                    format=BoundingBox3DFormat.XYZXYZ,
+                )
+            )
+
     def test_p_out_of_range_raises(self) -> None:
         with pytest.raises(ValueError, match="`p` should be a float"):
             CopyPaste3D(target_counts={CAR: 10}, p=1.5)
@@ -901,8 +944,51 @@ class TestValidation:
     def test_forward_mismatched_sample_counts(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10})
         batch = _make_lidar_batch(batch_size=2, num_boxes=2)
-        with pytest.raises(TypeError, match="equal sized lists"):
+        with pytest.raises(TypeError, match="one leaf of each type per sample"):
             cp(batch[0], batch[1][:1])
+
+
+class TestLabelsGetter:
+    def test_extra_plain_tensors_pass_through(self) -> None:
+        # A batch may carry plain tensors that are not labels, such as a
+        # per-sample timestamp. They must come back untouched.
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        inputs, targets = _make_lidar_batch(batch_size=2, num_boxes=3)
+        stamps = tuple(torch.tensor([float(i)]) for i in range(len(targets)))
+        targets = tuple(
+            {**tgt, "timestamp": stamp} for tgt, stamp in zip(targets, stamps)
+        )
+
+        _, out_targets = cp(inputs, targets)
+
+        for out_target, stamp in zip(out_targets, stamps):
+            assert out_target["timestamp"] is stamp
+
+    def test_custom_labels_getter(self) -> None:
+        # "categories" is not label-like, so only the custom getter can find it.
+        cp = CopyPaste3D(
+            target_counts={CAR: 10},
+            min_points=1,
+            labels_getter=lambda batch: tuple(t["categories"] for t in batch[1]),
+        )
+        inputs, targets = _make_lidar_batch(batch_size=2, num_boxes=3)
+        targets = tuple(
+            {"boxes": tgt["boxes"], "categories": tgt["labels"]} for tgt in targets
+        )
+
+        _, out_targets = cp(inputs, targets)
+
+        for out_target in out_targets:
+            assert out_target["categories"].shape[0] == out_target["boxes"].shape[0]
+
+    def test_unfindable_labels_raise(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        inputs, targets = _make_lidar_batch(batch_size=2, num_boxes=3)
+        targets = tuple(
+            {"boxes": tgt["boxes"], "categories": tgt["labels"]} for tgt in targets
+        )
+        with pytest.raises(ValueError, match="could not find any labels tensor"):
+            cp(inputs, targets)
 
 
 # Input modalities
@@ -926,6 +1012,23 @@ class TestInputModalities:
         assert "points" not in out_inputs[0]
         assert isinstance(out_inputs[0]["images"], CameraImages)
         assert out_targets[0]["boxes"].shape[0] >= 1
+
+    @pytest.mark.parametrize(
+        "make_batch", [_make_lidar_batch, _make_camera_batch, _make_fusion_batch]
+    )
+    def test_box_free_batch_passes_through(self, make_batch: Any) -> None:
+        # Objects are defined by boxes, so an unannotated batch of any modality
+        # is a no-op rather than an error.
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(*make_batch(batch_size=2, num_boxes=3))
+        inputs, _ = make_batch(batch_size=1, num_boxes=1)
+
+        out_inputs = cp(inputs)
+
+        for out, original in zip(out_inputs, inputs, strict=True):
+            assert set(out) == set(original)
+            for key, value in original.items():
+                assert out[key] is value
 
     def test_camera_only_entries_have_no_points(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)

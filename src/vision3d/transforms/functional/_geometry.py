@@ -339,6 +339,7 @@ def rotate_3d_point_cloud(points: Tensor, *, rotation_matrix: Tensor) -> Tensor:
         Rotated point cloud with the same shape.
     """
     points = points.clone()
+    rotation_matrix = rotation_matrix.to(points.dtype)
     points[..., :3] = points[..., :3] @ rotation_matrix.T
     return points
 
@@ -378,6 +379,7 @@ def rotate_3d_bounding_boxes(
         raise NotImplementedError(msg)
 
     boxes = boxes.clone()
+    rotation_matrix = rotation_matrix.to(boxes.dtype)
     boxes[..., :3] = boxes[..., :3] @ rotation_matrix.T
 
     if format is BoundingBox3DFormat.XYZLWHY:

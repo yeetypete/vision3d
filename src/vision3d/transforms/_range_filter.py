@@ -71,7 +71,7 @@ class RangeFilter3D(Transform):
                 ``labels_getter`` returns a tensor that is not a leaf of the
                 sample (e.g. a copy, view, or nested tensor). If a returned
                 label tensor's length does not match the number of boxes.
-        """
+        """  # noqa: DOC502
         # Unlike most transforms, forward is hand-rolled rather than routed
         # through the base per-leaf ``transform()`` loop. Points and boxes have
         # distinguishing tensor types and would dispatch fine, but labels are
@@ -79,9 +79,7 @@ class RangeFilter3D(Transform):
         # via ``labels_getter`` against the nested structure -- which is gone
         # once the tree is flattened for the base loop. The base hooks
         # (check_inputs, make_params) do not fire here.
-        if not inputs:
-            msg = "RangeFilter3D.forward requires at least one input sample"
-            raise ValueError(msg)
+        self._require_inputs(inputs)
         inputs = inputs if len(inputs) > 1 else inputs[0]
         flat_inputs, spec = tree_flatten(inputs)
 
@@ -101,20 +99,20 @@ class RangeFilter3D(Transform):
                 self._labels_getter(inputs), flat_inputs, boxes.shape[0]
             )
 
-        flat_outputs = [
-            self._filter_leaf(inpt, box_keep, label_ids) for inpt in flat_inputs
-        ]
+        params = {"box_keep": box_keep, "label_ids": label_ids}
+        flat_outputs = [self.transform(inpt, params) for inpt in flat_inputs]
         return tree_unflatten(flat_outputs, spec)
 
-    def _filter_leaf(
-        self, inpt: Any, box_keep: Tensor | None, label_ids: set[int]
-    ) -> Any:
+    @override
+    def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
         """Filter a single flattened leaf according to its type.
 
         Returns:
             The point cloud filtered by coordinate, boxes/labels filtered
             by the box keep-mask, or ``inpt`` unchanged.
         """
+        box_keep: Tensor | None = params["box_keep"]
+        label_ids: set[int] = params["label_ids"]
         if isinstance(inpt, PointCloud3D):
             return self._filter_points(inpt)
         if box_keep is None:

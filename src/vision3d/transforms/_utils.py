@@ -1,6 +1,6 @@
 """Shared helpers for transforms."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from torch import Tensor
@@ -93,54 +93,130 @@ def _resolve_label_ids(
     return {id(label) for label in labels}
 
 
-def _default_labels_getter(inputs: Any) -> Tensor:
-    """Locate a per-box ``labels`` tensor by a case-insensitive ``"labels"`` key.
+def _find_label_key(mapping: Mapping[Any, Any]) -> Any | None:
+    """Find the key holding ``mapping``'s labels.
 
-    Mirrors torchvision's default ``labels_getter``. The sample is a dict, or a
-    two-tuple whose second element is the targets dict (or a bare labels
-    tensor). Raises if no labels tensor can be found, so a silent no-op never
-    hides a mislabelled sample. Callers that have no labels to sync should pass
-    ``labels_getter=None`` instead of relying on this heuristic.
+    A case-insensitive ``"labels"`` takes priority. Otherwise the first key
+    containing ``"label"`` is used, which covers names like ``gt_labels``.
 
     Args:
-        inputs: The sample passed to ``forward`` (a dict, or a two-tuple).
+        mapping: The targets mapping to search.
 
     Returns:
-        The labels tensor found in the sample.
+        The matching key, or ``None`` if the mapping has no label-like key.
+    """
+    for key in mapping:
+        if isinstance(key, str) and key.lower() == "labels":
+            return key
+    for key in mapping:
+        if isinstance(key, str) and "label" in key.lower():
+            return key
+    return None
+
+
+def _default_labels_getter(inputs: Any) -> Any:
+    """Locate a sample's per-box labels under a label-like key.
+
+    Accepts a targets mapping, or a sequence whose second element is that
+    mapping or a bare labels tensor. Pass ``labels_getter=None`` for samples
+    that carry no labels.
+
+    Args:
+        inputs: The sample passed to ``forward``.
+
+    Returns:
+        The value stored under the sample's label-like key.
 
     Raises:
-        ValueError: If no case-insensitive ``"labels"`` key is found, or the
-            key exists but its value is not a tensor.
+        ValueError: If the sample is too short to hold targets, or holds no
+            label-like key.
     """
-    candidate: Any = inputs
-    if isinstance(inputs, (tuple, list)) and len(inputs) == 2:
-        second = inputs[1]
-        if isinstance(second, Tensor):
-            return second
-        candidate = second
-    if isinstance(candidate, dict):
-        for key, value in candidate.items():
-            if isinstance(key, str) and key.lower() == "labels":
-                if not isinstance(value, Tensor):
-                    msg = (
-                        "the default `labels_getter` found a 'labels' key whose "
-                        f"value is a {type(value).__name__}, not a tensor. Pass "
-                        "a callable as `labels_getter` to locate the labels, or "
-                        "`labels_getter=None` if the sample has no labels."
-                    )
-                    raise ValueError(msg)
-                return value
-    msg = (
-        "the default `labels_getter` could not find a labels tensor in the "
-        "sample, expected a case-insensitive 'labels' key holding a tensor. "
-        "Pass a callable as `labels_getter` to locate the labels, or "
-        "`labels_getter=None` if the sample has no labels."
-    )
-    raise ValueError(msg)
+    if isinstance(inputs, (tuple, list)):
+        if len(inputs) < 2:
+            msg = (
+                "the default `labels_getter` expects a mapping or a sequence "
+                f"whose second element holds the targets, but got a "
+                f"{len(inputs)}-element sequence."
+            )
+            raise ValueError(msg)
+        inputs = inputs[1]
+    if isinstance(inputs, Tensor):
+        return inputs
+    key = _find_label_key(inputs) if isinstance(inputs, Mapping) else None
+    if key is None:
+        msg = (
+            "the default `labels_getter` could not find the labels in the "
+            "sample, expected a mapping (or a sequence whose second element is a "
+            "mapping or a tensor) holding a key that matches 'labels' or "
+            "contains 'label'. Pass a callable as `labels_getter` to locate the "
+            "labels, or `labels_getter=None` if the sample has no labels."
+        )
+        raise ValueError(msg)
+    return inputs[key]
+
+
+def _no_labels_getter(_inputs: Any) -> None:
+    """Report that a sample carries no labels."""
+    return
+
+
+def _collect_labels(node: Any, found: list[Any]) -> None:
+    """Gather the label-like value of every mapping nested in ``node``.
+
+    Walks dicts, lists, and tuples. Each mapping contributes at most one entry,
+    so a collated batch yields one per sample. A sequence stored under the key is
+    flattened into separate entries.
+
+    Args:
+        node: Current node of the sample structure.
+        found: Accumulator, appended to in traversal order.
+    """
+    if isinstance(node, Mapping):
+        key = _find_label_key(node)
+        for candidate, value in node.items():
+            if key is not None and candidate == key:
+                if isinstance(value, (tuple, list)):
+                    found.extend(value)
+                else:
+                    found.append(value)
+            else:
+                _collect_labels(value, found)
+    elif isinstance(node, (tuple, list)) and not isinstance(node, Tensor):
+        for item in node:
+            _collect_labels(item, found)
+
+
+def _default_batch_labels_getter(inputs: Any) -> tuple[Any, ...]:
+    """Locate the per-box labels of every sample in a collated batch.
+
+    Searches the batch at any depth and returns one value per sample.
+
+    Args:
+        inputs: The batch passed to ``forward``.
+
+    Returns:
+        The labels values found, in traversal order.
+
+    Raises:
+        ValueError: If the batch holds no label-like key.
+    """
+    found: list[Any] = []
+    _collect_labels(inputs, found)
+    if not found:
+        msg = (
+            "the default `labels_getter` could not find any labels tensor in the "
+            "batch, expected each sample's labels under a key matching 'labels' "
+            "(or containing 'label'). Pass a callable as `labels_getter`, or "
+            "`labels_getter=None` if the batch has no labels."
+        )
+        raise ValueError(msg)
+    return tuple(found)
 
 
 def _parse_labels_getter(
     labels_getter: str | Callable[[Any], Any] | None,
+    *,
+    default: Callable[[Any], Any] | None = None,
 ) -> Callable[[Any], Any]:
     """Resolve the ``labels_getter`` argument to a callable.
 
@@ -148,6 +224,9 @@ def _parse_labels_getter(
         labels_getter: ``"default"`` for the built-in heuristic, a callable
             taking the sample and returning the labels tensor (or ``None``),
             or ``None`` to disable label syncing.
+        default: Heuristic that ``"default"`` resolves to. Defaults to
+            :func:`_default_labels_getter`. Batch transforms pass
+            :func:`_default_batch_labels_getter`.
 
     Returns:
         A callable mapping a sample to its labels tensor or ``None``.
@@ -157,10 +236,10 @@ def _parse_labels_getter(
             ``None``.
     """
     if labels_getter == "default":
-        return _default_labels_getter
+        return default or _default_labels_getter
     if callable(labels_getter):
         return labels_getter
     if labels_getter is None:
-        return lambda _inputs: None
+        return _no_labels_getter
     msg = "`labels_getter` must be 'default', a callable, or None."
     raise ValueError(msg)
