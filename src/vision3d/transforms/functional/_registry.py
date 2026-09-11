@@ -47,7 +47,7 @@ def register_kernel(
         if tv_tensor_wrapper:
 
             @functools.wraps(kernel)
-            def wrapper(inpt: TVTensor, *args: Any, **kwargs: Any) -> TVTensor:
+            def wrapper(inpt: TVTensor, *args: object, **kwargs: object) -> TVTensor:
                 from vision3d.tensors import wrap
 
                 output = kernel(inpt.as_subclass(Tensor), *args, **kwargs)
@@ -60,6 +60,10 @@ def register_kernel(
         return kernel
 
     return decorator
+
+
+def _passthrough[T](inpt: T, *args: object, **kwargs: object) -> T:
+    return inpt
 
 
 def _get_kernel(
@@ -99,7 +103,7 @@ def _get_kernel(
             break
 
     if allow_passthrough:
-        return lambda inpt, *args, **kwargs: inpt
+        return _passthrough
 
     msg = (
         f"Functional `{functional.__name__}` supports inputs of type "
