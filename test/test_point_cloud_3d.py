@@ -54,6 +54,26 @@ class TestConstruction:
         assert "PointCloud3D" in repr(pc)
 
 
+NON_TENSOR_OUTPUT_OPS: list[Callable[[PointCloud3D], object]] = [
+    lambda p: p.cpu().numpy(),
+    lambda p: p.tolist(),
+    lambda p: p.max(dim=-1),
+]
+
+USUAL_OPS: list[Callable[[PointCloud3D], torch.Tensor]] = [
+    lambda p: p + torch.rand(*p.shape),
+    lambda p: torch.rand(*p.shape) + p,
+    lambda p: p * torch.rand(*p.shape),
+    lambda p: p + 3,
+    lambda p: p + p,
+    lambda p: p.sum(),
+    lambda p: p.reshape(-1),
+    lambda p: p.int(),
+    lambda p: torch.stack([p, p]),
+    lambda p: torch.chunk(p, 2)[0],
+]
+
+
 class TestTorchFunction:
     @pytest.mark.parametrize("return_type", ["Tensor", "TVTensor"])
     def test_to_tv_tensor_reference(self, return_type: str) -> None:
@@ -119,14 +139,7 @@ class TestTorchFunction:
         assert type(output) is expected_type
         assert type(pc) is original_type
 
-    @pytest.mark.parametrize(
-        "op",
-        [
-            lambda p: p.cpu().numpy(),
-            lambda p: p.tolist(),
-            lambda p: p.max(dim=-1),
-        ],
-    )
+    @pytest.mark.parametrize("op", NON_TENSOR_OUTPUT_OPS)
     def test_no_tensor_output_op_no_wrapping(
         self, op: Callable[[PointCloud3D], object]
     ) -> None:
@@ -135,23 +148,9 @@ class TestTorchFunction:
         assert type(output) is not PointCloud3D
 
     @pytest.mark.parametrize("return_type", ["Tensor", "TVTensor"])
-    @pytest.mark.parametrize(
-        "op",
-        [
-            lambda p: p + torch.rand(*p.shape),
-            lambda p: torch.rand(*p.shape) + p,
-            lambda p: p * torch.rand(*p.shape),
-            lambda p: p + 3,
-            lambda p: p + p,
-            lambda p: p.sum(),
-            lambda p: p.reshape(-1),
-            lambda p: p.int(),
-            lambda p: torch.stack([p, p]),
-            lambda p: torch.chunk(p, 2)[0],
-        ],
-    )
+    @pytest.mark.parametrize("op", USUAL_OPS)
     def test_usual_operations(
-        self, return_type: str, op: Callable[[PointCloud3D], object]
+        self, return_type: str, op: Callable[[PointCloud3D], torch.Tensor]
     ) -> None:
         pc = make_point_cloud_3d(num_points=10)
         with tv_tensors.set_return_type(return_type):
