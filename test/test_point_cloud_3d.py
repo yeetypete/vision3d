@@ -60,7 +60,7 @@ NON_TENSOR_OUTPUT_OPS: list[Callable[[PointCloud3D], object]] = [
     lambda p: p.max(dim=-1),
 ]
 
-USUAL_OPS: list[Callable[[PointCloud3D], torch.Tensor]] = [
+TENSOR_OUTPUT_OPS: list[Callable[[PointCloud3D], torch.Tensor]] = [
     lambda p: p + torch.rand(*p.shape),
     lambda p: torch.rand(*p.shape) + p,
     lambda p: p * torch.rand(*p.shape),
@@ -140,7 +140,7 @@ class TestTorchFunction:
         assert type(pc) is original_type
 
     @pytest.mark.parametrize("op", NON_TENSOR_OUTPUT_OPS)
-    def test_no_tensor_output_op_no_wrapping(
+    def test_non_tensor_output_op_no_wrapping(
         self, op: Callable[[PointCloud3D], object]
     ) -> None:
         pc = make_point_cloud_3d()
@@ -148,8 +148,8 @@ class TestTorchFunction:
         assert type(output) is not PointCloud3D
 
     @pytest.mark.parametrize("return_type", ["Tensor", "TVTensor"])
-    @pytest.mark.parametrize("op", USUAL_OPS)
-    def test_usual_operations(
+    @pytest.mark.parametrize("op", TENSOR_OUTPUT_OPS)
+    def test_tensor_output_op_follows_return_type(
         self, return_type: str, op: Callable[[PointCloud3D], torch.Tensor]
     ) -> None:
         pc = make_point_cloud_3d(num_points=10)
