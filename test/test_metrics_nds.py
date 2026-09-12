@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import pytest
 import torch
+import torch.cuda
 from common_utils import box_at
 from nuscenes.eval.common.config import config_factory
 from nuscenes.eval.common.data_classes import EvalBoxes

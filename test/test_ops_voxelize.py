@@ -5,6 +5,8 @@ from collections.abc import Sequence
 
 import pytest
 import torch
+import torch.cuda
+import torch.testing
 from torch import Tensor
 
 from vision3d.ops import voxelize

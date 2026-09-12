@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
 import torch
+import torch.linalg
 from torch import Tensor
 
 from vision3d.metrics._types import Prediction3D, Target3D

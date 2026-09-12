@@ -9,6 +9,7 @@ from typing import Any, override
 import numpy as np
 import torch
 import torch.nn.functional as F
+import torch.special
 from PIL import Image, ImageDraw
 from torch import Tensor
 from torch.utils._pytree import tree_flatten, tree_unflatten

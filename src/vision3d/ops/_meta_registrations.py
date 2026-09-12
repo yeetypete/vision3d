@@ -1,6 +1,7 @@
 """Meta (fake tensor) registrations for vision3d custom ops."""
 
 import torch
+import torch.library
 from torch import Tensor
 
 
