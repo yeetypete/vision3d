@@ -12,6 +12,8 @@ from vision3d.metrics._types import Prediction3D, Target3D
 from vision3d.ops import box3d_iou, extract_box3d_params
 
 if TYPE_CHECKING:
+    from shape_extensions import IntVar
+
     from vision3d.tensors import BoundingBox3DFormat
 
 
@@ -63,8 +65,8 @@ class _DetectionStats:
         num_gt: Total ground-truth boxes seen for this bucket.
     """
 
-    scores: list[Tensor] = field(default_factory=list)
-    is_tp: list[Tensor] = field(default_factory=list)
+    scores: "list[Tensor[[int]]]" = field(default_factory=list)
+    is_tp: "list[Tensor[[int]]]" = field(default_factory=list)
     num_gt: int = 0
 
 
@@ -285,7 +287,9 @@ class MeanAveragePrecision3D:
         self._state.clear()
 
 
-def _greedy_match(scores: Tensor, iou: Tensor, threshold: float) -> Tensor:
+def _greedy_match[P: IntVar, G: IntVar](
+    scores: "Tensor[[P]]", iou: "Tensor[[P, G]]", threshold: float
+) -> "Tensor[[P]]":
     """Greedy one-to-one matching, preds ordered by descending score.
 
     Args:
@@ -315,9 +319,9 @@ def _greedy_match(scores: Tensor, iou: Tensor, threshold: float) -> Tensor:
     return is_tp
 
 
-def _compute_ap(
-    scores: Tensor,
-    is_tp: Tensor,
+def _compute_ap[P: IntVar](
+    scores: "Tensor[[P]]",
+    is_tp: "Tensor[[P]]",
     num_gt: int,
     interpolation: APInterpolation,
 ) -> float:
@@ -365,7 +369,9 @@ def _compute_ap(
     raise ValueError(msg)
 
 
-def _sample_ap(recalls: Tensor, precisions: Tensor, targets: Tensor) -> float:
+def _sample_ap[P: IntVar, T: IntVar](
+    recalls: "Tensor[[P]]", precisions: "Tensor[[P]]", targets: "Tensor[[T]]"
+) -> float:
     """Sample precision at each target recall level and average.
 
     Returns:
@@ -378,7 +384,9 @@ def _sample_ap(recalls: Tensor, precisions: Tensor, targets: Tensor) -> float:
     return float(sampled.mean().item())
 
 
-def _all_points_ap(recalls: Tensor, precisions: Tensor) -> float:
+def _all_points_ap[P: IntVar](
+    recalls: "Tensor[[P]]", precisions: "Tensor[[P]]"
+) -> float:
     """VOC07 area-under-curve AP at every recall change.
 
     Returns:
