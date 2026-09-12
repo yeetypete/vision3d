@@ -1381,6 +1381,27 @@ wheels = [
 ]
 
 [[package]]
+name = "pyrefly-shape-extensions"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/2e/13c885edb6a5b6d0d728fb3377d92f8f05402563c736f7c60f862c67d227/pyrefly_shape_extensions-1.3.0.tar.gz", hash = "sha256:312dbbc7177a39b9990a9d5931a15104532891233bb98dc780932dd3bbb340fa", size = 9725, upload-time = "2026-09-10T23:20:50.821Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/01/27/4127bf31fdf5eb1c4edc934820bc964c21aae929f99d7f1c6e0798a7f1b8/pyrefly_shape_extensions-1.3.0-py3-none-any.whl", hash = "sha256:3ab1b1b83d17a7f6fa3d485999d12a13e44dbfdc93581ea9fe9ef268bb0344c4", size = 12270, upload-time = "2026-09-10T23:20:47.373Z" },
+]
+
+[[package]]
+name = "pyrefly-torch-stubs"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyrefly-shape-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ed/f6/04755e1b93d9d42ba2ee6db02db025812522561b810879fb42b3bde57825/pyrefly_torch_stubs-1.3.0.tar.gz", hash = "sha256:b3936fd70b0fb51c048ff89e59056403a40e5e503f8b9f878435778b82bd25f8", size = 45309, upload-time = "2026-09-10T23:20:51.8Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/30/67/2376c8a019c03dacb13b8e0e183f58bd2196185c7af1ce7f8311aa015684/pyrefly_torch_stubs-1.3.0-py3-none-any.whl", hash = "sha256:94c878c38ec7f881dc7954767e3eb59da621ee7fc5afa6d3609534242c5aaa26", size = 53736, upload-time = "2026-09-10T23:20:48.666Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2059,6 +2080,7 @@ dev = [
     { name = "nuscenes-devkit" },
     { name = "nvidia-cuda-cccl" },
     { name = "pyrefly" },
+    { name = "pyrefly-torch-stubs" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
@@ -2090,6 +2112,7 @@ dev = [
     { name = "nuscenes-devkit", specifier = ">=1.2.0" },
     { name = "nvidia-cuda-cccl", specifier = "==13.3.4.1.2rc1" },
     { name = "pyrefly", specifier = ">=1.3.0" },
+    { name = "pyrefly-torch-stubs", specifier = ">=1.3.0" },
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "ruff", specifier = ">=0.15.9" },
