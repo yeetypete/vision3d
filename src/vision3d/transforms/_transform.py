@@ -81,8 +81,9 @@ class Transform(nn.Module):
         """
         return [check_type(inpt, self._transformed_types) for inpt in flat_inputs]
 
+    # Fixed by https://github.com/facebook/pyrefly/pull/4915.
     @override
-    def forward(self, *inputs: Any) -> Any:
+    def forward(self, *inputs: Any) -> Any:  # pyrefly: ignore[bad-override]
         """Apply the transform to one or more inputs (dicts, tuples, etc.).
 
         Do not override this; override :meth:`transform` instead.
@@ -104,8 +105,9 @@ class Transform(nn.Module):
 
         return tree_unflatten(flat_outputs, spec)
 
+    # Fixed by https://github.com/facebook/pyrefly/pull/4914.
     @override
-    def extra_repr(self) -> str:
+    def extra_repr(self) -> str:  # pyrefly: ignore[bad-override]
         """Auto-generate repr from public attributes.
 
         Returns:

@@ -450,7 +450,8 @@ def test_compute_under_cuda_default_device() -> None:
     metric = NuScenesDetectionScore(
         class_ids=[0], tp_metrics=("trans_err", "scale_err", "orient_err")
     )
-    with torch.device("cuda"):
+    # Fixed by https://github.com/facebook/pyrefly/pull/4912.
+    with torch.device("cuda"):  # pyrefly: ignore[bad-context-manager]
         pred, tgt = _perfect_car_frame()
         metric.update([pred], [tgt])
         out = metric.compute()
