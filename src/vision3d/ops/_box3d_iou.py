@@ -4,6 +4,8 @@ Python wrapper around PyTorch3D's ``box3d_overlap``. C++ and
 CUDA sources live under ``src/vision3d/ops/csrc/iou_box3d/``.
 """
 
+from typing import TYPE_CHECKING
+
 import torch
 from torch import Tensor
 
@@ -13,13 +15,16 @@ from vision3d.tensors import BoundingBox3DFormat
 
 from ._box3d_corners import box3d_corners
 
+if TYPE_CHECKING:
+    from shape_extensions import IntVar
+
 
 @torch.no_grad()
-def box3d_iou(
-    boxes1: Tensor,
-    boxes2: Tensor,
+def box3d_iou[N: IntVar, M: IntVar](
+    boxes1: "Tensor[[N, int]]",
+    boxes2: "Tensor[[M, int]]",
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> "Tensor[[N, M]]":
     """Compute the pairwise intersection-over-union of 3D ``boxes1`` and ``boxes2``.
 
     ``iou = vol / (vol1 + vol2 - vol)``, where ``vol`` is the volume of
