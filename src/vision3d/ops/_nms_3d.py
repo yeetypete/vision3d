@@ -77,9 +77,9 @@ def batched_nms_3d(
 
     keep_mask = torch.zeros_like(scores, dtype=torch.bool)
     for class_id in torch.unique(idxs):
-        in_class = torch.where(idxs == class_id)[0]
+        in_class = torch.nonzero(idxs == class_id, as_tuple=True)[0]
         class_keep = nms_3d(boxes[in_class], scores[in_class], iou_threshold, format)
         keep_mask[in_class[class_keep]] = True
 
-    keep_indices = torch.where(keep_mask)[0]
+    keep_indices = torch.nonzero(keep_mask, as_tuple=True)[0]
     return keep_indices[scores[keep_indices].argsort(descending=True)]
