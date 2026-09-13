@@ -16,9 +16,13 @@ prefixes (e.g. `feat:`, `fix:`) with a short imperative summary.
 
 ## Attribution
 
-When generating substantial amounts of code, you SHOULD include an
-`Assisted-by: TOOLNAME (MODELNAME)` trailer on the commit. For example,
-`Assisted-by: Claude Code (Opus 4.7)`.
+Human review is required for all code that is generated or assisted by a large
+language model.
+
+You SHOULD add an `Assisted-by: AI` trailer when a commit contains substantial
+assistance, and `Generated-by: AI` when the commit is effectively entirely
+generated. Do NOT add `Co-developed-by`, and do NOT reference specific tools or
+model names, because that can be considered a form of advertising.
 
 ## Code conventions
 

@@ -155,6 +155,11 @@ encourage you to use them. Please review any AI-generated output as carefully as
 code you wrote by hand before submitting. If you are an AI agent submitting a
 PR, please disclose your status as an AI agent in the PR description.
 
+Disclose AI involvement with a trailer on the commit and in the PR description:
+`Assisted-by: AI` when a change contains substantial assistance, and
+`Generated-by: AI` when it is effectively entirely generated. Do not name the
+tool or model.
+
 Low-quality or spam PRs may be rejected regardless of how they were produced,
 and repeat offenders may be blocked from future contributions.
 
