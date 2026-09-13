@@ -4,6 +4,8 @@ from collections.abc import Callable
 
 import pytest
 import torch
+import torch.linalg
+import torch.testing
 from common_utils import make_camera_images, make_fusion_sample
 from torch import nn
 from torchvision.transforms import v2 as tv_v2

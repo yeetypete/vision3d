@@ -1,6 +1,6 @@
 """Camera-related TVTensor types."""
 
-from typing import Any, Self, override
+from typing import TYPE_CHECKING, Any, Self, override
 
 import torch
 from torch import Tensor
@@ -8,8 +8,19 @@ from torch.utils._pytree import tree_flatten
 from torchvision import tv_tensors
 from torchvision.tv_tensors import TVTensor
 
+if TYPE_CHECKING:
+    from shape_extensions import IntTuple
 
-class CameraImages(tv_tensors.Image):
+    _CameraImagesBase = tv_tensors.Image[IntTuple[int, int, int, int]]
+    _CameraExtrinsicsBase = TVTensor[IntTuple[int, 4, 4]]
+    _CameraIntrinsicsBase = TVTensor[IntTuple[int, 3, 3]]
+else:
+    _CameraImagesBase = tv_tensors.Image
+    _CameraExtrinsicsBase = TVTensor
+    _CameraIntrinsicsBase = TVTensor
+
+
+class CameraImages(_CameraImagesBase):
     """:class:`~torchvision.tv_tensors.Image` subclass for multi-camera images with shape ``[N, C, H, W]``.
 
     Inherits from :class:`torchvision.tv_tensors.Image` so every
@@ -58,7 +69,7 @@ class CameraImages(tv_tensors.Image):
         return self._make_repr()
 
 
-class CameraExtrinsics(TVTensor):
+class CameraExtrinsics(_CameraExtrinsicsBase):
     """:class:`~torch.Tensor` subclass for camera extrinsic matrices with shape ``[N, 4, 4]``.
 
     Each matrix transforms a point from the dataset's *source frame*
@@ -113,7 +124,7 @@ class CameraExtrinsics(TVTensor):
         return self._make_repr()
 
 
-class CameraIntrinsics(TVTensor):
+class CameraIntrinsics(_CameraIntrinsicsBase):
     """:class:`~torch.Tensor` subclass for camera intrinsic matrices with shape ``[N, 3, 3]``.
 
     Each matrix maps from camera-frame 3D coordinates to pixel coordinates.

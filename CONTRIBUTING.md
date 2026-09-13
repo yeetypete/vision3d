@@ -83,6 +83,36 @@ uv run ruff format --check    # check-only; fails if formatting is off
 uv run pyrefly check          # type check
 ```
 
+### Tensor shapes
+
+vision3d is configured for Pyrefly's
+[tensor shape checking](https://pyrefly.org/en/docs/tensor-shapes/). The
+`pyrefly-torch-stubs` dev dependency replaces PyTorch's type stubs with
+shape-aware ones. Pyrefly enables shape tracking automatically once it
+resolves them. The `stubs/` directory holds our own shape-aware overlays for
+third-party types that ship without shape information, so that the tensor
+types vision3d builds on them are shape-aware as well.
+
+Shape types exist only for the type checker. Python 3.12 and 3.13 (which vision3d
+supports) evaluate annotations at import time, so a shape type must never be
+evaluated at runtime (see Pyrefly's
+[runtime considerations](https://pyrefly.org/en/docs/tensor-shapes-setup/#imports-and-runtime-considerations)):
+
+- Quote shape annotations in signatures, `x: "Tensor[[N, 3]]"`, import
+  `IntTuple`, `IntVar`, and `Int` from `shape_extensions` under
+  `TYPE_CHECKING`, and bind shape variables as
+  [PEP 695](https://peps.python.org/pep-0695/) type parameters,
+  `def f[N: IntVar](...)`, which are evaluated lazily. Do not use
+  `from __future__ import annotations`: it turns `TypedDict` fields into
+  strings, which breaks `Required`/`NotRequired` at runtime (see the
+  [`TypedDict` note](https://docs.python.org/3/library/typing.html#typing.TypedDict.__optional_keys__)).
+- Give a class its shape through a `TYPE_CHECKING` base alias with a plain
+  fallback in the `else` branch. Base classes are evaluated at runtime.
+
+Where the stubs are stricter than PyTorch or lack a definition, prefer an
+equivalent call the stubs type precisely. Only if none exists, mark the line
+with a targeted `# pyrefly: ignore[<error-kind>]`.
+
 ## Running tests
 
 Tests are parametrized by device via an autouse fixture in

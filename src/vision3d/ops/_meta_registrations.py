@@ -1,6 +1,7 @@
 """Meta (fake tensor) registrations for vision3d custom ops."""
 
 import torch
+import torch.library
 from torch import Tensor
 
 
@@ -17,8 +18,8 @@ def _meta_iou_box3d(boxes1: Tensor, boxes2: Tensor) -> tuple[Tensor, Tensor]:
     n = boxes1.size(0)
     m = boxes2.size(0)
     # float32 regardless of input dtype (matches PyTorch3D's kernel).
-    vol = boxes1.new_empty((n, m), dtype=torch.float32)
-    iou = boxes1.new_empty((n, m), dtype=torch.float32)
+    vol = boxes1.new_empty(n, m, dtype=torch.float32)
+    iou = boxes1.new_empty(n, m, dtype=torch.float32)
     return vol, iou
 
 
@@ -37,7 +38,7 @@ def _meta_voxelize(
     torch._check(len(point_cloud_range) == 6, lambda: "point_cloud_range size != 6")
     torch._check(len(voxel_size) == 3, lambda: "voxel_size size != 3")
     c = points.size(1)
-    voxels = points.new_empty((0, max_points_per_voxel, c))
-    coords = points.new_empty((0, 3), dtype=torch.int64)
-    num_points = points.new_empty((0,), dtype=torch.int64)
+    voxels = points.new_empty(0, max_points_per_voxel, c)
+    coords = points.new_empty(0, 3, dtype=torch.int64)
+    num_points = points.new_empty(0, dtype=torch.int64)
     return voxels, coords, num_points
