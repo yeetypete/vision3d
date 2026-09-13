@@ -260,8 +260,8 @@ created via the
 By contributing to vision3d, you agree that your contributions will be licensed
 under the LICENSE file in the root directory of this source tree.
 
-[RFD 576]: https://rfd.shared.oxide.computer/rfd/0576
 [bootc]: https://github.com/bootc-dev/bootc/blob/main/AGENTS.md
 [chunkah]: https://github.com/coreos/chunkah/blob/main/CONTRIBUTING.md
 [Google Python Style Guide]: https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings
+[RFD 576]: https://rfd.shared.oxide.computer/rfd/0576
 [Small CLs]: https://google.github.io/eng-practices/review/developer/small-cls.html
