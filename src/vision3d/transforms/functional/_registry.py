@@ -82,7 +82,7 @@ def _get_kernel(
             False (default), raise :class:`TypeError`.
 
     Returns:
-        The kernel function, or an identity lambda when
+        The kernel function, or an identity kernel when
         ``allow_passthrough`` is True and no kernel is registered for
         ``input_type``.
 
