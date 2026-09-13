@@ -34,13 +34,15 @@ myst_enable_extensions = ["alert"]
 
 autosummary_ignore_module_all = False
 
-sphinx_gallery_conf = {
+sphinx_gallery_conf: dict[str, object] = {
     "examples_dirs": "../../gallery",
     "gallery_dirs": "auto_examples",
     "remove_config_comments": True,
     "show_signature": False,
     "image_scrapers": ("rerun_scraper",),
     "reset_modules": ("rerun",),
+    # Link vision3d API in example code to vision3d documentation.
+    "reference_url": {"vision3d": None},
 }
 
 autodoc_default_options = {
