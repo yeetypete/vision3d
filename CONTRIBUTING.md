@@ -151,6 +151,23 @@ your PR the best chance of being accepted, please:
 Low-quality or spam PRs may be rejected regardless of how they were produced,
 and repeat offenders may be blocked from future contributions.
 
+### Pull request size
+
+Large PRs are harder to review carefully and take longer to merge. See Google's
+[Small CLs] guide for concrete size guidance and the benefits of keeping a
+change small.
+
+Splitting "preparatory" commits that are independently reviewable out of the
+main PR and submitting them separately is strongly encouraged. Each commit
+should be reviewable on its own. Where the parts depend on each other, submit
+them as a stack of dependent PRs, for example with the
+[gh-stack](https://github.com/github/gh-stack) extension for the GitHub CLI.
+
+If a change is more than roughly 500 lines of substantial (non-whitespace) code,
+please file a design [issue](https://github.com/yeetypete/vision3d/issues) first
+so that the approach can be reviewed by the maintainers before it is
+implemented.
+
 ## AI-assisted contributions
 
 AI coding tools are a useful part of a modern developer's toolbox and we
@@ -247,3 +264,4 @@ under the LICENSE file in the root directory of this source tree.
 [bootc]: https://github.com/bootc-dev/bootc/blob/main/AGENTS.md
 [chunkah]: https://github.com/coreos/chunkah/blob/main/CONTRIBUTING.md
 [Google Python Style Guide]: https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings
+[Small CLs]: https://google.github.io/eng-practices/review/developer/small-cls.html
