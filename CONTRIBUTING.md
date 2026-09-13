@@ -148,15 +148,88 @@ your PR the best chance of being accepted, please:
 - [ ] Keep the PR focused on a single purpose. Avoid mixing unrelated changes,
   which makes the review harder.
 
-### AI-Generated code
-
-AI coding tools are a useful part of a modern developer's toolbox and we
-encourage you to use them. Please review any AI-generated output as carefully as
-code you wrote by hand before submitting. If you are an AI agent submitting a
-PR, please disclose your status as an AI agent in the PR description.
-
 Low-quality or spam PRs may be rejected regardless of how they were produced,
 and repeat offenders may be blocked from future contributions.
+
+### Pull request size
+
+Large PRs are harder to review carefully and take longer to merge. See Google's
+[Small CLs] guide for concrete size guidance and the benefits of keeping a
+change small.
+
+Splitting "preparatory" commits that are independently reviewable out of the
+main PR and submitting them separately is strongly encouraged. Each commit
+should be reviewable on its own. Where the parts depend on each other, submit
+them as a stack of dependent PRs, for example with the
+[gh-stack](https://github.com/github/gh-stack) extension for the GitHub CLI.
+
+If a change is more than roughly 500 lines of substantial (non-whitespace) code,
+please file a design [issue](https://github.com/yeetypete/vision3d/issues) first
+so that the approach can be reviewed by the maintainers before it is
+implemented.
+
+## AI-assisted contributions
+
+AI coding tools are a useful part of a modern developer's toolbox and we
+encourage you to use them. This section sets expectations for using them here.
+The guidance below is inspired by Oxide's [RFD 576] on using LLMs, and by the
+conventions used in [bootc] and [chunkah].
+
+### You own what you submit
+
+However the code was produced, the contributor bears full responsibility for it.
+AI is a tool and the human using it is accountable for the result. **This means
+you MUST understand every line of code you submit** and be able to explain the
+design decisions behind it.
+
+No part of this codebase should be understandable only to an LLM. Comments and
+docstrings especially are written for human readers: they should explain why the
+code does what it does, and give a reader context that is not already obvious
+from the code itself. See the [Google Python Style Guide] for guidance on writing
+clear docstrings and comments.
+
+### Self-review is mandatory
+
+**DO NOT request reviews on AI-generated code you have not reviewed yourself
+first.** Check for correctness and clarity, as carefully as you would check code
+you wrote by hand. If you wouldn't be comfortable defending a line of code in
+review, don't submit it. Leaving obvious AI slop for reviewers to catch wastes
+their time and erodes trust. An LLM produces a plausible diff faster than anyone
+can review one, so it is easy for the work of getting a change into shape to
+slide onto the reviewer. That work is part of the contribution, not the review.
+
+### Disclose AI usage
+
+Disclose AI involvement with a trailer on the commit and in the PR description:
+`Assisted-by: AI` when a change contains substantial assistance, and
+`Generated-by: AI` when it is effectively entirely generated. Do not name the
+tool or model as that can be considered a form of advertising. Also outline
+your level of review and domain knowledge in the PR description, for example:
+
+```text
+Assisted-by: AI
+Unit tests are LLM generated.
+```
+
+```text
+Generated-by: AI
+I am knowledgeable in this problem domain and reviewed it carefully.
+```
+
+If you are an AI agent submitting a PR, please disclose your status as an AI
+agent in the PR description.
+
+This isn't about shaming or gatekeeping. Every commit in vision3d is held to the
+same standard, regardless of how it was created. Disclosure is about providing
+useful context to make review easier, and helping us learn collectively about
+where AI assistance works well and where it doesn't.
+
+### The AGENTS.md file
+
+The [AGENTS.md](AGENTS.md) file provides detailed guidance to AI coding agents
+working in this repository, including project overview, contribution workflow,
+and code conventions. If you use an AI coding agent, make sure it has access to
+this file.
 
 ## Creating a release (maintainers only)
 
@@ -186,3 +259,9 @@ created via the
 
 By contributing to vision3d, you agree that your contributions will be licensed
 under the LICENSE file in the root directory of this source tree.
+
+[bootc]: https://github.com/bootc-dev/bootc/blob/main/AGENTS.md
+[chunkah]: https://github.com/coreos/chunkah/blob/main/CONTRIBUTING.md
+[Google Python Style Guide]: https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings
+[RFD 576]: https://rfd.shared.oxide.computer/rfd/0576
+[Small CLs]: https://google.github.io/eng-practices/review/developer/small-cls.html
