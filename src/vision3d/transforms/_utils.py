@@ -93,7 +93,7 @@ def _resolve_label_ids(
     return {id(label) for label in labels}
 
 
-def _default_labels_getter(inputs: Any) -> Tensor:
+def _default_labels_getter(inputs: Any) -> "Tensor[[int]]":
     """Locate a per-box ``labels`` tensor by a case-insensitive ``"labels"`` key.
 
     Mirrors torchvision's default ``labels_getter``. The sample is a dict, or a

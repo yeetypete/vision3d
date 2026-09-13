@@ -3,10 +3,11 @@
 import sys
 from pathlib import Path
 
-from docutils.nodes import Element
+from docutils.nodes import Element, TextElement
 from sphinx.addnodes import pending_xref
 from sphinx.application import Sphinx
 from sphinx.environment import BuildEnvironment
+from sphinx.ext import intersphinx
 from sphinx.util.typing import ExtensionMetadata
 
 import vision3d
@@ -119,13 +120,41 @@ def _suppress_v2_inherited_refs(
     return contnode
 
 
+# Dimension names inside quoted tensor shape annotations, e.g. ``"Tensor[[N, 3]]"``.
+nitpick_ignore_regex = [
+    (
+        "py:class",
+        r"^(?:\*Elements|Int|[A-Z][a-z]?|\d+)(?: [-+*/] (?:[A-Z][a-z]?|\d+))*$",
+    ),
+]
+
+
+def _resolve_tensor_refs(
+    app: Sphinx,
+    env: BuildEnvironment,
+    node: pending_xref,
+    contnode: TextElement,
+) -> Element | None:
+    """Link the unqualified ``Tensor`` from shape annotations to torch.
+
+    Returns:
+        The intersphinx reference to :class:`torch.Tensor`, or ``None`` to
+        let Sphinx handle any other reference normally.
+    """
+    if node.get("reftype") != "class" or node.get("reftarget") != "Tensor":
+        return None
+    node["reftarget"] = "torch.Tensor"
+    return intersphinx.missing_reference(app, env, node, contnode)
+
+
 def setup(app: Sphinx) -> ExtensionMetadata:
-    """Register the v2-scoped missing-reference handler with Sphinx.
+    """Register the missing-reference handlers with Sphinx.
 
     Returns:
         Extension metadata advertising version and parallel-safety.
     """
     app.connect("missing-reference", _suppress_v2_inherited_refs)
+    app.connect("missing-reference", _resolve_tensor_refs)
     return {
         "version": "0.1",
         "parallel_read_safe": True,

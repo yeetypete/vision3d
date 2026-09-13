@@ -1,5 +1,7 @@
 """3D oriented bounding box overlap using the Separating Axis Theorem."""
 
+from typing import TYPE_CHECKING
+
 import torch
 from torch import Tensor
 
@@ -7,12 +9,15 @@ from vision3d.tensors import BoundingBox3DFormat
 
 from ._points_in_boxes_3d import extract_box3d_params
 
+if TYPE_CHECKING:
+    from shape_extensions import IntVar
 
-def box3d_overlap(
-    boxes1: Tensor,
-    boxes2: Tensor,
+
+def box3d_overlap[N: IntVar, M: IntVar](
+    boxes1: "Tensor[[N, int]]",
+    boxes2: "Tensor[[M, int]]",
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> "Tensor[[N, M]]":
     """Check 3D overlap between two sets of oriented bounding boxes.
 
     Uses the Separating Axis Theorem (SAT) with 15 potential separating

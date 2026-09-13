@@ -1,17 +1,22 @@
 """Compute 3D bounding box corners."""
 
+from typing import TYPE_CHECKING
+
 import torch
 from torch import Tensor
 
 from vision3d.tensors import BoundingBox3DFormat
 
+if TYPE_CHECKING:
+    from shape_extensions import IntVar
+
 from ._points_in_boxes_3d import extract_box3d_params
 
 
-def box3d_corners(
-    boxes: Tensor,
+def box3d_corners[N: IntVar](
+    boxes: "Tensor[[N, int]]",
     format: BoundingBox3DFormat,
-) -> Tensor:
+) -> "Tensor[[N, 8, 3]]":
     r"""Compute the 8 world-space corners of 3D bounding boxes.
 
     Supports all rotation formats including full 9-DOF (yaw, pitch, roll).

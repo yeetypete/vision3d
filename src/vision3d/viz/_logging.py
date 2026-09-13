@@ -1,6 +1,7 @@
 """Log vision3d data to a Rerun viewer."""
 
 import math
+from typing import TYPE_CHECKING
 
 import torch
 import torch.linalg
@@ -17,6 +18,9 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 
+if TYPE_CHECKING:
+    from shape_extensions import IntVar
+
 try:
     import rerun as rr
 except ImportError as e:
@@ -26,7 +30,7 @@ except ImportError as e:
 
 def log_point_cloud(
     entity: str,
-    points: PointCloud3D | Tensor,
+    points: "PointCloud3D | Tensor[[int, int]]",
     *,
     color_by_distance: bool = True,
 ) -> None:
@@ -59,7 +63,7 @@ def log_boxes_3d(
     labels: list[str] | None = None,
     class_ids: list[int] | None = None,
     label_to_id: dict[str, int] | None = None,
-    scores: list[float] | Tensor | None = None,
+    scores: "list[float] | Tensor[[int]] | None" = None,
     score_threshold: float | None = None,
     fill_mode: rr.components.FillModeLike | None = None,
     show_labels: bool | None = None,
@@ -192,11 +196,11 @@ def log_boxes_3d(
         )
 
 
-def log_cameras(
+def log_cameras[Nc: IntVar](
     entity_prefix: str,
-    images: CameraImages | Tensor,
-    intrinsics: CameraIntrinsics | Tensor | None = None,
-    extrinsics: CameraExtrinsics | Tensor | None = None,
+    images: "CameraImages | Tensor[[Nc, int, int, int]]",
+    intrinsics: "CameraIntrinsics | Tensor[[Nc, 3, 3]] | None" = None,
+    extrinsics: "CameraExtrinsics | Tensor[[Nc, 4, 4]] | None" = None,
     *,
     jpeg_quality: int | None = None,
 ) -> None:
@@ -223,11 +227,11 @@ def log_cameras(
         )
 
 
-def _log_single_camera(
+def _log_single_camera[Nc: IntVar](
     entity: str,
-    images: CameraImages | Tensor,
-    intrinsics: CameraIntrinsics | Tensor | None,
-    extrinsics: CameraExtrinsics | Tensor | None,
+    images: "CameraImages | Tensor[[Nc, int, int, int]]",
+    intrinsics: "CameraIntrinsics | Tensor[[Nc, 3, 3]] | None",
+    extrinsics: "CameraExtrinsics | Tensor[[Nc, 4, 4]] | None",
     *,
     camera_index: int,
     jpeg_quality: int | None = None,
@@ -368,9 +372,9 @@ def _build_labels(
     return [f"{name} {s:.2f}" for name, s in zip(base, scores)]
 
 
-def _extract_centers_sizes_yaws(
-    raw: Tensor, fmt: BoundingBox3DFormat
-) -> tuple[Tensor, Tensor, list[float]]:
+def _extract_centers_sizes_yaws[N: IntVar](
+    raw: "Tensor[[N, int]]", fmt: BoundingBox3DFormat
+) -> "tuple[Tensor[[N, 3]], Tensor[[N, 3]], list[float]]":
     """Extract centers, sizes (l, w, h), and yaw angles from raw box tensor.
 
     Returns:

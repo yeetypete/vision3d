@@ -1,10 +1,11 @@
 """Shared types for :mod:`vision3d.metrics`."""
 
-from typing import NotRequired, TypedDict
-
-from torch import Tensor
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from vision3d.tensors import BoundingBoxes3D
+
+if TYPE_CHECKING:
+    from torch import Tensor
 
 
 class Prediction3D(TypedDict):
@@ -26,10 +27,10 @@ class Prediction3D(TypedDict):
     """
 
     boxes: BoundingBoxes3D
-    scores: Tensor
-    labels: Tensor
-    velocities: NotRequired[Tensor]
-    attributes: NotRequired[Tensor]
+    scores: "Tensor[[int]]"
+    labels: "Tensor[[int]]"
+    velocities: NotRequired["Tensor[[int, 2]]"]
+    attributes: NotRequired["Tensor[[int]]"]
 
 
 class Target3D(TypedDict):
@@ -46,6 +47,6 @@ class Target3D(TypedDict):
     """
 
     boxes: BoundingBoxes3D
-    labels: Tensor
-    velocities: NotRequired[Tensor]
-    attributes: NotRequired[Tensor]
+    labels: "Tensor[[int]]"
+    velocities: NotRequired["Tensor[[int, 2]]"]
+    attributes: NotRequired["Tensor[[int]]"]

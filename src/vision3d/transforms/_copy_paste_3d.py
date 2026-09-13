@@ -4,7 +4,7 @@ import math
 from collections import defaultdict, deque
 from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 import numpy as np
 import torch
@@ -33,9 +33,12 @@ from vision3d.tensors import (
 )
 from vision3d.transforms._transform import Transform
 
+if TYPE_CHECKING:
+    from shape_extensions import Int, IntVar
+
 
 @dataclass
-class CameraCrop:
+class CameraCrop[H: IntVar, W: IntVar]:
     """Image crop and convex-hull mask for one camera view of an object.
 
     Attributes:
@@ -44,8 +47,8 @@ class CameraCrop:
         bbox: Bounding box in image coords ``(x_min, y_min, x_max, y_max)``.
     """
 
-    crop: Tensor
-    mask: Tensor
+    crop: "Tensor[[int, H, W]]"
+    mask: "Tensor[[H, W]]"
     bbox: tuple[int, int, int, int]
 
 
@@ -63,10 +66,12 @@ class ObjectEntry:
             visible in camera ``i``.
     """
 
-    points: Tensor | None
-    box: Tensor
+    points: "Tensor[[int, int]] | None"
+    box: "Tensor[[int]]"
     label: int
-    camera_crops: list[CameraCrop | None] | None = field(default=None, repr=False)
+    camera_crops: list[CameraCrop[int, int] | None] | None = field(
+        default=None, repr=False
+    )
 
 
 def _convex_hull_2d(
@@ -107,12 +112,12 @@ def _convex_hull_2d(
     return lower[:-1] + upper[:-1]
 
 
-def _fill_convex_polygon(
+def _fill_convex_polygon[H: IntVar, W: IntVar](
     vertices: list[tuple[float, float]],
-    height: int,
-    width: int,
+    height: "Int[H]",
+    width: "Int[W]",
     device: torch.device,
-) -> Tensor:
+) -> "Tensor[[H, W]]":
     """Rasterise a convex polygon into a boolean mask using Pillow.
 
     Args:
@@ -130,15 +135,15 @@ def _fill_convex_polygon(
     return torch.from_numpy(mask_np.copy()).bool().to(device)
 
 
-_HullMaskResult = tuple[Tensor, tuple[int, int, int, int], float]
+type _HullMaskResult = tuple[Tensor[[int, int]], tuple[int, int, int, int], float]
 
 
-def _project_boxes_to_camera(
-    boxes: Tensor,
+def _project_boxes_to_camera[M: IntVar](
+    boxes: "Tensor[[M, int]]",
     fmt: BoundingBox3DFormat,
-    extrinsic: Tensor,
-    intrinsic: Tensor,
-) -> tuple[Tensor, Tensor]:
+    extrinsic: "Tensor[[4, 4]]",
+    intrinsic: "Tensor[[3, 3]]",
+) -> "tuple[Tensor[[M, 8, 2]], Tensor[[M, 8]]]":
     """Project all box corners into a single camera at once.
 
     Args:
@@ -159,8 +164,8 @@ def _project_boxes_to_camera(
 
 
 def _hull_mask_from_projected(
-    uv: Tensor,
-    depth: Tensor,
+    uv: "Tensor[[8, 2]]",
+    depth: "Tensor[[8]]",
     img_h: int,
     img_w: int,
 ) -> _HullMaskResult | None:
@@ -216,11 +221,11 @@ def _hull_mask_from_projected(
     return mask, (x_min, y_min, x_max, y_max), mean_depth
 
 
-def _apply_offset(
-    boxes: Tensor,
+def _apply_offset[M: IntVar, K: IntVar](
+    boxes: "Tensor[[M, K]]",
     fmt: BoundingBox3DFormat,
-    offsets: Tensor,
-) -> Tensor:
+    offsets: "Tensor[[M, 3]]",
+) -> "Tensor[[M, K]]":
     """Return a copy of *boxes* translated by per-box *offsets*.
 
     Args:
@@ -239,10 +244,10 @@ def _apply_offset(
 
 
 def _batch_hull_masks(
-    boxes: Tensor,
+    boxes: "Tensor[[int, int]]",
     fmt: BoundingBox3DFormat,
-    extrinsic: Tensor,
-    intrinsic: Tensor,
+    extrinsic: "Tensor[[4, 4]]",
+    intrinsic: "Tensor[[3, 3]]",
     img_h: int,
     img_w: int,
 ) -> list[_HullMaskResult | None]:
@@ -494,7 +499,7 @@ class CopyPaste3D(Transform):
         images: list[CameraImages] = []
         extrinsics: list[CameraExtrinsics] = []
         intrinsics: list[CameraIntrinsics] = []
-        labels: list[Tensor] = []
+        labels: list[Tensor[[int]]] = []
 
         for obj in flat_inputs:
             if isinstance(obj, PointCloud3D):
@@ -605,7 +610,7 @@ class CopyPaste3D(Transform):
 
         # Find valid objects: With point clouds this means meeting min_points,
         # for camera-only inputs all labeled boxes are valid.
-        valid: list[tuple[int, Tensor | None]] = []
+        valid: list[tuple[int, Tensor[[int, int]] | None]] = []
         if points is not None:
             indices = points_in_boxes_3d_indices(points, boxes, fmt)
             for j in range(boxes.shape[0]):
@@ -621,7 +626,7 @@ class CopyPaste3D(Transform):
 
         # Batch camera crop extraction for all valid objects at once
         has_cameras = self._has_camera_data(inputs)
-        camera_crops_map: dict[int, list[CameraCrop | None]] = {}
+        camera_crops_map: dict[int, list[CameraCrop[int, int] | None]] = {}
         if has_cameras and valid:
             camera_crops_map = self._extract_all_camera_crops(
                 boxes, fmt, inputs, [j for j, _ in valid]
@@ -639,11 +644,11 @@ class CopyPaste3D(Transform):
 
     def _extract_all_camera_crops(
         self,
-        boxes: Tensor,
+        boxes: "Tensor[[int, int]]",
         fmt: BoundingBox3DFormat,
         inputs: dict[str, Any],
         valid_indices: list[int],
-    ) -> dict[int, list[CameraCrop | None]]:
+    ) -> dict[int, list[CameraCrop[int, int] | None]]:
         """Extract image crops for multiple objects from all camera views.
 
         Uses batched projection per camera to avoid per-object overhead.
@@ -669,7 +674,7 @@ class CopyPaste3D(Transform):
 
         valid_boxes = boxes[valid_indices]  # [V, K]
 
-        result: dict[int, list[CameraCrop | None]] = {
+        result: dict[int, list[CameraCrop[int, int] | None]] = {
             j: [None] * n_cams for j in valid_indices
         }
         for cam_idx in range(n_cams):
@@ -691,15 +696,15 @@ class CopyPaste3D(Transform):
                 )
         return result
 
-    def _sample_axis_offsets(
+    def _sample_axis_offsets[N: IntVar](
         self,
-        n: int,
+        n: "Int[N]",
         lo: float,
         hi: float,
         std: float | None,
         device: torch.device,
         dtype: torch.dtype,
-    ) -> Tensor:
+    ) -> "Tensor[[N]]":
         """Draw ``n`` offsets for one axis from ``[lo, hi]``.
 
         Uniform when ``std`` is ``None``, otherwise a normal distribution
@@ -734,9 +739,9 @@ class CopyPaste3D(Transform):
         # Clamp guards against tiny inverse-CDF rounding outside the interval.
         return (mean + std * torch.special.ndtri(p)).clamp(lo, hi)
 
-    def _sample_offsets(
-        self, n: int, device: torch.device, dtype: torch.dtype
-    ) -> Tensor:
+    def _sample_offsets[N: IntVar](
+        self, n: "Int[N]", device: torch.device, dtype: torch.dtype
+    ) -> "Tensor[[N, 3]]":
         """Draw ``n`` per-object ``(x, y, z)`` offsets.
 
         Each axis is sampled independently from its configured range and
@@ -756,12 +761,12 @@ class CopyPaste3D(Transform):
         ]
         return torch.stack(cols, dim=1)
 
-    def _place_candidate(
+    def _place_candidate[K: IntVar](
         self,
-        box: Tensor,
+        box: "Tensor[[K]]",
         fmt: BoundingBox3DFormat,
-        occupied: Tensor,
-    ) -> tuple[Tensor, Tensor] | None:
+        occupied: "Tensor[[int, K]]",
+    ) -> "tuple[Tensor[[K]], Tensor[[3]]] | None":
         """Find a collision-free pose for one candidate box.
 
         When jittering is enabled, up to ``max_jitter_attempts`` jittered
@@ -786,7 +791,7 @@ class CopyPaste3D(Transform):
         if self._jitter:
             jittered = self._sample_offsets(self.max_jitter_attempts, device, dtype)
             offsets = torch.cat(
-                [jittered, torch.zeros(1, 3, device=device, dtype=dtype)]
+                (jittered, torch.zeros(1, 3, device=device, dtype=dtype))
             )
         else:
             offsets = torch.zeros(1, 3, device=device, dtype=dtype)
@@ -827,8 +832,8 @@ class CopyPaste3D(Transform):
             existing_counts[lbl] = existing_counts.get(lbl, 0) + 1
 
         pasted_entries: list[ObjectEntry] = []
-        pasted_boxes: list[Tensor] = []
-        pasted_points: list[Tensor] = []
+        pasted_boxes: list[Tensor[[int]]] = []
+        pasted_points: list[Tensor[[int, int]]] = []
         pasted_labels: list[int] = []
 
         all_boxes = boxes
@@ -864,7 +869,7 @@ class CopyPaste3D(Transform):
                         obj_points[:, :3] += offset_k.to(obj_points.device)
                         pasted_points.append(obj_points)
                     pasted_labels.append(entry.label)
-                    all_boxes = torch.cat([all_boxes, box_k.unsqueeze(0)])
+                    all_boxes = torch.cat((all_boxes, box_k.unsqueeze(0)))
             else:
                 # Default fast path: two batched overlap kernels per class
                 # (candidates vs scene, candidates vs each other) followed by
@@ -902,7 +907,7 @@ class CopyPaste3D(Transform):
                     if entry.points is not None and points is not None:
                         pasted_points.append(entry.points.to(points.device))
                     pasted_labels.append(entry.label)
-                all_boxes = torch.cat([all_boxes, cand_boxes[accepted_k]])
+                all_boxes = torch.cat((all_boxes, cand_boxes[accepted_k]))
 
         if not pasted_boxes:
             return inputs, targets
@@ -918,18 +923,18 @@ class CopyPaste3D(Transform):
             )
             kept_points = points[~remove_mask]
             if pasted_points:
-                new_points = torch.cat([kept_points, torch.cat(pasted_points)])
+                new_points = torch.cat((kept_points, torch.cat(pasted_points)))
             else:
                 new_points = kept_points
             new_inputs["points"] = PointCloud3D(new_points)
 
         # Box and label update
-        new_boxes = torch.cat([boxes, pasted_boxes_tensor])
+        new_boxes = torch.cat((boxes, pasted_boxes_tensor))
         new_labels = torch.cat(
-            [
+            (
                 labels,
                 torch.tensor(pasted_labels, dtype=labels.dtype, device=labels.device),
-            ]
+            )
         )
 
         new_targets: dict[str, Any] = {
@@ -949,7 +954,7 @@ class CopyPaste3D(Transform):
     def _paste_camera_images(
         self,
         inputs: dict[str, Any],
-        existing_boxes: Tensor,
+        existing_boxes: "Tensor[[int, int]]",
         fmt: BoundingBox3DFormat,
         pasted_entries: list[ObjectEntry],
     ) -> CameraImages | None:
@@ -973,7 +978,7 @@ class CopyPaste3D(Transform):
         p_ones = torch.ones(
             p_centers.shape[0], 1, dtype=p_centers.dtype, device=p_centers.device
         )
-        pasted_centers_hom = torch.cat([p_centers, p_ones], dim=-1)  # [P, 4]
+        pasted_centers_hom = torch.cat((p_centers, p_ones), dim=-1)  # [P, 4]
 
         has_existing = existing_boxes.shape[0] > 0
         e_centers_hom = torch.zeros(
@@ -984,7 +989,7 @@ class CopyPaste3D(Transform):
             e_ones = torch.ones(
                 e_centers.shape[0], 1, dtype=e_centers.dtype, device=e_centers.device
             )
-            e_centers_hom = torch.cat([e_centers, e_ones], dim=-1)
+            e_centers_hom = torch.cat((e_centers, e_ones), dim=-1)
 
         any_pasted = False
         cloned = False

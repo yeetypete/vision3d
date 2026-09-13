@@ -1,17 +1,21 @@
 """Convert 3D bounding boxes between formats."""
 
-from torch import Tensor
+from typing import TYPE_CHECKING
 
 from vision3d.tensors import BoundingBox3DFormat
 
 from ._box3d_convert import _xyzlwh_to_xyzxyz, _xyzxyz_to_xyzlwh
 
+if TYPE_CHECKING:
+    from shape_extensions import Elements, IntTuple
+    from torch import Tensor
 
-def box3d_convert(
-    boxes: Tensor,
+
+def box3d_convert[Bs: IntTuple](
+    boxes: "Tensor[[*Elements[Bs], int]]",
     in_fmt: BoundingBox3DFormat | str,
     out_fmt: BoundingBox3DFormat | str,
-) -> Tensor:
+) -> "Tensor[[*Elements[Bs], int]]":
     """Convert 3D bounding boxes from ``in_fmt`` to ``out_fmt``.
 
     Only the lossless ``XYZXYZ`` <-> ``XYZLWH`` conversion is supported.
