@@ -107,8 +107,23 @@ pub enum Edge {
     MaxV,
 }
 
-/// Where the rotation handle sits, as a multiple of the vertical half-extent.
+/// How far the rotation handle sits beyond the box face it hangs off.
 pub const ROTATE_HANDLE_OFFSET: f32 = 1.35;
+
+/// Which way the rotation handle sticks out, in view-plane local coordinates.
+///
+/// It hangs off the box's **heading** face wherever that is visible, so the
+/// handle doubles as a reading of which way the object points -- the same
+/// information the 3D view's heading arrow gives. In the view that looks down
+/// the heading, the heading is perpendicular to the screen and has no in-plane
+/// direction, so the handle stays above the box.
+///
+/// Returns the unit direction as `(du, dv)`.
+pub fn rotate_handle_dir(axis: SliceAxis) -> (f32, f32) {
+    let (iu, _, _) = axis.axes();
+    // Axis 0 is the box's local x, which is its heading.
+    if iu == 0 { (1.0, 0.0) } else { (0.0, 1.0) }
+}
 
 /// Hit-test a pointer position given in view-plane local coordinates.
 ///
@@ -118,9 +133,11 @@ pub const ROTATE_HANDLE_OFFSET: f32 = 1.35;
 /// Args are in scene units: `(u, v)` is the pointer, `(hu, hv)` the in-plane
 /// half-extents, `tol` the grab tolerance (a pixel radius converted to scene
 /// units by the caller).
-pub fn hit_test(u: f32, v: f32, hu: f32, hv: f32, tol: f32) -> Option<DragKind> {
-    let handle_v = hv * ROTATE_HANDLE_OFFSET;
-    if (u.abs() <= tol * 2.0) && (v - handle_v).abs() <= tol * 2.0 {
+pub fn hit_test(axis: SliceAxis, u: f32, v: f32, hu: f32, hv: f32, tol: f32) -> Option<DragKind> {
+    let (du, dv) = rotate_handle_dir(axis);
+    let handle_u = du * hu * ROTATE_HANDLE_OFFSET;
+    let handle_v = dv * hv * ROTATE_HANDLE_OFFSET;
+    if (u - handle_u).abs() <= tol * 2.0 && (v - handle_v).abs() <= tol * 2.0 {
         return Some(DragKind::Rotate);
     }
 
@@ -251,6 +268,31 @@ mod tests {
     }
 
     #[test]
+    /// The handle hangs off the heading face where the heading is visible.
+    ///
+    /// Top-down and side-on both show the box's local x in the plane, so the
+    /// handle reads as a heading indicator there. Looking down the heading it
+    /// has no in-plane direction and stays above the box.
+    #[test]
+    fn the_rotation_handle_follows_the_heading() {
+        assert_eq!(rotate_handle_dir(SliceAxis::Z), (1.0, 0.0));
+        assert_eq!(rotate_handle_dir(SliceAxis::Y), (1.0, 0.0));
+        assert_eq!(rotate_handle_dir(SliceAxis::X), (0.0, 1.0));
+
+        // Grabbing it means hitting it where it is now drawn.
+        let (hu, hv, tol) = (2.0, 1.0, 0.1);
+        assert_eq!(
+            hit_test(SliceAxis::Z, hu * ROTATE_HANDLE_OFFSET, 0.0, hu, hv, tol),
+            Some(DragKind::Rotate)
+        );
+        assert_ne!(
+            hit_test(SliceAxis::Z, 0.0, hv * ROTATE_HANDLE_OFFSET, hu, hv, tol),
+            Some(DragKind::Rotate),
+            "the handle is no longer above the box in a top-down view"
+        );
+    }
+
+    #[test]
     fn rotation_handles_are_per_view_axis() {
         let start = unit_box();
         let angle = 0.3;
@@ -285,19 +327,25 @@ mod tests {
 
     #[test]
     fn hit_test_prefers_edges_over_body() {
-        assert_eq!(hit_test(0.0, 0.0, 2.0, 1.0, 0.1), Some(DragKind::Body));
+        // The X view: the heading points out of the screen, so the handle
+        // stays above the box and the other hits are unaffected.
+        let axis = SliceAxis::X;
         assert_eq!(
-            hit_test(2.0, 0.0, 2.0, 1.0, 0.1),
+            hit_test(axis, 0.0, 0.0, 2.0, 1.0, 0.1),
+            Some(DragKind::Body)
+        );
+        assert_eq!(
+            hit_test(axis, 2.0, 0.0, 2.0, 1.0, 0.1),
             Some(DragKind::Edge(Edge::MaxU))
         );
         assert_eq!(
-            hit_test(0.0, -1.0, 2.0, 1.0, 0.1),
+            hit_test(axis, 0.0, -1.0, 2.0, 1.0, 0.1),
             Some(DragKind::Edge(Edge::MinV))
         );
         assert_eq!(
-            hit_test(0.0, 1.0 * ROTATE_HANDLE_OFFSET, 2.0, 1.0, 0.1),
+            hit_test(axis, 0.0, 1.0 * ROTATE_HANDLE_OFFSET, 2.0, 1.0, 0.1),
             Some(DragKind::Rotate)
         );
-        assert_eq!(hit_test(9.0, 9.0, 2.0, 1.0, 0.1), None);
+        assert_eq!(hit_test(axis, 9.0, 9.0, 2.0, 1.0, 0.1), None);
     }
 }

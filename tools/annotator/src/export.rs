@@ -114,6 +114,10 @@ fn rows_for(
 
         let row_ids: Vec<re_chunk::RowId> = chunk.row_ids().collect();
         let is_clear = chunk.components().contains_key(&clear_marker);
+        // A chunk that carries half-sizes but leaves them empty is how the end
+        // of an object's life is written: it says "no box here", as against a
+        // partial write that simply does not mention geometry.
+        let states_geometry = chunk.components().contains_key(&half_sizes);
 
         let mut center_iter = chunk.iter_slices::<[f32; 3]>(centers);
         let mut half_iter = chunk.iter_slices::<[f32; 3]>(half_sizes);
@@ -131,6 +135,11 @@ fn rows_for(
             let half = half_iter.next().and_then(|s| s.first().copied());
             let quat = quat_iter.next().and_then(|s| s.first().copied());
             let class = class_iter.next().and_then(|s| s.first().copied());
+
+            if states_geometry && half.is_none() {
+                events.push((time, row_id, None));
+                continue;
+            }
 
             events.push((
                 time,
@@ -425,6 +434,30 @@ mod tests {
             "temporal rows survived alongside the static one"
         );
         assert_eq!(folded[&None].class_id, Some(2));
+    }
+
+    /// Ending an object's life removes it from that instant on.
+    ///
+    /// Written as an emptied geometry batch rather than a clear, so the class
+    /// and the rest survive. The fold has to read that as "no box here", not as
+    /// a partial write that inherits the previous pose -- otherwise declaring an
+    /// object gone would export it standing still forever.
+    #[test]
+    fn an_emptied_geometry_batch_ends_the_track() {
+        let mut id = ids();
+        let mut ended = row(Some(1), false);
+        ended.half_size = [0.0; 3];
+
+        let folded = fold_events(vec![
+            (Some(100), id.next().unwrap(), Some(row(Some(1), true))),
+            (Some(200), id.next().unwrap(), None),
+        ]);
+
+        assert!(folded.contains_key(&Some(100)), "the live pose was lost");
+        assert!(
+            !folded.contains_key(&Some(200)),
+            "the object was exported past the end of its life"
+        );
     }
 
     /// A cleared instant is gone: the reserved slots must not be exported.

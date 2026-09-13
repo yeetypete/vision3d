@@ -608,6 +608,11 @@ impl ViewClass for BoxListView {
         let manual_boxes = stored_boxes(ctx, &box_prefix);
         let (source_count, manual_count) = (source_boxes.len(), manual_boxes.len());
 
+        // Edits arrive from the 3D drag, the slice views and the size fields;
+        // all three only record where a pose was authored, and the track is
+        // rebuilt from those instants here.
+        rebuild_tracks(ui, ctx, query);
+
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -670,7 +675,16 @@ impl ViewClass for BoxListView {
                 }
                 {
                     for b in &manual_boxes {
-                        ui.horizontal(|ui| {
+                        // The disclosure triangle belongs *in* the row, not on a
+                        // line of its own above it. `CollapsingState` draws the
+                        // toggle and the row content together in one header.
+                        let collapsing =
+                            egui::collapsing_header::CollapsingState::load_with_default_open(
+                                ui.ctx(),
+                                ui.make_persistent_id(("dims", &b.entity)),
+                                false,
+                            );
+                        let header = collapsing.show_header(ui, |ui| {
                             let row = row_label(ui, ctx, b, &ontology, &selected, ego);
 
                             let mut is_static =
@@ -705,7 +719,9 @@ impl ViewClass for BoxListView {
                                         }
                                     }
                                 });
+                            row
                         });
+                        header.body(|ui| dimension_fields(ui, ctx, query, b));
                     }
                     if manual_boxes.is_empty() {
                         ui.label(
@@ -918,6 +934,530 @@ fn slot_index(entity: &EntityPath) -> Option<u64> {
         .ok()
 }
 
+/// Step between this box's keyframes, and drop the one you are sitting on.
+///
+/// The same gesture as a video editor: the arrows move the playhead to the
+/// neighbouring keyframe rather than the neighbouring frame, so a long recording
+/// can be walked object by object instead of scrubbed.
+fn keyframe_controls(
+    ui: &mut egui::Ui,
+    ctx: &ViewerContext<'_>,
+    query: &ViewQuery<'_>,
+    b: &SliceBox,
+) {
+    if re_view_spatial_fork::static_boxes::is_static(&b.entity) {
+        return;
+    }
+    let now = query.latest_at.as_i64();
+    let times = re_view_spatial_fork::keyframes::times(&b.entity);
+    if times.is_empty() {
+        return;
+    }
+
+    let previous = times.iter().copied().filter(|t| *t < now).next_back();
+    let next = times.iter().copied().find(|t| *t > now);
+    let on_one = times.binary_search(&now).is_ok();
+
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(previous.is_some(), egui::Button::new("\u{25c0}").small())
+            .on_hover_text("Jump to the previous keyframe of this box")
+            .clicked()
+            && let Some(t) = previous
+        {
+            seek(ctx, query, t);
+        }
+
+        let index = times.iter().position(|t| *t == now);
+        ui.label(
+            egui::RichText::new(match index {
+                Some(i) => format!("keyframe {}/{}", i + 1, times.len()),
+                None => format!("between keyframes (of {})", times.len()),
+            })
+            .weak()
+            .small(),
+        );
+
+        if ui
+            .add_enabled(next.is_some(), egui::Button::new("\u{25b6}").small())
+            .on_hover_text("Jump to the next keyframe of this box")
+            .clicked()
+            && let Some(t) = next
+        {
+            seek(ctx, query, t);
+        }
+
+        if ui
+            .add_enabled(on_one, egui::Button::new("delete key").small())
+            .on_hover_text(
+                "Drop this keyframe. The track re-interpolates across the gap, so \
+                 the box keeps moving -- it just stops being pinned here.",
+            )
+            .clicked()
+        {
+            drop_keyframe(&b.entity, now);
+        }
+    });
+}
+
+/// Move the playhead to an instant.
+fn seek(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>, time_ns: i64) {
+    use rerun::external::re_viewer_context::TimeControlCommand;
+
+    ctx.command_sender()
+        .send_system(SystemCommand::TimeControlCommands {
+            store_id: ctx.store_id().clone(),
+            time_commands: vec![
+                TimeControlCommand::SetActiveTimeline(query.timeline),
+                TimeControlCommand::SetTime(TimeInt::new_temporal(time_ns).into()),
+            ],
+        });
+}
+
+/// Stop pinning a box at one instant, and let the span close over it.
+///
+/// The pose written there is overwritten by the refill rather than deleted, so
+/// the object carries on moving through the gap instead of jumping.
+fn drop_keyframe(entity: &EntityPath, time_ns: i64) {
+    use re_view_spatial_fork::keyframes;
+
+    if !keyframes::remove(entity, time_ns) {
+        return;
+    }
+    // Re-marking a neighbour is what queues the refill; it is already a
+    // keyframe, so this adds nothing but the work.
+    let (before, after) = keyframes::neighbours(entity, time_ns);
+    if let Some(t) = before.or(after) {
+        keyframes::mark(entity, t);
+    }
+}
+
+/// When an object starts and stops existing, and how to change that.
+///
+/// A new box exists for the whole recording. These trim that span and put it
+/// back: "starts here" and "ends here" cut the object's life to the frame you
+/// are on, and the two arrows undo those cuts by carrying the pose back out to
+/// the first or last frame again.
+fn lifespan_controls(
+    ui: &mut egui::Ui,
+    ctx: &ViewerContext<'_>,
+    query: &ViewQuery<'_>,
+    b: &SliceBox,
+) {
+    if re_view_spatial_fork::static_boxes::is_static(&b.entity) {
+        return;
+    }
+    ui.horizontal(|ui| {
+        if ui
+            .small_button("\u{21e4} to start")
+            .on_hover_text(
+                "Undo a trim at the front: the box lives from the first frame \
+                 again, holding its earliest pose.",
+            )
+            .clicked()
+        {
+            untrim(&b.entity, true);
+        }
+        if ui
+            .small_button("to end \u{21e5}")
+            .on_hover_text(
+                "Undo a trim at the back: the box lives to the last frame again, \
+                 holding its latest pose.",
+            )
+            .clicked()
+        {
+            untrim(&b.entity, false);
+        }
+        if ui
+            .small_button("starts here")
+            .on_hover_text(
+                "Trim the front: the object arrives at this frame and does not \
+                 exist before it, in the viewer or in the saved labels.",
+            )
+            .clicked()
+        {
+            start_life(ctx, query, &b.entity);
+        }
+        if ui
+            .small_button("ends here")
+            .on_hover_text(
+                "Trim the back: the object leaves at this frame and does not \
+                 exist after it, in the viewer or in the saved labels.",
+            )
+            .clicked()
+        {
+            end_life(ctx, query, &b.entity);
+        }
+    });
+}
+
+/// Untrim one end, so the box lives to the edge of the recording again.
+///
+/// Nothing is authored: the track holds the outermost keyframe's pose beyond
+/// it, so clearing the bound is all it takes for the box to reach the end.
+fn untrim(entity: &EntityPath, front: bool) {
+    if front {
+        re_view_spatial_fork::keyframes::set_start(entity, None);
+    } else {
+        re_view_spatial_fork::keyframes::set_end(entity, None);
+    }
+}
+
+/// The class a box carries at one instant, if any.
+fn class_at(
+    ctx: &ViewerContext<'_>,
+    entity: &EntityPath,
+    timeline: rerun::external::re_log_types::TimelineName,
+    time_ns: i64,
+) -> Option<u16> {
+    let class_d = rerun::Boxes3D::descriptor_class_ids().component;
+    let at = LatestAtQuery::new(timeline, TimeInt::new_temporal(time_ns));
+    ctx.recording()
+        .latest_at(&at, entity, [class_d])
+        .component_batch::<rerun::components::ClassId>(class_d)?
+        .first()
+        .map(|c| c.0.0)
+}
+
+/// The recording's name for a class id.
+fn ontology_label(ctx: &ViewerContext<'_>, class_id: u16) -> Option<String> {
+    let annotations = crate::ontology::load(ctx)?;
+    annotations
+        .resolved_class_description(Some(rerun::components::ClassId::from(class_id)))
+        .class_description
+        .and_then(|d| d.info.label.as_ref().map(|l| l.to_string()))
+}
+
+/// Declare the object absent across a stretch of frames.
+///
+/// Written as emptied geometry batches rather than clears: a clear would take
+/// the class and every other component with it, and this has to be undoable by
+/// simply writing a pose again. Every frame in the stretch is blanked, not just
+/// the first, because a pose written anywhere inside it would otherwise bring
+/// the box back for the rest of the range.
+///
+/// All of it goes into one chunk, so declaring an object absent for a thousand
+/// frames is a single append rather than a thousand.
+fn blank_frames(
+    ctx: &ViewerContext<'_>,
+    query: &ViewQuery<'_>,
+    entity: &EntityPath,
+    first: TimeInt,
+    last: TimeInt,
+) {
+    if last < first {
+        return;
+    }
+    let recording = ctx.recording();
+    let Some(timeline) = recording.timelines().get(&query.timeline).copied() else {
+        return;
+    };
+
+    let no_box = rerun::Boxes3D::update_fields().with_half_sizes(Vec::<(f32, f32, f32)>::new());
+    let no_arrow = rerun::Arrows3D::update_fields().with_vectors(Vec::<(f32, f32, f32)>::new());
+    let mut boxes = Chunk::builder(entity.clone());
+    // The arrow is blanked with the box: it describes the object, so it must
+    // not outlive it.
+    let mut arrows = Chunk::builder(re_view_spatial_fork::heading::path_for(entity));
+    let mut blanked = 0;
+    let mut at = Some(first);
+    while let Some(time) = at {
+        if time > last {
+            break;
+        }
+        let stamp = TimePoint::from([(timeline, time)]);
+        boxes = boxes.with_archetype_auto_row(stamp.clone(), &no_box);
+        arrows = arrows.with_archetype_auto_row(stamp, &no_arrow);
+        blanked += 1;
+        at = recording.next_time_on_timeline(&query.timeline, time);
+    }
+    if blanked == 0 {
+        return;
+    }
+    send(ctx, boxes, "blanked frames");
+    send(ctx, arrows, "blanked headings");
+}
+
+/// The object does not exist before this frame.
+fn start_life(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>, entity: &EntityPath) {
+    let recording = ctx.recording();
+    let Some(range) = recording.time_range_for(&query.timeline) else {
+        return;
+    };
+    let Some(previous) = recording.prev_time_on_timeline(&query.timeline, query.latest_at) else {
+        return;
+    };
+    blank_frames(ctx, query, entity, range.min(), previous);
+    // Recorded so the rebuild stops here rather than refilling what was blanked.
+    re_view_spatial_fork::keyframes::set_start(entity, Some(query.latest_at.as_i64()));
+}
+
+/// The object does not exist after this frame.
+fn end_life(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>, entity: &EntityPath) {
+    let recording = ctx.recording();
+    let Some(range) = recording.time_range_for(&query.timeline) else {
+        return;
+    };
+    let Some(next) = recording.next_time_on_timeline(&query.timeline, query.latest_at) else {
+        return;
+    };
+    blank_frames(ctx, query, entity, next, range.max());
+    re_view_spatial_fork::keyframes::set_end(entity, Some(query.latest_at.as_i64()));
+}
+
+/// Rebuild the pose track of every box whose keyframes changed.
+///
+/// Rebuilt whole rather than patched span by span. The incremental version
+/// interpolated each new edit back towards whatever was written at the ends of
+/// the recording, so moving a box at one frame made it drift away from your
+/// edit in both directions -- which reads, against a turning machine, as the
+/// box rotating with it.
+fn rebuild_tracks(ui: &egui::Ui, ctx: &ViewerContext<'_>, query: &ViewQuery<'_>) {
+    // Any drag writes on every frame it moves, and a track can cover the whole
+    // recording. Rebuild once the gesture ends.
+    if ui.input(|i| i.pointer.any_down()) || re_view_spatial_fork::box_drag::is_active() {
+        return;
+    }
+    for entity in re_view_spatial_fork::keyframes::take_dirty() {
+        rebuild_track(ctx, query, &entity);
+    }
+}
+
+/// Write one box's pose at every frame of its life.
+///
+/// Between keyframes the pose is interpolated; outside the outermost ones it is
+/// held. Holding is what makes a single keyframe mean "this pose, everywhere",
+/// so drawing a box puts it in the world for the whole recording and moving it
+/// moves it everywhere -- until a second keyframe asks for motion.
+fn rebuild_track(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>, entity: &EntityPath) {
+    if re_view_spatial_fork::static_boxes::is_static(entity) {
+        return;
+    }
+    let times = re_view_spatial_fork::keyframes::times(entity);
+    if times.is_empty() {
+        return;
+    }
+
+    let recording = ctx.recording();
+    let (Some(range), Some(timeline)) = (
+        recording.time_range_for(&query.timeline),
+        recording.timelines().get(&query.timeline).copied(),
+    ) else {
+        return;
+    };
+
+    let keys: Vec<(i64, Box9Dof)> = times
+        .iter()
+        .filter_map(|t| pose_at(ctx, entity, query.timeline, *t).map(|p| (*t, p)))
+        .collect();
+    if keys.is_empty() {
+        return;
+    }
+
+    // The class is read once and stamped on every pose, so a frame earlier than
+    // the one the class was set at is not left unclassified.
+    let class_id = class_at(ctx, entity, query.timeline, keys[0].0);
+    let class = class_id.and_then(|id| ontology_label(ctx, id).map(|name| (id, name)));
+    let class = class.as_ref().map(|(id, name)| (*id, name.as_str()));
+
+    // Trimming shortens the life; untrimmed, a box lives for the whole
+    // recording.
+    let (trim_start, trim_end) = re_view_spatial_fork::keyframes::bounds(entity);
+    let first = trim_start.map_or(range.min(), TimeInt::new_temporal);
+    let last = trim_end.map_or(range.max(), TimeInt::new_temporal);
+
+    let mut poses = Chunk::builder(entity.clone());
+    let mut arrows = Chunk::builder(re_view_spatial_fork::heading::path_for(entity));
+    let mut written = 0;
+
+    let mut at = Some(first);
+    while let Some(time) = at {
+        if time > last {
+            break;
+        }
+        let pose = sample(&keys, time.as_i64());
+        let stamp = TimePoint::from([(timeline, time)]);
+        poses = poses.with_archetype_auto_row(stamp.clone(), &box_archetype(&pose, class));
+        arrows = arrows.with_archetype_auto_row(
+            stamp,
+            &re_view_spatial_fork::heading::archetype(pose.center, pose.half_size, pose.rotation),
+        );
+        written += 1;
+        at = recording.next_time_on_timeline(&query.timeline, time);
+    }
+
+    if written == 0 {
+        return;
+    }
+    send(ctx, poses, "a rebuilt track");
+    send(ctx, arrows, "rebuilt headings");
+}
+
+/// The pose at an instant: interpolated between keyframes, held outside them.
+fn sample(keys: &[(i64, Box9Dof)], at: i64) -> Box9Dof {
+    if at <= keys[0].0 {
+        return keys[0].1;
+    }
+    if at >= keys[keys.len() - 1].0 {
+        return keys[keys.len() - 1].1;
+    }
+    let index = keys.partition_point(|(t, _)| *t <= at).max(1);
+    let (t0, a) = keys[index - 1];
+    let (t1, b) = keys[index];
+    if t1 <= t0 {
+        return a;
+    }
+    let alpha = (at - t0) as f32 / (t1 - t0) as f32;
+    Box9Dof {
+        center: a.center.lerp(b.center, alpha),
+        half_size: a.half_size.lerp(b.half_size, alpha),
+        rotation: a.rotation.slerp(b.rotation, alpha),
+    }
+}
+
+/// The `Boxes3D` update for one pose, carrying its class.
+///
+/// The class travels with the pose: one written at an instant earlier than the
+/// class was set at would otherwise read as unclassified there, because nothing
+/// earlier in the recording names it.
+fn box_archetype(pose: &Box9Dof, class: Option<(u16, &str)>) -> rerun::Boxes3D {
+    let mut archetype = rerun::Boxes3D::update_fields()
+        .with_centers([(pose.center.x, pose.center.y, pose.center.z)])
+        .with_half_sizes([(pose.half_size.x, pose.half_size.y, pose.half_size.z)])
+        .with_quaternions([rerun::Quaternion::from_xyzw(pose.rotation.to_array())]);
+    if let Some((id, name)) = class {
+        archetype = archetype.with_class_ids([id]).with_labels([name]);
+    }
+    archetype
+}
+
+/// Build and append a chunk, reporting rather than swallowing a failure.
+fn send(ctx: &ViewerContext<'_>, builder: rerun::external::re_chunk::ChunkBuilder, what: &str) {
+    match builder.build() {
+        Ok(chunk) => ctx
+            .command_sender()
+            .send_system(SystemCommand::AppendToStore(
+                ctx.store_id().clone(),
+                vec![chunk],
+            )),
+        Err(err) => re_log::error_once!("failed to build {what}: {err}"),
+    }
+}
+
+/// A box's pose as of one instant.
+fn pose_at(
+    ctx: &ViewerContext<'_>,
+    entity: &EntityPath,
+    timeline: rerun::external::re_log_types::TimelineName,
+    time_ns: i64,
+) -> Option<Box9Dof> {
+    use rerun::components::{HalfSize3D, RotationQuat, Translation3D};
+
+    let at = LatestAtQuery::new(timeline, TimeInt::new_temporal(time_ns));
+    let half_d = rerun::Boxes3D::descriptor_half_sizes().component;
+    let center_d = rerun::Boxes3D::descriptor_centers().component;
+    let quat_d = rerun::Boxes3D::descriptor_quaternions().component;
+
+    let results = ctx
+        .recording()
+        .latest_at(&at, entity, [half_d, center_d, quat_d]);
+    let half = *results.component_batch::<HalfSize3D>(half_d)?.first()?;
+    let center = results
+        .component_batch::<Translation3D>(center_d)
+        .and_then(|v| v.first().copied())?;
+    let quat = results
+        .component_batch::<RotationQuat>(quat_d)
+        .and_then(|v| v.first().copied());
+
+    Some(Box9Dof {
+        center: Vec3::from_array(center.0.0),
+        half_size: Vec3::from_array(half.0.0),
+        rotation: quat.map_or(glam::Quat::IDENTITY, |q| {
+            let [x, y, z, w] = q.0.0;
+            glam::Quat::from_xyzw(x, y, z, w)
+        }),
+    })
+}
+
+/// Length, width and height of one box, editable as numbers.
+///
+/// Dragging is good for placing a box against the points; typing is what you
+/// want when an object has a known size, or when several boxes should agree.
+/// Shown as full extents, which is how a box is usually described, though the
+/// component stores halves.
+fn dimension_fields(
+    ui: &mut egui::Ui,
+    ctx: &ViewerContext<'_>,
+    query: &ViewQuery<'_>,
+    b: &SliceBox,
+) {
+    let mut extent = b.bbox.half_size * 2.0;
+    let mut changed = false;
+
+    ui.horizontal(|ui| {
+        for (value, name, hint) in [
+            (&mut extent.x, "L", "Length, along the box's heading"),
+            (&mut extent.y, "W", "Width, across the box"),
+            (&mut extent.z, "H", "Height"),
+        ] {
+            ui.label(name);
+            changed |= ui
+                .add(
+                    egui::DragValue::new(value)
+                        .speed(0.05)
+                        .range(0.05..=100.0)
+                        .max_decimals(2)
+                        .suffix(" m"),
+                )
+                .on_hover_text(hint)
+                .changed();
+        }
+    });
+
+    if changed {
+        // The centre is left alone: typing a size grows the box about its own
+        // middle, which is what you expect when correcting a dimension.
+        write_half_size(
+            ctx,
+            query,
+            &b.entity,
+            extent * 0.5,
+            b.bbox.center,
+            b.bbox.rotation,
+        );
+    }
+
+    keyframe_controls(ui, ctx, query, b);
+    lifespan_controls(ui, ctx, query, b);
+
+    let keyframes = re_view_spatial_fork::keyframes::count(&b.entity);
+    let is_static = re_view_spatial_fork::static_boxes::is_static(&b.entity);
+    ui.horizontal(|ui| {
+        let summary = if is_static {
+            "static \u{2014} one pose for every frame".to_owned()
+        } else {
+            match keyframes {
+                0 => "no keyframes yet".to_owned(),
+                1 => "1 keyframe \u{2014} place a second to interpolate between".to_owned(),
+                n => format!("{n} keyframes, interpolated in between"),
+            }
+        };
+        ui.label(egui::RichText::new(summary).weak().small());
+
+        if keyframes > 0
+            && ui
+                .small_button("clear")
+                .on_hover_text(
+                    "Forget these keyframes. The poses already written stay; the \
+                     next edit starts a fresh span.",
+                )
+                .clicked()
+        {
+            re_view_spatial_fork::keyframes::forget(&b.entity);
+        }
+    });
+}
+
 /// A section heading with a tick box controlling the whole section.
 ///
 /// Returns whether the tick box changed.
@@ -1015,9 +1555,14 @@ fn set_static(
         }
     }
 
+    let arrow =
+        re_view_spatial_fork::heading::archetype(b.bbox.center, b.bbox.half_size, b.bbox.rotation);
+    let arrow_path = re_view_spatial_fork::heading::path_for(&b.entity);
+
     if make_static {
         re_view_spatial_fork::static_boxes::set_static(&b.entity, true);
         append(ctx, query, &b.entity, &pose);
+        append(ctx, query, &arrow_path, &arrow);
     } else {
         // Clear the static row first, while the registry still routes writes
         // there, then drop the flag and re-write temporally.
@@ -1042,6 +1587,37 @@ fn delete_box(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>, entity: &EntityPat
 ///
 /// Components are stored per-column, so writing just the class leaves the
 /// geometry chunks untouched and latest-at still resolves them.
+/// Resize a box, leaving its centre and orientation where they are.
+fn write_half_size(
+    ctx: &ViewerContext<'_>,
+    query: &ViewQuery<'_>,
+    entity: &EntityPath,
+    half: Vec3,
+    centre: Vec3,
+    rotation: glam::Quat,
+) {
+    let archetype = rerun::Boxes3D::update_fields().with_half_sizes([(half.x, half.y, half.z)]);
+    append(ctx, query, entity, &archetype);
+    append(
+        ctx,
+        query,
+        &re_view_spatial_fork::heading::path_for(entity),
+        &re_view_spatial_fork::heading::archetype(centre, half, rotation),
+    );
+    mark_keyframe(ctx, query, entity);
+}
+
+/// Record that a pose was authored here, unless the box is static.
+///
+/// A static box has one pose for the whole recording, so there is nothing
+/// between keyframes to fill.
+fn mark_keyframe(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>, entity: &EntityPath) {
+    let _ = ctx;
+    if !re_view_spatial_fork::static_boxes::is_static(entity) {
+        re_view_spatial_fork::keyframes::mark(entity, query.latest_at.as_i64());
+    }
+}
+
 fn write_class(
     ctx: &ViewerContext<'_>,
     query: &ViewQuery<'_>,
@@ -1125,6 +1701,8 @@ fn create_box(
     }
 
     append(ctx, query, &entity, &archetype);
+    mark_keyframe(ctx, query, &entity);
+
 
     ctx.command_sender()
         .send_system(SystemCommand::set_selection(Item::InstancePath(
@@ -1174,6 +1752,7 @@ fn append(
 
 #[cfg(test)]
 mod tests {
+    use super::{Box9Dof, Vec3, sample};
     use re_view_spatial_fork::read_only;
     use rerun::external::re_log_types::EntityPath;
 
@@ -1182,6 +1761,73 @@ mod tests {
     /// Four separate paths consult this -- the 3D drag, the slice-view drag,
     /// the grab key and the delete key -- so getting the shape of the path
     /// wrong would quietly unlock all of them, or lock the wrong tree.
+    /// Interpolation spans run between the authored instants either side.
+    ///
+    /// A box is only written where it was touched, so these neighbours decide
+    /// which gaps get filled. Getting them wrong either leaves the object
+    /// jumping between edits or overwrites a keyframe the user placed.
+    /// One keyframe means "this pose, everywhere"; two mean motion.
+    ///
+    /// The track holds the outermost keyframe's pose beyond it rather than
+    /// interpolating towards anything else. Interpolating past the ends is what
+    /// made a box drift away from an edit in both directions, which against a
+    /// turning machine looked like the box rotating with it.
+    #[test]
+    fn a_track_is_held_beyond_its_outer_keyframes() {
+        let pose = |x: f32| Box9Dof {
+            center: Vec3::new(x, 0.0, 0.0),
+            half_size: Vec3::ONE,
+            rotation: glam::Quat::IDENTITY,
+        };
+
+        let one = [(500_i64, pose(10.0))];
+        assert_eq!(sample(&one, 0).center.x, 10.0, "before the only keyframe");
+        assert_eq!(sample(&one, 500).center.x, 10.0);
+        assert_eq!(sample(&one, 9_999).center.x, 10.0, "after it");
+
+        let two = [(100_i64, pose(0.0)), (200_i64, pose(10.0))];
+        assert_eq!(sample(&two, 50).center.x, 0.0, "held before the first");
+        assert_eq!(sample(&two, 150).center.x, 5.0, "interpolated between");
+        assert_eq!(sample(&two, 250).center.x, 10.0, "held after the last");
+    }
+
+    #[test]
+    fn keyframes_report_the_instants_either_side() {
+        use re_view_spatial_fork::keyframes;
+
+        // A path of its own: the registry is process-wide.
+        let box_path: EntityPath = "world/annotations/manual/kf_test".into();
+        keyframes::forget(&box_path);
+
+        for t in [300, 100, 200] {
+            keyframes::mark(&box_path, t);
+        }
+        assert_eq!(keyframes::count(&box_path), 3);
+
+        assert_eq!(
+            keyframes::neighbours(&box_path, 200),
+            (Some(100), Some(300))
+        );
+        assert_eq!(keyframes::neighbours(&box_path, 100), (None, Some(200)));
+        assert_eq!(keyframes::neighbours(&box_path, 300), (Some(200), None));
+
+        // Marking the same instant twice is one keyframe, not two.
+        keyframes::mark(&box_path, 200);
+        assert_eq!(keyframes::count(&box_path), 3);
+
+        // Dropping the middle one closes the span over it.
+        assert!(keyframes::remove(&box_path, 200));
+        assert_eq!(keyframes::times(&box_path), vec![100, 300]);
+        assert_eq!(
+            keyframes::neighbours(&box_path, 200),
+            (Some(100), Some(300))
+        );
+        assert!(!keyframes::remove(&box_path, 200), "removed twice");
+
+        keyframes::forget(&box_path);
+        assert_eq!(keyframes::count(&box_path), 0);
+    }
+
     #[test]
     fn only_the_recordings_own_boxes_are_read_only() {
         read_only::set_section(crate::export::SOURCE_SECTION);

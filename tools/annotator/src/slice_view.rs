@@ -347,15 +347,19 @@ impl<A: AxisMarker> ViewClass for BoxSliceView<A> {
             egui::Stroke::new(1.5, accent),
         ));
 
-        // Rotation handle, on the +v side.
-        let handle = {
+        // Rotation handle, hung off the heading face where the heading shows in
+        // this view, so it reads as which way the object points.
+        let (du, dv) = crate::box_edit::rotate_handle_dir(axis);
+        let along = |reach: f32| {
             let mut local = Vec3::ZERO;
-            local[iv] = active_bbox.half_size[iv] * ROTATE_HANDLE_OFFSET;
+            local[iu] = du * active_bbox.half_size[iu] * reach;
+            local[iv] = dv * active_bbox.half_size[iv] * reach;
             let in_anchor = anchor.to_local(box_frame.to_world(local));
             proj.to_screen(in_anchor[iu], in_anchor[iv])
         };
+        let handle = along(ROTATE_HANDLE_OFFSET);
         painter.line_segment(
-            [(corners[2] + corners[3].to_vec2()) / 2.0, handle],
+            [along(1.0), handle],
             egui::Stroke::new(1.0, accent.gamma_multiply(0.6)),
         );
         painter.circle_filled(handle, 4.0, accent);
@@ -374,7 +378,7 @@ impl<A: AxisMarker> ViewClass for BoxSliceView<A> {
                 response
                     .hover_pos()
                     .map(|p| proj.to_plane(p))
-                    .and_then(|(u, v)| hit_test(u, v, hu, hv, tol))
+                    .and_then(|(u, v)| hit_test(axis, u, v, hu, hv, tol))
             })?
         });
 
@@ -392,7 +396,7 @@ impl<A: AxisMarker> ViewClass for BoxSliceView<A> {
             && let Some(pointer) = response.interact_pointer_pos()
         {
             let (u, v) = proj.to_plane(pointer);
-            if let Some(kind) = hit_test(u, v, hu, hv, tol) {
+            if let Some(kind) = hit_test(axis, u, v, hu, hv, tol) {
                 state.drag = Some(ActiveDrag {
                     entity: active.entity.clone(),
                     start_box: active_bbox,
@@ -516,6 +520,24 @@ fn write_box(ctx: &ViewerContext<'_>, query: &ViewQuery<'_>, entity: &EntityPath
         entity,
         TimePoint::from([(timeline, query.latest_at)]),
     );
+    if !re_view_spatial_fork::static_boxes::is_static(entity) {
+        re_view_spatial_fork::keyframes::mark(entity, query.latest_at.as_i64());
+    }
+
+    // The arrow is written with the pose, not brought into step afterwards.
+    let arrow = re_view_spatial_fork::heading::archetype(b.center, b.half_size, b.rotation);
+    match Chunk::builder(re_view_spatial_fork::heading::path_for(entity))
+        .with_archetype_auto_row(timepoint.clone(), &arrow)
+        .build()
+    {
+        Ok(chunk) => ctx
+            .command_sender()
+            .send_system(SystemCommand::AppendToStore(
+                ctx.store_id().clone(),
+                vec![chunk],
+            )),
+        Err(err) => re_log::error_once!("failed to build a heading chunk: {err}"),
+    }
 
     let chunk = Chunk::builder(entity.clone())
         .with_archetype_auto_row(timepoint, &archetype)

@@ -319,8 +319,14 @@ fn write(
         re_chunk::TimePoint::from([(timeline, query.at())]),
     );
 
+    // A static box has one pose for the whole recording, so there is nothing
+    // to interpolate; only a pose placed at an instant is a keyframe.
+    if !crate::static_boxes::is_static(entity) {
+        crate::keyframes::mark(entity, query.at().as_i64());
+    }
+
     match re_chunk::Chunk::builder(entity.clone())
-        .with_archetype_auto_row(timepoint, &archetype)
+        .with_archetype_auto_row(timepoint.clone(), &archetype)
         .build()
     {
         Ok(chunk) => ctx
@@ -330,5 +336,55 @@ fn write(
                 vec![chunk],
             )),
         Err(err) => re_log::error_once!("failed to build box drag chunk: {err}"),
+    }
+
+    // The arrow moves with the pose that produced it, rather than being brought
+    // back into step by something watching every frame. Whatever this drag is
+    // not changing is read back from the store, which still holds the pre-drag
+    // value -- the write above has not landed yet.
+    {
+        let db = ctx.recording();
+        let stored_center = db
+            .latest_at_component::<Position3D>(
+                entity,
+                &query,
+                Boxes3D::descriptor_centers().component,
+            )
+            .map_or(glam::Vec3::ZERO, |(_, c)| c.0.into());
+        let stored_half = db
+            .latest_at_component::<HalfSize3D>(
+                entity,
+                &query,
+                Boxes3D::descriptor_half_sizes().component,
+            )
+            .map_or(glam::Vec3::ONE, |(_, h)| h.0.into());
+        let rotation = db
+            .latest_at_component::<RotationQuat>(
+                entity,
+                &query,
+                Boxes3D::descriptor_quaternions().component,
+            )
+            .map_or(glam::Quat::IDENTITY, |(_, q)| {
+                let [x, y, z, w] = q.0.0;
+                glam::Quat::from_xyzw(x, y, z, w)
+            });
+
+        let arrow = crate::heading::archetype(
+            center.unwrap_or(stored_center),
+            half.unwrap_or(stored_half),
+            rotation,
+        );
+        match re_chunk::Chunk::builder(crate::heading::path_for(entity))
+            .with_archetype_auto_row(timepoint, &arrow)
+            .build()
+        {
+            Ok(chunk) => ctx
+                .command_sender()
+                .send_system(SystemCommand::AppendToStore(
+                    ctx.store_id().clone(),
+                    vec![chunk],
+                )),
+            Err(err) => re_log::error_once!("failed to build a heading chunk: {err}"),
+        }
     }
 }

@@ -32,9 +32,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from mcap_labels import (
-    MANUAL_TOPIC,
+    ANNOTATION_TOPIC,
     first_message_time,
     load_jsonl,
+    read_annotations,
     read_from_bag,
     sidecar_for,
     write_into_bag,
@@ -111,7 +112,7 @@ def main() -> None:
         default=None,
         help="Sidecar to read. Defaults to <bag>.labels.jsonl.",
     )
-    parser.add_argument("--topic", default="/annotations/boxes")
+    parser.add_argument("--topic", default=ANNOTATION_TOPIC)
     parser.add_argument(
         "--sidecar",
         nargs="?",
@@ -144,7 +145,7 @@ def main() -> None:
 
     if args.from_bag is not None:
         source = args.bag if args.from_bag == "-" else Path(args.from_bag)
-        records, _ = read_from_bag(source, args.topic)
+        records, _ = read_annotations(source, args.topic)
         if not records:
             print(f"{source} has no annotations on {args.topic}")
             raise SystemExit(1)
@@ -184,7 +185,7 @@ def main() -> None:
             source_bag=args.bag,
             start_time_ns=first_message_time(args.bag, exclude=args.topic),
         )
-        read_topic = MANUAL_TOPIC
+        read_topic = ANNOTATION_TOPIC
         print(f"wrote {written} message(s) -> {target}")
     else:
         copied, written = write_into_bag(

@@ -41,10 +41,10 @@ from mcap_ros2.reader import read_ros2_messages
 
 sys.path.insert(0, str(Path(__file__).parent))
 from mcap_labels import (
-    MANUAL_TOPIC,
+    ANNOTATION_TOPIC,
+    find_sidecar,
     first_message_time,
-    read_from_bag,
-    sidecar_for,
+    read_annotations,
 )
 from mcap_source import (
     CameraDecoder,
@@ -52,6 +52,7 @@ from mcap_source import (
     colorize_from_cameras,
     pointcloud_xyz_reflectivity,
     reflectivity_colors,
+    transform_box_pose,
     transform_matrix,
 )
 
@@ -93,7 +94,7 @@ CAMERA_GRID = ((1, 0, 2), (3, 4))
 #: The lidar that paces keyframes; the other two are taken as of that moment.
 KEYFRAME_LIDAR = "/livox/lidar_front_left/self_filtered"
 
-ANNOTATION_CLASSES = ("truck", "truck_cabin", "truck_bed")
+ANNOTATION_CLASSES = ("truck", "truck_cabin", "truck_bed", "person")
 
 
 def merged_ontology(
@@ -216,6 +217,76 @@ TF_PREROLL_NS = 1_000_000_000
 TF_STATIC_WINDOW_NS = 5_000_000_000
 
 
+def to_map_frame(bag: Path, records: list[dict]) -> int:
+    """Re-express records that were authored in some other frame.
+
+    An external labelling run may work in whatever frame its pipeline used --
+    ``odom``, typically -- while annotations here are stored in the map frame.
+    Those two are not interchangeable: on this fleet ``map_from_odom`` is about
+    seven metres of translation and a few degrees of yaw, and it drifts, so
+    treating one as the other puts every box in the wrong place.
+
+    The transform is looked up per record, at that record's own timestamp,
+    because the drift is what makes a single average wrong.
+
+    Args:
+        bag: Recording supplying the transforms.
+        records: Rows to convert, modified in place.
+
+    Returns:
+        How many records were converted.
+    """
+    foreign = {
+        r["frame"] for r in records if r.get("frame") and r["frame"] != MAP_FRAME
+    }
+    if not foreign:
+        return 0
+
+    stamps = [int(r["t"]) for r in records if r.get("t") is not None]
+    if not stamps:
+        return 0
+    print(f"converting annotations from {sorted(foreign)} into {MAP_FRAME}…")
+
+    # Windowed on the labels' own span, so this costs the labelled stretch
+    # rather than the whole recording.
+    tree = TransformTree()
+    for msg in read_ros2_messages(
+        str(bag),
+        topics=["/tf", "/tf_static"],
+        start_time=min(stamps) - TF_PREROLL_NS,
+        end_time=max(stamps) + TF_PREROLL_NS,
+    ):
+        for tr in msg.ros_msg.transforms:
+            tree.add(
+                tr.header.frame_id,
+                tr.child_frame_id,
+                stamp_ns(tr.header),
+                transform_matrix(tr.transform.translation, tr.transform.rotation),
+            )
+
+    converted, missing = 0, 0
+    for record in records:
+        frame = record.get("frame")
+        if not frame or frame == MAP_FRAME or record.get("t") is None:
+            continue
+        map_from_frame = tree.lookup(MAP_FRAME, frame, int(record["t"]))
+        if map_from_frame is None:
+            missing += 1
+            continue
+        record["center"], record["quat"] = transform_box_pose(
+            map_from_frame, record["center"], record["quat"]
+        )
+        record["frame"] = MAP_FRAME
+        converted += 1
+
+    if missing:
+        print(
+            f"warning: {missing} box(es) had no transform to {MAP_FRAME} at their "
+            "timestamp and were left where they were"
+        )
+    return converted
+
+
 def load_static_transforms(bag: Path, tree: TransformTree, start_ns: int) -> int:
     """Fill ``tree`` with the bag's latched transforms.
 
@@ -290,7 +361,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--manual-topic",
-        default=MANUAL_TOPIC,
+        default=ANNOTATION_TOPIC,
         help="Topic the sidecar publishes its SceneUpdates on.",
     )
     parser.add_argument(
@@ -300,7 +371,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--annotation-topic",
-        default="/annotations/boxes",
+        default=ANNOTATION_TOPIC,
         help=(
             "SceneUpdate topic in the recording itself, read as reference "
             "boxes. Never written to."
@@ -350,17 +421,54 @@ def main() -> None:
         # material -- a model's predictions, or an earlier pass -- and the
         # sidecar holds what this tool has produced. Neither is written into the
         # recording.
-        source_records, source_classes = read_from_bag(args.bag, args.annotation_topic)
+        source_records, source_classes = read_annotations(
+            args.bag, args.annotation_topic
+        )
         loaded_classes.update(source_classes)
 
-        sidecar = args.labels or sidecar_for(args.bag)
-        if sidecar.exists():
-            manual_records, manual_classes = read_from_bag(sidecar, args.manual_topic)
+        sidecar = args.labels or find_sidecar(args.bag)
+        if sidecar is not None and sidecar.exists():
+            manual_records, manual_classes = read_annotations(
+                sidecar, args.manual_topic
+            )
             loaded_classes.update(manual_classes)
+
+    # Their frame first: everything downstream assumes map, and the class
+    # backfill below does not care which frame the box is in.
+    for group in (source_records, manual_records):
+        moved = to_map_frame(args.bag, group)
+        if moved:
+            print(f"  converted {moved} box(es)")
+
+    # An external labeller names its classes without numbering them. Any name
+    # this session does not already know gets an id past the defaults, so it
+    # survives into the ontology rather than being dropped.
+    unnumbered = {
+        record["class"]
+        for record in (*source_records, *manual_records)
+        if record.get("class") and record.get("class_id") is None
+    }
+    free = max([*loaded_classes.values(), len(ANNOTATION_CLASSES) - 1]) + 1
+    for name in sorted(unnumbered - set(ANNOTATION_CLASSES) - loaded_classes.keys()):
+        loaded_classes[name] = free
+        free += 1
 
     # One ontology for both sections, logged on the shared parent so each
     # inherits it. Logging it per section would have them shadow one another.
     classes, remap = merged_ontology(ANNOTATION_CLASSES, loaded_classes)
+
+    # Boxes that arrived with a class name but no id get this session's id for
+    # that name, so an external labeller's work is classified rather than
+    # showing up as "(unclassified)".
+    named = 0
+    for record in (*source_records, *manual_records):
+        name = record.get("class")
+        if name and record.get("class_id") is None and name in classes:
+            record["class_id"] = classes[name]
+            named += 1
+    if named:
+        print(f"resolved the class of {named} box(es) by name")
+
     renumbered = 0
     for record in (*source_records, *manual_records):
         if record.get("class_id") in remap:

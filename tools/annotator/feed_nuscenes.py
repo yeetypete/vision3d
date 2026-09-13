@@ -67,7 +67,12 @@ class TruckBagDataset(NuScenes3D):
     # Row-major, indices into `camera_names`: side-front-side, then the rears.
     camera_grid: ClassVar[tuple[tuple[int, ...], ...] | None] = ((1, 0, 2), (3, 4))
 
-    classes: ClassVar[tuple[str, ...]] = ("truck", "truck_cabin", "truck_bed")
+    classes: ClassVar[tuple[str, ...]] = (
+        "truck",
+        "truck_cabin",
+        "truck_bed",
+        "person",
+    )
     category_map: ClassVar[dict[str, str]] = {}
 
 

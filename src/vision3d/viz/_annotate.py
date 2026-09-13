@@ -377,15 +377,64 @@ def log_labels(
             labels=None if record.get("class") is None else [record["class"]],
             fill_mode=fill_mode,
         )
+        arrow = heading_arrow(record["center"], record["half_size"], record["quat"])
         if record.get("static") or record.get("t") is None:
             rr.log(path, box, static=True)
+            rr.log(f"{path}/{HEADING_SECTION}", arrow, static=True)
         else:
             # Absolute, matching the feed: a duration index here would place
             # reloaded boxes 56 years before the point clouds.
             rr.set_time("time", timestamp=np.datetime64(int(record["t"]), "ns"))
             rr.log(path, box)
+            rr.log(f"{path}/{HEADING_SECTION}", arrow)
 
     return len(records)
+
+
+#: Entity segment carrying a box's heading arrow, beneath the box itself.
+HEADING_SECTION = "heading"
+
+
+def heading_arrow(
+    center: Sequence[float],
+    half_size: Sequence[float],
+    quat: Sequence[float],
+) -> rr.Arrows3D:
+    """Build the arrow showing which way a box faces.
+
+    Sized from the box's own front face, matching
+    :func:`vision3d.viz.log_boxes_3d`, so a hand-annotated box and a logged
+    dataset look the same.
+
+    Args:
+        center: Box centre, xyz.
+        half_size: Half extents, xyz. The heading runs along the local x axis.
+        quat: Orientation as xyzw.
+
+    Returns:
+        A single-instance ``rr.Arrows3D``.
+    """
+    rotation = np.asarray(quat, dtype=np.float64)
+    x, y, z, w = rotation
+    # The box's local +x in world coordinates, i.e. the heading.
+    forward = np.array(
+        [
+            1 - 2 * (y * y + z * z),
+            2 * (x * y + z * w),
+            2 * (x * z - y * w),
+        ]
+    )
+
+    half = np.asarray(half_size, dtype=np.float64)
+    face_scale = float(np.sqrt((2 * half[1]) * (2 * half[2])))
+    origin = np.asarray(center, dtype=np.float64) + forward * half[0]
+
+    return rr.Arrows3D(
+        origins=[origin],
+        vectors=[forward * face_scale * 0.6],
+        radii=[face_scale * 0.06],
+        colors=[(255, 255, 255)],
+    )
 
 
 def reserve_box_slots(
@@ -420,6 +469,13 @@ def reserve_box_slots(
     for i in range(count):
         path = f"{entity_prefix}/{slot_prefix}_{i}"
         rr.log(path, rr.Boxes3D(centers=[(0.0, 0.0, 0.0)], sizes=[(0.01, 0.01, 0.01)]))
+        # The heading arrow is its own entity, so it needs its own slot: an
+        # entity path first seen after the viewer is running never becomes
+        # visualizable, and the arrow would silently never appear.
+        rr.log(
+            f"{path}/{HEADING_SECTION}",
+            rr.Arrows3D(origins=[(0.0, 0.0, 0.0)], vectors=[(0.01, 0.0, 0.0)]),
+        )
         rr.log(path, rr.Clear(recursive=True))
 
 

@@ -264,10 +264,15 @@ def _cdr_encoder(datatype: str, msgdef: str):
     return types[datatype]
 
 
-#: Topic the sidecar publishes on. Deliberately not the topic a recording uses
-#: for its own annotations, so a bag and its sidecar can be open together
-#: without one shadowing the other.
-MANUAL_TOPIC = "/annotations/manual"
+#: Topic ground-truth boxes live on, in a recording and in a sidecar alike.
+#: One name for both, so a sidecar drops into the same place in a Foxglove
+#: layout as annotations that came with the recording. The cost is that a bag
+#: and its sidecar cannot be opened together without one shadowing the other.
+ANNOTATION_TOPIC = "/platform/perception/visualization/detections_3d_ground_truth"
+
+#: Topics earlier versions of this tool wrote, read as a fallback so existing
+#: sidecars and bags keep working. Re-saving moves them onto the current topic.
+LEGACY_TOPICS = ("/annotations/manual", "/annotations/boxes")
 
 
 def sidecar_for(bag: Path) -> Path:
@@ -286,15 +291,46 @@ def sidecar_for(bag: Path) -> Path:
     return bag.with_name(f"{bag.stem}.labels.mcap")
 
 
+#: Sidecar names accepted when loading, in order of preference. The first is
+#: what this tool writes; the others are what an external labelling run
+#: produces, so its output can be opened without renaming anything.
+SIDECAR_PATTERNS = (
+    "{stem}.labels.mcap",
+    "{stem}_labeled_fixed.mcap",
+    "{stem}_labeled.mcap",
+)
+
+
+def find_sidecar(bag: Path) -> Path | None:
+    """The labels belonging to a recording, whoever wrote them.
+
+    This tool's own sidecar wins, so once a recording has been annotated here
+    those edits are what load -- an externally labelled file is the starting
+    point, not the last word.
+
+    Args:
+        bag: The recording being opened.
+
+    Returns:
+        The first sidecar that exists, or None.
+    """
+    for pattern in SIDECAR_PATTERNS:
+        candidate = bag.with_name(pattern.format(stem=bag.stem))
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def write_sidecar(
     path: Path,
     records: list[dict],
     *,
-    topic: str = MANUAL_TOPIC,
+    topic: str = ANNOTATION_TOPIC,
     frame: str = "map",
     keyframe_interval_ns: int = 500_000_000,
     source_bag: Path | None = None,
     start_time_ns: int | None = None,
+    status: str = "annotated",
 ) -> int:
     """Write annotations to a standalone MCAP beside the recording.
 
@@ -314,6 +350,9 @@ def write_sidecar(
         frame: Frame the poses are in.
         keyframe_interval_ns: Lifetime of a per-frame entity.
         source_bag: Recording these labels belong to, recorded as metadata.
+        status: Where this sits in the review cycle, recorded as metadata.
+            Foxglove indexes MCAP metadata, so a review queue is a server-side
+            query rather than a scan of downloaded files.
         start_time_ns: The recording's start, used to stamp static boxes. A
             static box has no time of its own, and a timestamp of zero puts it
             in 1970 where no transform to ``frame`` exists.
@@ -350,6 +389,7 @@ def write_sidecar(
                 "schema": "vision3d.annotations/1",
                 "frame": frame,
                 "source_bag": source_bag.name if source_bag else "",
+                "status": status,
                 "tracks": str(len({r["track"] for r in records})),
             },
         )
@@ -372,7 +412,7 @@ def write_into_bag(
     bag: Path,
     records: list[dict],
     *,
-    topic: str = "/annotations/boxes",
+    topic: str = ANNOTATION_TOPIC,
     frame: str = "map",
     keyframe_interval_ns: int = 500_000_000,
     output: Path | None = None,
@@ -562,8 +602,119 @@ def load_jsonl(path: Path) -> tuple[list[dict], dict]:
     return [json.loads(line) for line in lines[1:] if line.strip()], header
 
 
+def read_annotations(
+    path: Path, topic: str = ANNOTATION_TOPIC
+) -> tuple[list[dict], dict[str, int]]:
+    """Read annotations, falling back to the topics older versions wrote.
+
+    The topic name changed once already. Falling back means a sidecar written
+    before that change still loads instead of silently appearing empty, and
+    says so rather than papering over it -- re-saving moves it across.
+
+    Args:
+        path: Recording or sidecar to read.
+        topic: Topic to try first.
+
+    Returns:
+        ``(records, class name to id)``, empty if none of the topics carry
+        annotations.
+    """
+    for candidate in (topic, *LEGACY_TOPICS):
+        records, classes = read_from_bag(path, candidate)
+        if records:
+            if candidate != topic:
+                print(
+                    f"note: {path.name} carries its annotations on {candidate}, "
+                    f"not {topic}; saving will move them"
+                )
+            return records, classes
+    return [], {}
+
+
+class FoxgloveSchemaError(RuntimeError):
+    """A SceneUpdate schema could not be parsed."""
+
+
+#: The ROS 1 spellings of the two time primitives, which Foxglove's own
+#: published `.msg` files use and `mcap_ros2`'s parser does not implement.
+_ROS1_TIME_DEFS = """
+================================================================================
+MSG: builtin_interfaces/Time
+int32 sec
+uint32 nanosec
+================================================================================
+MSG: builtin_interfaces/Duration
+int32 sec
+uint32 nanosec
+"""
+
+
+def _ros2_schema(text: str) -> str:
+    """Name the time types the way `mcap_ros2` expects.
+
+    A `SceneUpdate` schema written with the ROS 1 spellings -- `time timestamp`,
+    `duration lifetime` -- is still a ROS 2 message: the encoding is CDR and the
+    layout is identical, since both spellings are a 4-byte seconds field
+    followed by a 4-byte nanoseconds field. Only the parser objects, so the
+    names are substituted and the definitions it then needs appended.
+
+    Args:
+        text: The schema as the file stores it.
+
+    Returns:
+        The schema with ROS 2 type names, unchanged if it already used them.
+    """
+    if "builtin_interfaces/Time" in text and "time timestamp" not in text:
+        return text
+    return (
+        text.replace("time timestamp", "builtin_interfaces/Time timestamp").replace(
+            "duration lifetime", "builtin_interfaces/Duration lifetime"
+        )
+        + _ROS1_TIME_DEFS
+    )
+
+
+def _scene_updates_in(bag: Path, topic: str):
+    """Yield ``(log_time_ns, SceneUpdate)`` for one topic.
+
+    Decoded against the file's own schema rather than through
+    ``read_ros2_messages``, so a schema using the ROS 1 time spellings can be
+    repaired on the way in instead of raising.
+
+    Args:
+        bag: Recording or sidecar to read.
+        topic: Topic carrying ``foxglove_msgs/SceneUpdate``.
+
+    Yields:
+        The log time and the decoded message.
+
+    Raises:
+        FoxgloveSchemaError: If a decoder cannot be built for the schema.
+    """
+    from mcap_ros2._dynamic import generate_dynamic
+
+    decoders: dict[int, object] = {}
+    with bag.open("rb") as handle:
+        reader = make_reader(handle)
+        for schema, channel, message in reader.iter_messages(topics=[topic]):
+            if schema is None:
+                continue
+            decode = decoders.get(schema.id)
+            if decode is None:
+                built = generate_dynamic(
+                    schema.name, _ros2_schema(schema.data.decode())
+                )
+                decode = built.get(schema.name)
+                if decode is None:
+                    msg = f"could not build a decoder for {schema.name}"
+                    raise FoxgloveSchemaError(msg)
+                decoders[schema.id] = decode
+            _ = channel
+            yield message.log_time, decode(message.data)
+
+
 def read_from_bag(
-    bag: Path, topic: str = "/annotations/boxes"
+    bag: Path, topic: str = ANNOTATION_TOPIC
 ) -> tuple[list[dict], dict[str, int]]:
     """Read annotations back out of a bag's SceneUpdate topic.
 
@@ -580,14 +731,12 @@ def read_from_bag(
         ``(records, class name to id)`` in the same shape the annotator's
         exporter produces, so both paths feed one loader.
     """
-    from mcap_ros2.reader import read_ros2_messages
-
     records: list[dict] = []
     classes: dict[str, int] = {}
     extra_cubes = 0
 
-    for message in read_ros2_messages(str(bag), topics=[topic]):
-        for entity in message.ros_msg.entities:
+    for log_time, update in _scene_updates_in(bag, topic):
+        for entity in update.entities:
             if not entity.cubes:
                 continue
             if len(entity.cubes) > 1:
@@ -607,11 +756,15 @@ def read_from_bag(
 
             stamp = entity.timestamp.sec * 10**9 + entity.timestamp.nanosec
             if stamp == 0:
-                stamp = message.log_time_ns
+                stamp = log_time
 
             records.append(
                 {
                     "track": entity.id,
+                    # Kept so a caller can convert: an external labeller may
+                    # work in a frame other than the one annotations are stored
+                    # in, and the two drift apart.
+                    "frame": entity.frame_id or None,
                     "t": None if is_static else stamp,
                     "static": is_static,
                     "class_id": class_id,

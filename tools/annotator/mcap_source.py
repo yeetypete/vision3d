@@ -44,6 +44,89 @@ def transform_matrix(translation, rotation) -> np.ndarray:
     return out
 
 
+def quaternion_from_matrix(rotation: np.ndarray) -> tuple[float, float, float, float]:
+    """Convert a rotation matrix to a quaternion.
+
+    Uses the largest-diagonal branch rather than a single formula, which keeps
+    the result stable near the 180-degree rotations where the naive version
+    divides by something close to zero.
+
+    Args:
+        rotation: A ``[3, 3]`` rotation matrix.
+
+    Returns:
+        The quaternion as ``(x, y, z, w)``.
+    """
+    m = np.asarray(rotation, dtype=np.float64)
+    trace = m[0, 0] + m[1, 1] + m[2, 2]
+
+    if trace > 0.0:
+        s = np.sqrt(trace + 1.0) * 2.0
+        q = (
+            (m[2, 1] - m[1, 2]) / s,
+            (m[0, 2] - m[2, 0]) / s,
+            (m[1, 0] - m[0, 1]) / s,
+            0.25 * s,
+        )
+    else:
+        i = int(np.argmax([m[0, 0], m[1, 1], m[2, 2]]))
+        j, k = (i + 1) % 3, (i + 2) % 3
+        s = np.sqrt(1.0 + m[i, i] - m[j, j] - m[k, k]) * 2.0
+        parts = [0.0, 0.0, 0.0]
+        parts[i] = 0.25 * s
+        parts[j] = (m[j, i] + m[i, j]) / s
+        parts[k] = (m[k, i] + m[i, k]) / s
+        q = (*parts, (m[k, j] - m[j, k]) / s)
+
+    norm = float(np.linalg.norm(q))
+    return tuple(float(v / norm) for v in q)  # type: ignore[return-value]
+
+
+def matrix_from_quaternion(quat: object) -> np.ndarray:
+    """Convert a quaternion to a rotation matrix.
+
+    Args:
+        quat: The quaternion as ``(x, y, z, w)``.
+
+    Returns:
+        A ``[3, 3]`` rotation matrix.
+    """
+    x, y, z, w = (float(v) for v in quat)  # type: ignore[misc]
+    return np.array(
+        [
+            [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+            [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+            [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+        ]
+    )
+
+
+def transform_box_pose(
+    target_from_source: np.ndarray, center: object, quat: object
+) -> tuple[list[float], list[float]]:
+    """Move a box pose into another frame.
+
+    Composed through rotation matrices rather than by adding yaws, so roll and
+    pitch survive -- a box is a full 9-DoF pose and a labeller working in a
+    drifting frame can carry all three angles.
+
+    Args:
+        target_from_source: A ``[4, 4]`` rigid transform.
+        center: The box centre as ``(x, y, z)`` in the source frame.
+        quat: The box orientation as ``(x, y, z, w)`` in the source frame.
+
+    Returns:
+        ``(center, quat)`` in the target frame. Extents are unaffected: the
+        transform is rigid.
+    """
+    t = np.asarray(target_from_source, dtype=np.float64)
+    moved_center = t[:3, :3] @ np.asarray(center, dtype=np.float64) + t[:3, 3]
+    moved_rotation = t[:3, :3] @ matrix_from_quaternion(quat)
+    return [float(v) for v in moved_center], list(
+        quaternion_from_matrix(moved_rotation)
+    )
+
+
 @dataclass
 class TransformTree:
     """A time-indexed TF graph supporting lookups between any two frames.

@@ -2,9 +2,11 @@
 //!
 //! Views that show entities in a 2D or 3D spatial relationship.
 
-mod box_drag;
+pub mod box_drag;
 pub mod brush;
 pub mod frames;
+pub mod heading;
+pub mod keyframes;
 pub mod read_only;
 pub mod static_boxes;
 mod caches;
