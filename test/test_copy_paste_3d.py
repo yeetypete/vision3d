@@ -1,7 +1,8 @@
 """Tests for CopyPaste3D transform."""
 
+import functools
 import math
-from typing import Any
+from typing import Any, Protocol
 
 import pytest
 import torch
@@ -57,13 +58,20 @@ def _sample_std_stderr(std: float, n: int) -> float:
     return std / math.sqrt(2 * n)
 
 
+_Batch = tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]
+
+
+class _MakeBatch(Protocol):
+    def __call__(self, *, batch_size: int = ..., num_boxes: int = ...) -> _Batch: ...
+
+
 def _make_lidar_batch(
     batch_size: int = 2,
     num_points_per_box: int = 20,
     num_boxes: int = 3,
     labels: list[int] | None = None,
     format: BoundingBox3DFormat = BoundingBox3DFormat.XYZLWHY,
-) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+) -> _Batch:
     if labels is None:
         labels = [CAR] * num_boxes
     assert len(labels) == num_boxes
@@ -104,7 +112,7 @@ def _make_fusion_batch(
     img_w: int = 640,
     labels: list[int] | None = None,
     image_fill: float = 0.5,
-) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+) -> _Batch:
     if labels is None:
         labels = [CAR] * num_boxes
     assert len(labels) == num_boxes
@@ -170,7 +178,7 @@ def _make_camera_batch(
     img_w: int = 640,
     labels: list[int] | None = None,
     image_fill: float = 0.5,
-) -> tuple[tuple[dict[str, Any], ...], tuple[dict[str, Any], ...]]:
+) -> _Batch:
     """Camera-only batch — images, extrinsics, intrinsics, boxes, labels. No point cloud.
 
     Returns:
@@ -223,13 +231,11 @@ def _make_camera_batch(
 
 
 def _populate_and_paste(
-    cp: CopyPaste3D,
-    make_fn: Any,
-    **paste_kwargs: Any,
+    cp: CopyPaste3D, make_fn: _MakeBatch
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     batch1 = make_fn(batch_size=2, num_boxes=5)
     cp(*batch1)
-    batch2 = make_fn(batch_size=1, num_boxes=1, **paste_kwargs)
+    batch2 = make_fn(batch_size=1, num_boxes=1)
     out_inputs, out_targets = cp(*batch2)
     return out_inputs[0], out_targets[0]
 
@@ -365,7 +371,7 @@ class TestPasteCorrectness:
     def test_preserves_point_cloud_type(self, fmt: BoundingBox3DFormat) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         inp, _ = _populate_and_paste(
-            cp, lambda **kw: _make_lidar_batch(format=fmt, **kw)
+            cp, functools.partial(_make_lidar_batch, format=fmt)
         )
         assert isinstance(inp["points"], PointCloud3D)
 
@@ -373,7 +379,7 @@ class TestPasteCorrectness:
     def test_preserves_bounding_boxes_type(self, fmt: BoundingBox3DFormat) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
         _, tgt = _populate_and_paste(
-            cp, lambda **kw: _make_lidar_batch(format=fmt, **kw)
+            cp, functools.partial(_make_lidar_batch, format=fmt)
         )
         assert isinstance(tgt["boxes"], BoundingBoxes3D)
         assert tgt["boxes"].format == fmt

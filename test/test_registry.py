@@ -6,6 +6,10 @@ from vision3d.transforms.functional import register_kernel
 from vision3d.transforms.functional._registry import _get_kernel
 
 
+def _identity_kernel(inpt: torch.Tensor) -> torch.Tensor:
+    return inpt
+
+
 class TestRegisterKernel:
     def test_register_and_dispatch(self) -> None:
         class MyTensor(TVTensor):
@@ -34,10 +38,10 @@ class TestRegisterKernel:
         def my_functional(inpt: torch.Tensor) -> torch.Tensor:
             return inpt
 
-        register_kernel(my_functional, MyTensor)(lambda x: x)
+        register_kernel(my_functional, MyTensor)(_identity_kernel)
 
         with pytest.raises(ValueError, match="already has a kernel"):
-            register_kernel(my_functional, MyTensor)(lambda x: x)
+            register_kernel(my_functional, MyTensor)(_identity_kernel)
 
     def test_tv_tensor_wrapper_auto_wraps(self) -> None:
         """With tv_tensor_wrapper=True, kernel gets pure tensor, output is re-wrapped."""
@@ -95,7 +99,7 @@ class TestGetKernel:
         def my_functional(inpt: torch.Tensor) -> torch.Tensor:
             return inpt
 
-        register_kernel(my_functional, KnownTensor)(lambda x: x)
+        register_kernel(my_functional, KnownTensor)(_identity_kernel)
 
         t = torch.rand(3, 3)
         kernel = _get_kernel(my_functional, type(t), allow_passthrough=True)
@@ -112,7 +116,7 @@ class TestGetKernel:
         def my_functional(inpt: torch.Tensor) -> torch.Tensor:
             return inpt
 
-        register_kernel(my_functional, KnownTensor)(lambda x: x)
+        register_kernel(my_functional, KnownTensor)(_identity_kernel)
 
         t = UnknownTensor(torch.rand(3, 3))
         kernel = _get_kernel(my_functional, type(t), allow_passthrough=True)
@@ -138,7 +142,7 @@ class TestGetKernel:
         def my_functional(inpt: torch.Tensor) -> torch.Tensor:
             return inpt
 
-        register_kernel(my_functional, KnownTensor)(lambda x: x)
+        register_kernel(my_functional, KnownTensor)(_identity_kernel)
 
         with pytest.raises(TypeError, match="UnknownTensor"):
             _get_kernel(my_functional, UnknownTensor)

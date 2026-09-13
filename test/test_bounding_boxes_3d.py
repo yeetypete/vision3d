@@ -84,6 +84,26 @@ class TestConstruction:
         assert "XYZLWHYPR" in repr(bbox)
 
 
+NON_TENSOR_OUTPUT_OPS: list[Callable[[BoundingBoxes3D], object]] = [
+    lambda b: b.cpu().numpy(),
+    lambda b: b.tolist(),
+    lambda b: b.max(dim=-1),
+]
+
+TENSOR_OUTPUT_OPS: list[Callable[[BoundingBoxes3D], torch.Tensor]] = [
+    lambda b: b + torch.rand(*b.shape),
+    lambda b: torch.rand(*b.shape) + b,
+    lambda b: b * torch.rand(*b.shape),
+    lambda b: b + 3,
+    lambda b: b + b,
+    lambda b: b.sum(),
+    lambda b: b.reshape(-1),
+    lambda b: b.int(),
+    lambda b: torch.stack([b, b]),
+    lambda b: torch.chunk(b, 2)[0],
+]
+
+
 class TestTorchFunction:
     @pytest.mark.parametrize("return_type", ["Tensor", "TVTensor"])
     def test_to_tv_tensor_reference(self, return_type: str) -> None:
@@ -136,13 +156,15 @@ class TestTorchFunction:
         bbox = make_bounding_boxes_3d(format=BoundingBox3DFormat.XYZLWHYPR)
         original_format = bbox.format
 
+        ops: list[Callable[[BoundingBoxes3D], torch.Tensor]] = [
+            lambda b: b.clone(),
+            lambda b: b.to(torch.float64),
+            lambda b: b.detach(),
+        ]
         with tv_tensors.set_return_type(return_type):
-            for op in [
-                lambda b: b.clone(),
-                lambda b: b.to(torch.float64),
-                lambda b: b.detach(),
-            ]:
+            for op in ops:
                 result = op(bbox)
+                assert isinstance(result, BoundingBoxes3D)
                 assert result.format == original_format
 
     @pytest.mark.parametrize("return_type", ["Tensor", "TVTensor"])
@@ -163,15 +185,8 @@ class TestTorchFunction:
         assert type(output) is expected_type
         assert type(bbox) is original_type
 
-    @pytest.mark.parametrize(
-        "op",
-        [
-            lambda b: b.cpu().numpy(),
-            lambda b: b.tolist(),
-            lambda b: b.max(dim=-1),
-        ],
-    )
-    def test_no_tensor_output_op_no_wrapping(
+    @pytest.mark.parametrize("op", NON_TENSOR_OUTPUT_OPS)
+    def test_non_tensor_output_op_no_wrapping(
         self, op: Callable[[BoundingBoxes3D], object]
     ) -> None:
         bbox = make_bounding_boxes_3d()
@@ -179,23 +194,9 @@ class TestTorchFunction:
         assert type(output) is not BoundingBoxes3D
 
     @pytest.mark.parametrize("return_type", ["Tensor", "TVTensor"])
-    @pytest.mark.parametrize(
-        "op",
-        [
-            lambda b: b + torch.rand(*b.shape),
-            lambda b: torch.rand(*b.shape) + b,
-            lambda b: b * torch.rand(*b.shape),
-            lambda b: b + 3,
-            lambda b: b + b,
-            lambda b: b.sum(),
-            lambda b: b.reshape(-1),
-            lambda b: b.int(),
-            lambda b: torch.stack([b, b]),
-            lambda b: torch.chunk(b, 2)[0],
-        ],
-    )
-    def test_usual_operations(
-        self, return_type: str, op: Callable[[BoundingBoxes3D], object]
+    @pytest.mark.parametrize("op", TENSOR_OUTPUT_OPS)
+    def test_tensor_output_op_follows_return_type(
+        self, return_type: str, op: Callable[[BoundingBoxes3D], torch.Tensor]
     ) -> None:
         bbox = make_bounding_boxes_3d(num_boxes=2)
         with tv_tensors.set_return_type(return_type):
