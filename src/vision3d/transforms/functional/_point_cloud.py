@@ -7,6 +7,43 @@ from vision3d.tensors import PointCloud3D
 from ._registry import register_kernel
 
 
+def filter_close_points(inpt: Tensor, *, radius: float) -> Tensor:
+    """Dispatcher entry point for close-point filtering.
+
+    So this does not do anything but makes sure the programm does not crash when
+    the input is not a point cloud.
+
+    Returns:
+        Input unchanged (passthrough for non-point types).
+    """
+    return inpt
+
+
+def filter_close_points_point_cloud(points: Tensor, *, radius: float) -> Tensor:
+    """Remove points inside a square region around the sensor origin.
+
+    A point is removed when both ``abs(x) < radius`` and
+    ``abs(y) < radius``. Its z coordinate and feature columns do not affect
+    filtering. This is like the close-point removal used by the nuScenes
+    devkit.
+
+    Args:
+        points: Point cloud ``[N, 3+C]``.
+        radius: Half-width of the excluded square in the xy plane.
+
+    Returns:
+        Filtered point cloud ``[M, 3+C]`` with the original row order and
+        feature columns preserved. Missing filtered points are removed.
+    """
+    close = (points[:, :2].abs() < radius).all(dim=1)
+    return points[~close]
+
+
+@register_kernel(filter_close_points, PointCloud3D)
+def _filter_close_points_kernel(points: Tensor, *, radius: float) -> Tensor:
+    return filter_close_points_point_cloud(points, radius=radius)
+
+
 def shuffle_points(inpt: Tensor, *, perm: Tensor) -> Tensor:
     """Dispatcher entry point for point shuffling.
 
