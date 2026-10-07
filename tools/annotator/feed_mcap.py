@@ -37,6 +37,7 @@ from pathlib import Path
 
 import numpy as np
 import rerun as rr
+from mcap.reader import make_reader
 from mcap_ros2.reader import read_ros2_messages
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -89,7 +90,13 @@ LIDAR_TOPICS = {
     "/livox/lidar_rear_right/self_filtered": "livox_rear_right",
 }
 #: Order fixes the camera indices, and so the grid layout below.
-CAMERAS = ("Main", "MastLeftSide", "MastRightSide", "MastLeftRear", "MastRightRear")
+CAMERAS = (
+    "main",
+    "mast_left_side",
+    "mast_right_side",
+    "mast_left_rear",
+    "mast_right_rear",
+)
 CAMERA_GRID = ((1, 0, 2), (3, 4))
 #: The lidar that paces keyframes; the other two are taken as of that moment.
 KEYFRAME_LIDAR = "/livox/lidar_front_left/self_filtered"
@@ -215,6 +222,42 @@ TF_PREROLL_NS = 1_000_000_000
 #: ``/tf_static`` is latched -- published once, near the start -- so a windowed
 #: read has to fetch it separately or the transform graph has no fixed edges.
 TF_STATIC_WINDOW_NS = 5_000_000_000
+
+
+def camera_topics(bag: Path, cameras: tuple[str, ...]) -> list[str]:
+    """Match each camera to the name this recording actually uses.
+
+    The fleet renamed its cameras from ``MastLeftSide`` to ``mast_left_side``,
+    and both spellings are still in the archive. Resolving against the
+    recording's own topics means either loads, rather than the newer naming
+    quietly costing five camera views on older bags.
+
+    Args:
+        bag: Recording to read the topic list from.
+        cameras: Canonical camera names, in the order the grid layout expects.
+
+    Returns:
+        One name per camera, in the same order. A camera the recording does not
+        carry keeps its canonical name, so its topics simply never match.
+    """
+    with bag.open("rb") as handle:
+        topics = {c.topic for c in make_reader(handle).get_summary().channels.values()}
+
+    resolved, renamed = [], 0
+    for name in cameras:
+        # `mast_left_side` was `MastLeftSide`.
+        camel = "".join(part.capitalize() for part in name.split("_"))
+        for candidate in (name, camel):
+            if f"/hal/perception/{candidate}/compressed_video" in topics:
+                resolved.append(candidate)
+                renamed += candidate != name
+                break
+        else:
+            resolved.append(name)
+
+    if renamed:
+        print(f"{renamed} camera(s) use this recording's older naming")
+    return resolved
 
 
 def to_map_frame(bag: Path, records: list[dict]) -> int:
@@ -399,9 +442,11 @@ def main() -> None:
     else:
         rr.connect_grpc()
 
+    cameras = camera_topics(args.bag, CAMERAS)
+
     rr.send_blueprint(
         annotator_layout(
-            CAMERAS,
+            cameras,
             CAMERA_GRID,
             entity_prefix=CAMERA_PREFIX,
             box_entity=BOX_ENTITY,
@@ -505,10 +550,10 @@ def main() -> None:
 
     tree = TransformTree()
     video_topics = {
-        f"/hal/perception/{name}/compressed_video": i for i, name in enumerate(CAMERAS)
+        f"/hal/perception/{name}/compressed_video": i for i, name in enumerate(cameras)
     }
     info_topics = {
-        f"/hal/perception/{name}/camera_info": i for i, name in enumerate(CAMERAS)
+        f"/hal/perception/{name}/camera_info": i for i, name in enumerate(cameras)
     }
     topics = ["/tf", "/tf_static", *LIDAR_TOPICS, *info_topics, *video_topics]
 
@@ -523,7 +568,7 @@ def main() -> None:
     # One decoder thread per camera. Inline decoding put ~130 fps of HEVC in
     # series with the bag reader and dominated the runtime.
     decoders = (
-        {index: CameraDecoder() for index in range(len(CAMERAS))}
+        {index: CameraDecoder() for index in range(len(cameras))}
         if args.color == "camera"
         else {}
     )
@@ -710,7 +755,7 @@ def main() -> None:
     dropped = sum(decoder.close()[0] for decoder in decoders.values())
     print(
         f"\n{keyframes} keyframes, {video_samples} video samples, "
-        f"{len(placed)}/{len(CAMERAS)} cameras placed"
+        f"{len(placed)}/{len(cameras)} cameras placed"
     )
     if dropped:
         print(
