@@ -97,6 +97,8 @@ docstring-code-format = true
 # CUDA variant) and only falls through to PyPI for build dependencies that
 # no version on the PyTorch mirror can satisfy.
 index-strategy = "unsafe-first-match"
+# torch.compile requires Python development headers.
+python-preference = "only-managed"
 # Fix `nuscenes-devkit`'s stale pins: `Shapely~=2.0.3` has no Python 3.14
 # wheels, and `numpy<2.0.0` conflicts with our `numpy>=2`.
 override-dependencies = [
