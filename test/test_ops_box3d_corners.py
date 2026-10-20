@@ -33,12 +33,12 @@ class TestAxisAligned:
     def test_xyzlwh_offset_center(self) -> None:
         boxes = torch.tensor([[5.0, 3.0, 1.0, 2.0, 4.0, 6.0]])
         corners = box3d_corners(boxes, BoundingBox3DFormat.XYZLWH)
-        assert corners[0, :, 0].min().item() == 4.0
-        assert corners[0, :, 0].max().item() == 6.0
-        assert corners[0, :, 1].min().item() == 1.0
-        assert corners[0, :, 1].max().item() == 5.0
-        assert corners[0, :, 2].min().item() == -2.0
-        assert corners[0, :, 2].max().item() == 4.0
+        torch.testing.assert_close(
+            corners[0].amin(dim=0), torch.tensor([4.0, 1.0, -2.0])
+        )
+        torch.testing.assert_close(
+            corners[0].amax(dim=0), torch.tensor([6.0, 5.0, 4.0])
+        )
 
 
 class TestRotated:

@@ -646,7 +646,7 @@ class TestOffset:
         assert s[:, 0].min().item() >= -2.0
         assert s[:, 0].max().item() <= 2.0
         # Degenerate axis stays exactly zero.
-        assert torch.all(s[:, 1] == 0.0)
+        assert torch.all(s[:, 1] == 0)
         assert s[:, 2].min().item() >= -0.5
         assert s[:, 2].max().item() <= 1.5
 

@@ -1,5 +1,6 @@
 """Tests for the safety-aware torchvision v2 mirror."""
 
+import math
 from collections.abc import Callable
 
 import pytest
@@ -217,7 +218,7 @@ class TestFlipDispatchOnFusion:
         # Replace identity extrinsics with random non-trivial rotations.
         ext = torch.eye(4).expand(num_cameras, -1, -1).clone()
         for c in range(num_cameras):
-            angles = torch.rand(3) * 3.14
+            angles = torch.rand(3) * math.pi
             cx_a, sx_a = float(angles[0].cos()), float(angles[0].sin())
             cy_a, sy_a = float(angles[1].cos()), float(angles[1].sin())
             cz_a, sz_a = float(angles[2].cos()), float(angles[2].sin())

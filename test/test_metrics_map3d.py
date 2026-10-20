@@ -131,7 +131,7 @@ class TestNoMatches:
             ],
         )
         # No GTs for CAR in any frame -> AP undefined -> -1 sentinel.
-        assert m.compute()["mAP"] == -1.0
+        assert m.compute()["mAP"] == pytest.approx(-1.0)
 
 
 @pytest.mark.parametrize("fmt", _ALL_FORMATS)
@@ -278,7 +278,7 @@ class TestRangeBins:
         assert "AP_per_range" in r
         per_range = r["AP_per_range"]
         assert per_range[(0.0, 30.0)] == pytest.approx(1.0, abs=_AP_TOL)
-        assert per_range[(30.0, 100.0)] == -1.0
+        assert per_range[(30.0, 100.0)] == pytest.approx(-1.0)
 
 
 @pytest.mark.parametrize("fmt", _ALL_FORMATS)
@@ -340,7 +340,7 @@ class TestReset:
             [{"boxes": gt, "labels": torch.tensor([CAR])}],
         )
         m.reset()
-        assert m.compute()["mAP"] == -1.0
+        assert m.compute()["mAP"] == pytest.approx(-1.0)
 
 
 def test_compute_without_update_returns_undefined() -> None:
@@ -348,8 +348,8 @@ def test_compute_without_update_returns_undefined() -> None:
     # convention), not a real score of 0.0.
     m = MeanAveragePrecision3D(class_ids=[CAR])
     out = m.compute()
-    assert out["mAP"] == -1.0
-    assert all(ap == -1.0 for ap in out["mAP_per_class"].values())
+    assert out["mAP"] == pytest.approx(-1.0)
+    assert all(ap == pytest.approx(-1.0) for ap in out["mAP_per_class"].values())
 
 
 class TestInputValidation:

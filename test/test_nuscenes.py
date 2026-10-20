@@ -363,7 +363,7 @@ def test_nuscenes3d_sweeps_match_devkit(
         assert points.shape[0] >= single[index][0]["points"].shape[0]
         torch.testing.assert_close(_drop_ring(points), ref, atol=1e-3, rtol=0)
         # Key-frame points come first and carry a zero time offset.
-        assert points[: single[index][0]["points"].shape[0], -1].abs().max() == 0.0
+        assert torch.all(points[: single[index][0]["points"].shape[0], -1] == 0)
 
 
 def test_nuscenes3d_sweeps_scene_start(
@@ -383,7 +383,7 @@ def test_nuscenes3d_sweeps_scene_start(
     points = ds[0][0]["points"]
     # With no previous sweeps, the result is exactly the single-frame key-frame.
     assert points.shape[0] == single[0][0]["points"].shape[0]
-    assert points[:, -1].abs().max() == 0.0
+    assert torch.all(points[:, -1] == 0)
     torch.testing.assert_close(
         _drop_ring(points), _devkit_multisweep(devkit_db, token, 10), atol=1e-3, rtol=0
     )

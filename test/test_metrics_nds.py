@@ -485,6 +485,6 @@ def test_compute_without_update_returns_zero() -> None:
     # ``no_predictions()`` (AP 0, worst-case TP errors -> TP scores 0), so the
     # aggregate score is exactly zero.
     out = NuScenesDetectionScore.from_class_names(list(DETECTION_NAMES)).compute()
-    assert out["nd_score"] == 0.0
-    assert out["mean_ap"] == 0.0
-    assert all(score == 0.0 for score in out["tp_scores"].values())
+    assert out["nd_score"] == pytest.approx(0.0)
+    assert out["mean_ap"] == pytest.approx(0.0)
+    assert all(score == pytest.approx(0.0) for score in out["tp_scores"].values())
