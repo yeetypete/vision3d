@@ -15,8 +15,8 @@ import numpy as np
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset
+from torchcodec.decoders import decode_image
 from torchvision.datasets.utils import download_and_extract_archive
-from torchvision.io import ImageReadMode, decode_image
 
 from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.ops import accumulate_sweeps
@@ -1584,7 +1584,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
 
     def _load_image(self, cam_data: _SampleData) -> Tensor:
         path = self.root / cam_data["filename"]
-        img = decode_image(str(path), mode=ImageReadMode.RGB)  # [3, H, W] uint8
+        img = decode_image(path, mode="RGB")  # [3, H, W] uint8
         return img.float() / 255.0
 
     def _load_annotations(

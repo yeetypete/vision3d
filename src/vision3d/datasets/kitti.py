@@ -13,8 +13,8 @@ import numpy as np
 import torch
 from torch import Tensor
 from torch.utils.data import Dataset
+from torchcodec.decoders import decode_image
 from torchvision.datasets.utils import download_and_extract_archive
-from torchvision.io import ImageReadMode, decode_image
 
 from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.ops import points_in_image
@@ -261,7 +261,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
     def _load_image(self, base: Path, frame_id: str) -> Tensor:
         path = base / self.image_dir_name / f"{frame_id}.png"
         if path.exists():
-            img = decode_image(str(path), mode=ImageReadMode.RGB)  # [3, H, W] uint8
+            img = decode_image(path, mode="RGB")  # [3, H, W] uint8
             return img.unsqueeze(0).float() / 255.0
         return torch.zeros(1, 3, 1, 1)
 
