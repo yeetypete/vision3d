@@ -31,12 +31,12 @@ if _HAS_CUDA:
 
 Extension = CUDAExtension if _HAS_CUDA else CppExtension
 
-# Define TORCH_TARGET_VERSION with min version 2.10 to expose only the
+# Define TORCH_TARGET_VERSION with min version 2.11 to expose only the
 # stable API subset from torch
 _DEFINE_MACROS: list[tuple[str, str | None]] = [
     (
         "TORCH_TARGET_VERSION",
-        "0x020a000000000000",
+        "0x020b000000000000",
     ),
 ]
 if _HAS_CUDA:
