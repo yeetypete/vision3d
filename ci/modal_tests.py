@@ -47,11 +47,15 @@ image = (
     .add_local_file(_ROOT / ".python-version", f"{_REMOTE_ROOT}/", copy=True)
     .add_local_file(_ROOT / "pyproject.toml", f"{_REMOTE_ROOT}/", copy=True)
     .add_local_file(_ROOT / "uv.lock", f"{_REMOTE_ROOT}/", copy=True)
-    .run_commands("uv sync --locked --all-extras --no-install-project")
+    # Modal's builder points `UV_INDEX_URL` at its PyPI mirror, which `--locked`
+    # rejects because `uv.lock` records PyPI.
+    .run_commands(
+        "env -u UV_INDEX_URL uv sync --locked --all-extras --no-install-project"
+    )
     .add_local_dir(
         _ROOT, _REMOTE_ROOT, copy=True, ignore=lambda p: p not in _git_files()
     )
-    .run_commands("uv sync --locked --all-extras")
+    .run_commands("env -u UV_INDEX_URL uv sync --locked --all-extras")
 )
 
 app = modal.App("vision3d-tests", image=image)
