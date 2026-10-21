@@ -91,7 +91,7 @@ _ext = Extension(
     extra_compile_args=(
         {
             "cxx": ["-std=c++20", *_ISYSTEM],
-            "nvcc": ["-std=c++20", "--cudart=static", *_ISYSTEM],
+            "nvcc": ["-std=c++20", "--cudart=static", "--threads=0", *_ISYSTEM],
         }
         if _HAS_CUDA
         else {"cxx": ["-std=c++20", *_ISYSTEM]}

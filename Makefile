@@ -20,9 +20,9 @@ CUDA_TOOLKIT_DIR := $(or $(CUDA_HOME),$(CUDA_PATH),$(patsubst %/bin/nvcc,%,\
 TIDY_ARGS += $(if $(CUDA_TOOLKIT_DIR),-extra-arg=--cuda-path=$(CUDA_TOOLKIT_DIR) \
     -extra-arg=-Wno-unused-command-line-argument)
 
-# Remove -gencode flags from the database, since clang cannot parse them.
+# Remove nvcc-only flags from the database, since clang cannot parse them.
 GENCODE_ARGS = $(addprefix -removed-arg=,\
-    $(shell grep -oh -- '-gencode=[^ "]*' $(DB) | sort -u))
+    $(shell grep -oh -- '-gencode=[^ "]*' $(DB) | sort -u) --threads=0)
 
 .NOTPARALLEL:
 
