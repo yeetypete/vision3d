@@ -61,7 +61,7 @@ image = (
 app = modal.App("vision3d-tests", image=image)
 
 
-@app.function(gpu="L4", timeout=30 * 60)
+@app.function(gpu="L4", cpu=8, timeout=30 * 60)
 def run_tests() -> None:
     """Run vision3d tests."""
     subprocess.run(["uv", "run", "--locked", "--all-extras", "pytest"], check=True)
