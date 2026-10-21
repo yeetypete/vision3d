@@ -51,9 +51,12 @@ docs = [
   "sphinx-autobuild>=2025.8.25",
   "sphinx-gallery>=0.22.0",
 ]
+modal = [
+  "modal>=1.6.2",
+]
 
 [build-system]
-requires = ["numpy>=2", "setuptools>=77", "torch>=2.11"]
+requires = ["ninja", "numpy>=2", "setuptools>=77", "torch>=2.11"]
 build-backend = "setuptools.build_meta"
 
 [tool.coverage.run]
