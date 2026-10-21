@@ -56,6 +56,17 @@ jobs:
     with:
       cache: false
 
+  test-gpu:
+    needs: verify
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test-gpu.yaml
+    with:
+      cache: false
+    secrets:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
   build:
     needs: verify
     permissions:
@@ -66,7 +77,7 @@ jobs:
 
   announce:
     name: Create GitHub release
-    needs: [lint, test, build]
+    needs: [lint, test, test-gpu, build]
     runs-on: ubuntu-26.04
     environment:
       name: release
