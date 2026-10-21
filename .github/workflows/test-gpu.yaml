@@ -30,7 +30,7 @@ jobs:
         with:
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ runner.temp }}/uv-cache
-      - name: Run tests on a Modal GPU
+      - name: Run tests on Modal GPU
         env:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
