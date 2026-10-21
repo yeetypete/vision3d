@@ -12,7 +12,7 @@ permissions: {}
 
 jobs:
   lint:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -35,9 +35,7 @@ jobs:
         run: uv run pyrefly check
 
   clang-tidy:
-    runs-on: ubuntu-24.04
-    container:
-      image: nvidia/cuda:13.0.3-devel-ubuntu24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     env:
@@ -47,18 +45,12 @@ jobs:
     steps:
       - name: Install system dependencies
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            ca-certificates curl git gnupg lsb-release make ninja-build software-properties-common sudo wget
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-tidy-22 ninja-build
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Install clang-tidy 22
-        run: |
-          wget -qO llvm.sh https://apt.llvm.org/llvm.sh
-          bash llvm.sh 22
-          apt-get install -y --no-install-recommends clang-tidy-22 clang-tools-22
       - name: Set up uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8
         with:

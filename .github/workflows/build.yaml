@@ -13,7 +13,7 @@ permissions: {}
 jobs:
   build:
     name: build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # Build with the oldest CUDA toolkit we support (CUDA 12.8) inside PyTorch's
     # manylinux_2_28 builder image. The resulting wheel is tagged
     # manylinux_2_28_x86_64, and runs on any NVIDIA driver that supports the

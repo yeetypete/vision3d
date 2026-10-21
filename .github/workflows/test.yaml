@@ -13,7 +13,7 @@ permissions: {}
 jobs:
   test:
     name: test (${{ matrix.resolution }}, python ${{ matrix.python-version }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     strategy:
@@ -31,14 +31,7 @@ jobs:
     steps:
       - name: Install system dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            libgl1 \
-            libglib2.0-0 \
-            libsm6 \
-            libxcb1 \
-            libxext6 \
-            libxrender1 \
-            ninja-build
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
