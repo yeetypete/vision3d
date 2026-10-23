@@ -40,14 +40,24 @@ jobs:
       contents: read
     uses: ./.github/workflows/build.yaml
 
+  docs:
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/docs.yaml
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
   required-checks-passed:
     name: all required checks passed
     if: always()
     needs:
-      - pre-commit
-      - lint
-      - test
       - build
+      - docs
+      - lint
+      - pre-commit
+      - test
     runs-on: ubuntu-slim
     permissions: {}
     steps:
