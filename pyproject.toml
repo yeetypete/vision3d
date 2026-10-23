@@ -8,7 +8,7 @@ license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 authors = [{ name = "Peter Siegel" }]
 dependencies = [
-  "numpy",
+  "numpy>=2",
   "pillow>=11.3",
   "torch>=2.11",
   "torchcodec>=0.16",
