@@ -17,9 +17,22 @@ permissions: {}
 
 jobs:
   test-gpu:
+    name: test-gpu (${{ matrix.resolution }}, python ${{ matrix.python-version }})
     runs-on: ubuntu-26.04
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - resolution: highest
+            python-version: "3.14"
+          - resolution: lowest-direct
+            python-version: "3.12"
+    env:
+      # `uv sync` and `uv run` re-lock if this differs from the lockfile's
+      # strategy (default is `highest`).
+      UV_RESOLUTION: ${{ matrix.resolution }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -28,6 +41,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8
         with:
+          python-version: ${{ matrix.python-version }}
           enable-cache: ${{ inputs.cache }}
           cache-local-path: ${{ runner.temp }}/uv-cache
       - name: Run tests on Modal GPU
@@ -35,4 +49,4 @@ jobs:
           MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
           MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
           MODAL_IGNORE_CACHE: ${{ !inputs.cache }}
-        run: uv run --locked --only-group modal modal run ci/modal_tests.py
+        run: uv run --only-group modal modal run ci/modal_tests.py
