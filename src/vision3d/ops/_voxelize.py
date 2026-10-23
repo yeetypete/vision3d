@@ -1,20 +1,25 @@
 """Bucket points into a 3D voxel grid (pillar or true voxel)."""
 
+from typing import TYPE_CHECKING
+
 import torch
 from torch import Tensor
 
 from vision3d import _extension  # noqa: F401  # loads ``_C`` into torch.ops
 from vision3d.ops import _meta_registrations  # noqa: F401  # registers fake kernels
 
+if TYPE_CHECKING:
+    from shape_extensions import Int, IntVar
+
 
 @torch.no_grad()
-def voxelize(
-    points: Tensor,
+def voxelize[N: IntVar, C: IntVar, M: IntVar](
+    points: "Tensor[[N, C]]",
     point_cloud_range: tuple[float, float, float, float, float, float],
     voxel_size: tuple[float, float, float],
-    max_points_per_voxel: int = 32,
+    max_points_per_voxel: "Int[M]" = 32,
     max_voxels: int | None = None,
-) -> tuple[Tensor, Tensor, Tensor]:
+) -> "tuple[Tensor[[int, M, C]], Tensor[[int, 3]], Tensor[[int]]]":
     """Bucket points into a 3D voxel grid.
 
     For PointPillars-style pillars set ``voxel_size = (dx, dy, z_max -

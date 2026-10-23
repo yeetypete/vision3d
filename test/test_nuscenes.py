@@ -9,6 +9,7 @@ split is available on disk.They may be pointed at a custom location with the
 
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
@@ -38,6 +39,9 @@ from vision3d.datasets.nuscenes import (
     _NuScenesDB,
     _quaternion_to_rotation_matrix,
 )
+
+if TYPE_CHECKING:
+    from shape_extensions import IntVar
 
 # Datasets return CPU tensors by convention.
 pytestmark = pytest.mark.skip_device("cuda")
@@ -202,7 +206,7 @@ def test_db_annotation_category_names_match(
 
 def _devkit_make_transform(
     translation: list[float], rotation_wxyz: list[float]
-) -> torch.Tensor:
+) -> "torch.Tensor[[4, 4]]":
     quaternion = Quaternion(rotation_wxyz)
     T = torch.eye(4, dtype=torch.float32)
     T[:3, :3] = torch.tensor(quaternion.rotation_matrix, dtype=torch.float32)
@@ -320,7 +324,7 @@ def test_nuscenes3d_outputs_match_devkit(
 
 def _devkit_multisweep(
     nusc: devkit_NuScenes, sample_token: str, num_sweeps: int
-) -> torch.Tensor:
+) -> "torch.Tensor[[int, 5]]":
     # Accumulate sweeps with the nuscenes-devkit. ``min_distance=0`` disables
     # its close-point removal (which our loader does not do) so the point clouds
     # match. The devkit keeps (x, y, z, intensity) and a separate time vector.
@@ -342,7 +346,7 @@ def _devkit_multisweep(
     ).float()
 
 
-def _drop_ring(points: torch.Tensor) -> torch.Tensor:
+def _drop_ring[N: IntVar](points: "torch.Tensor[[N, int]]") -> "torch.Tensor[[N, int]]":
     # Our cloud is (x, y, z, intensity, ring, time). Drop ring to match the
     # devkit's (x, y, z, intensity, time) layout.
     return torch.cat([points[:, :4], points[:, 5:]], dim=1)

@@ -2,6 +2,7 @@
 
 import math
 from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import pytest
 import torch
@@ -11,14 +12,17 @@ from torch import Tensor
 
 from vision3d.ops import voxelize
 
+if TYPE_CHECKING:
+    from shape_extensions import Int, IntVar
 
-def _python_voxelize_reference(
-    points: Tensor,
+
+def _python_voxelize_reference[N: IntVar, C: IntVar, M: IntVar](
+    points: "Tensor[[N, C]]",
     point_cloud_range: Sequence[float],
     voxel_size: Sequence[float],
-    max_points_per_voxel: int,
+    max_points_per_voxel: "Int[M]",
     max_voxels: int | None = None,
-) -> tuple[Tensor, Tensor, Tensor]:
+) -> "tuple[Tensor[[int, M, C]], Tensor[[int, 3]], Tensor[[int]]]":
     """Pure-Python voxelize reference matching the C++/CUDA op contract.
 
     Voxels are returned in ascending flat-cell-id (lexicographic ``(iz,
@@ -213,7 +217,7 @@ class TestVoxelize:
             points, (0.0, 0.0, 0.0, 1.0, 1.0, 1.0), (1.0, 1.0, 1.0), 4
         )
         assert voxels.shape == (1, 4, 6)
-        assert num_points.item() == 1
+        assert num_points.item() == 1  # pyrefly: ignore[bad-argument-type]
         torch.testing.assert_close(voxels[0, 0], points[0])
 
     def test_rejects_non_float32_points(self, device: torch.device) -> None:
@@ -286,7 +290,7 @@ class TestVoxelize:
             points, (0.0, 0.0, 0.0, 1.0, 1.0, 1.0), (1.0, 1.0, 1.0), 8
         )
         assert coords.shape[0] == 1
-        assert int(num_points.item()) == 2
+        assert int(num_points.item()) == 2  # pyrefly: ignore[bad-argument-type]
         # Two surviving points are at slots 0 and 1, with feature col == 1.0
         # and 7.0 respectively (input order preserved).
         torch.testing.assert_close(

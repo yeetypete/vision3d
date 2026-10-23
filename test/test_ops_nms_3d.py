@@ -22,7 +22,7 @@ _NUM_COLS = {
 }
 
 
-def _stack(rows: list[list[float]]) -> torch.Tensor:
+def _stack(rows: list[list[float]]) -> "torch.Tensor[[int, int]]":
     return torch.tensor(rows, dtype=torch.float32)
 
 

@@ -1,9 +1,7 @@
 """Types for :mod:`vision3d.datasets` samples."""
 
 import sys
-from typing import NotRequired, Required, TypedDict
-
-from torch import Tensor
+from typing import TYPE_CHECKING, NotRequired, Required, TypedDict
 
 if sys.version_info >= (3, 13):
     from typing import ReadOnly
@@ -17,6 +15,9 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
+
+if TYPE_CHECKING:
+    from torch import Tensor
 
 
 class SampleInputs(TypedDict):
@@ -70,4 +71,4 @@ class SampleTargets(TypedDict):
     """
 
     boxes: BoundingBoxes3D
-    labels: Tensor
+    labels: "Tensor[[int]]"

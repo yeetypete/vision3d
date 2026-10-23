@@ -21,18 +21,18 @@ class TestBox3dIouAxisAligned:
     def test_identity_xyzlwh(self) -> None:
         boxes = torch.tensor([[0.0, 0, 0, 2, 2, 2]])
         iou = box3d_iou(boxes, boxes, BoundingBox3DFormat.XYZLWH)
-        assert abs(iou.item() - 1.0) < _IDENTITY_TOL
+        assert abs(iou.item() - 1.0) < _IDENTITY_TOL  # pyrefly: ignore[bad-argument-type]
 
     def test_identity_xyzxyz(self) -> None:
         boxes = torch.tensor([[-1.0, -1, -1, 1, 1, 1]])
         iou = box3d_iou(boxes, boxes, BoundingBox3DFormat.XYZXYZ)
-        assert abs(iou.item() - 1.0) < _IDENTITY_TOL
+        assert abs(iou.item() - 1.0) < _IDENTITY_TOL  # pyrefly: ignore[bad-argument-type]
 
     def test_disjoint(self) -> None:
         b1 = torch.tensor([[0.0, 0, 0, 1, 1, 1]])
         b2 = torch.tensor([[10.0, 10, 10, 1, 1, 1]])
         iou = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWH)
-        assert iou.item() < 1e-5
+        assert iou.item() < 1e-5  # pyrefly: ignore[bad-argument-type]
 
     def test_half_overlap_x(self) -> None:
         # Unit boxes offset by 0.5 in x. Intersection vol = 0.5x1x1 = 0.5.
@@ -40,7 +40,7 @@ class TestBox3dIouAxisAligned:
         b1 = torch.tensor([[0.0, 0, 0, 1, 1, 1]])
         b2 = torch.tensor([[0.5, 0, 0, 1, 1, 1]])
         iou = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWH)
-        assert abs(iou.item() - 1.0 / 3.0) < _VALUE_TOL
+        assert abs(iou.item() - 1.0 / 3.0) < _VALUE_TOL  # pyrefly: ignore[bad-argument-type]
 
     def test_quarter_overlap_xy(self) -> None:
         # Offset by 0.5 in both x and y -> intersection is 0.5x0.5x1 = 0.25.
@@ -48,7 +48,7 @@ class TestBox3dIouAxisAligned:
         b1 = torch.tensor([[0.0, 0, 0, 1, 1, 1]])
         b2 = torch.tensor([[0.5, 0.5, 0, 1, 1, 1]])
         iou = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWH)
-        assert abs(iou.item() - 1.0 / 7.0) < _VALUE_TOL
+        assert abs(iou.item() - 1.0 / 7.0) < _VALUE_TOL  # pyrefly: ignore[bad-argument-type]
 
     def test_fully_contained(self) -> None:
         # Small box fully inside a large box.
@@ -56,7 +56,7 @@ class TestBox3dIouAxisAligned:
         outer = torch.tensor([[0.0, 0, 0, 3, 3, 3]])
         inner = torch.tensor([[0.0, 0, 0, 1, 1, 1]])
         iou = box3d_iou(outer, inner, BoundingBox3DFormat.XYZLWH)
-        assert abs(iou.item() - 1.0 / 27.0) < _VALUE_TOL
+        assert abs(iou.item() - 1.0 / 27.0) < _VALUE_TOL  # pyrefly: ignore[bad-argument-type]
 
     def test_xyzxyz_cross_check(self) -> None:
         # Same geometry in XYZXYZ format should match XYZLWH.
@@ -66,21 +66,21 @@ class TestBox3dIouAxisAligned:
         b2_xyz = torch.tensor([[0.0, -1, -1, 2, 1, 1]])
         iou_lwh = box3d_iou(b1_lwh, b2_lwh, BoundingBox3DFormat.XYZLWH)
         iou_xyz = box3d_iou(b1_xyz, b2_xyz, BoundingBox3DFormat.XYZXYZ)
-        assert abs(iou_lwh.item() - iou_xyz.item()) < 1e-5
+        assert abs(iou_lwh.item() - iou_xyz.item()) < 1e-5  # pyrefly: ignore[bad-argument-type]
 
 
 class TestBox3dIouYawRotated:
     def test_identity(self) -> None:
         b = torch.tensor([[0.0, 0, 0, 2, 2, 2, 0.5]])
         iou = box3d_iou(b, b, BoundingBox3DFormat.XYZLWHY)
-        assert abs(iou.item() - 1.0) < _IDENTITY_TOL
+        assert abs(iou.item() - 1.0) < _IDENTITY_TOL  # pyrefly: ignore[bad-argument-type]
 
     def test_cube_90deg_symmetry(self) -> None:
         # 2x2x2 cube is symmetric under 90deg yaw.
         b1 = torch.tensor([[0.0, 0, 0, 2, 2, 2, 0.0]])
         b2 = torch.tensor([[0.0, 0, 0, 2, 2, 2, math.pi / 2]])
         iou = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWHY)
-        assert abs(iou.item() - 1.0) < _VALUE_TOL
+        assert abs(iou.item() - 1.0) < _VALUE_TOL  # pyrefly: ignore[bad-argument-type]
 
     def test_non_square_90deg(self) -> None:
         # 2x1x1 box rotated 90° vs unrotated. Intersection is a 1x1x1 cube
@@ -89,7 +89,7 @@ class TestBox3dIouYawRotated:
         b1 = torch.tensor([[0.0, 0, 0, 2, 1, 1, 0.0]])
         b2 = torch.tensor([[0.0, 0, 0, 2, 1, 1, math.pi / 2]])
         iou = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWHY)
-        assert abs(iou.item() - 1.0 / 3.0) < _VALUE_TOL
+        assert abs(iou.item() - 1.0 / 3.0) < _VALUE_TOL  # pyrefly: ignore[bad-argument-type]
 
     def test_45deg_vs_unrotated(self) -> None:
         # Unit box vs itself rotated 45°. Intersection is a regular octagon
@@ -100,21 +100,21 @@ class TestBox3dIouYawRotated:
         b2 = torch.tensor([[0.0, 0, 0, 1, 1, 1, math.pi / 4]])
         iou = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWHY)
         expected = (2 * math.sqrt(2) - 2) / (2 - (2 * math.sqrt(2) - 2))
-        assert abs(iou.item() - expected) < _VALUE_TOL
+        assert abs(iou.item() - expected) < _VALUE_TOL  # pyrefly: ignore[bad-argument-type]
 
     def test_no_z_overlap(self) -> None:
         # Same XY, but Z ranges disjoint -> IoU = 0.
         b1 = torch.tensor([[0.0, 0, 0, 1, 1, 1, 0.0]])
         b2 = torch.tensor([[0.0, 0, 5, 1, 1, 1, 0.0]])
         iou = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWHY)
-        assert iou.item() < 1e-4
+        assert iou.item() < 1e-4  # pyrefly: ignore[bad-argument-type]
 
 
 class TestBox3dIouFull9DOF:
     def test_identity(self) -> None:
         b = torch.tensor([[0.0, 0, 0, 2, 2, 2, 0.3, 0.2, 0.1]])
         iou = box3d_iou(b, b, BoundingBox3DFormat.XYZLWHYPR)
-        assert abs(iou.item() - 1.0) < _IDENTITY_TOL
+        assert abs(iou.item() - 1.0) < _IDENTITY_TOL  # pyrefly: ignore[bad-argument-type]
 
     def test_pitch_matters(self) -> None:
         # A cube rotated only in pitch should have IoU < 1 against itself
@@ -123,13 +123,13 @@ class TestBox3dIouFull9DOF:
         b1 = torch.tensor([[0.0, 0, 0, 2, 2, 2, 0, 0, 0]])
         b2 = torch.tensor([[0.0, 0, 0, 2, 2, 2, 0, 0.5, 0]])
         iou = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWHYPR)
-        assert 0.0 < iou.item() < 1.0
+        assert 0.0 < iou.item() < 1.0  # pyrefly: ignore[bad-argument-type]
 
     def test_roll_matters(self) -> None:
         b1 = torch.tensor([[0.0, 0, 0, 2, 2, 2, 0, 0, 0]])
         b2 = torch.tensor([[0.0, 0, 0, 2, 2, 2, 0, 0, 0.5]])
         iou = box3d_iou(b1, b2, BoundingBox3DFormat.XYZLWHYPR)
-        assert 0.0 < iou.item() < 1.0
+        assert 0.0 < iou.item() < 1.0  # pyrefly: ignore[bad-argument-type]
 
     def test_pitch_and_roll_differ(self) -> None:
         b0 = torch.tensor([[0.0, 0, 0, 2, 2, 2, 0, 0, 0]])
@@ -137,7 +137,7 @@ class TestBox3dIouFull9DOF:
         b_both = torch.tensor([[0.0, 0, 0, 2, 2, 2, 0, 0.3, 0.3]])
         iou_pitch = box3d_iou(b0, b_pitch, BoundingBox3DFormat.XYZLWHYPR)
         iou_both = box3d_iou(b0, b_both, BoundingBox3DFormat.XYZLWHYPR)
-        assert abs(iou_pitch.item() - iou_both.item()) > 0.01
+        assert abs(iou_pitch.item() - iou_both.item()) > 0.01  # pyrefly: ignore[bad-argument-type]
 
     def test_yaw_only_matches_xyzlwhy(self) -> None:
         b1_yaw = torch.tensor([[0.0, 0, 0, 2, 1, 1, 0.3]])
@@ -146,7 +146,7 @@ class TestBox3dIouFull9DOF:
         b2_full = torch.tensor([[0.5, 0.2, 0, 2, 1, 1, -0.1, 0, 0]])
         iou_yaw = box3d_iou(b1_yaw, b2_yaw, BoundingBox3DFormat.XYZLWHY)
         iou_full = box3d_iou(b1_full, b2_full, BoundingBox3DFormat.XYZLWHYPR)
-        assert abs(iou_yaw.item() - iou_full.item()) < _VALUE_TOL
+        assert abs(iou_yaw.item() - iou_full.item()) < _VALUE_TOL  # pyrefly: ignore[bad-argument-type]
 
 
 class TestBox3dIouProperties:
@@ -216,7 +216,7 @@ class TestBox3dIouProperties:
             box[0, 3:6] = 2.0  # dims
         iou = box3d_iou(box, box, format)
         assert iou.shape == (1, 1)
-        assert abs(iou.item() - 1.0) < _IDENTITY_TOL
+        assert abs(iou.item() - 1.0) < _IDENTITY_TOL  # pyrefly: ignore[bad-argument-type]
 
 
 class TestBox3dIouMetaRegistration:

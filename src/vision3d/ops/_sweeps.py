@@ -1,16 +1,21 @@
 """Temporal lidar sweep accumulation operator."""
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import torch
 from torch import Tensor
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
-def accumulate_sweeps(
-    sweeps: Sequence[Tensor],
-    transforms: Tensor,
-    time_offsets: Tensor,
-) -> Tensor:
+    from shape_extensions import IntVar
+
+
+def accumulate_sweeps[S: IntVar, D: IntVar](
+    sweeps: "Sequence[Tensor[[int, D]]]",
+    transforms: "Tensor[[S, 4, 4]]",
+    time_offsets: "Tensor[[S]]",
+) -> "Tensor[[int, D + 1]]":
     """Accumulate and time-stamp a set of lidar sweeps.
 
     Each sweep is mapped into a common target frame by its own rigid

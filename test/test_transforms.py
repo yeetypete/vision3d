@@ -1,5 +1,5 @@
 import math
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 import pytest
 import torch
@@ -48,6 +48,9 @@ from vision3d.transforms.functional import (
     translate_3d_point_cloud,
 )
 
+if TYPE_CHECKING:
+    from shape_extensions import Elements, IntTuple, IntVar
+
 ALL_FORMATS = list(BoundingBox3DFormat)
 ALL_AXES = ["x", "y", "z"]
 
@@ -62,16 +65,18 @@ _REF_NEGATE_YPR: dict[str, list[int]] = {
 
 
 # Reference implementations
-def _reference_flip_point_cloud(points: torch.Tensor, axis: str) -> torch.Tensor:
+def _reference_flip_point_cloud[Bs: IntTuple, D: IntVar](
+    points: "torch.Tensor[[*Elements[Bs], D]]", axis: str
+) -> "torch.Tensor[[*Elements[Bs], D]]":
     idx = {"x": 0, "y": 1, "z": 2}[axis]
     out = points.clone()
     out[..., idx] = -out[..., idx]
     return out
 
 
-def _reference_flip_bounding_boxes(
-    boxes: torch.Tensor, format: BoundingBox3DFormat, axis: str
-) -> torch.Tensor:
+def _reference_flip_bounding_boxes[Bs: IntTuple, K: IntVar](
+    boxes: "torch.Tensor[[*Elements[Bs], K]]", format: BoundingBox3DFormat, axis: str
+) -> "torch.Tensor[[*Elements[Bs], K]]":
     idx = {"x": 0, "y": 1, "z": 2}[axis]
     out = boxes.clone()
 
@@ -333,17 +338,19 @@ class TestRandomFlip3DFusion:
 
 
 # Reference implementations
-def _reference_translate_point_cloud(
-    points: torch.Tensor, offset: torch.Tensor
-) -> torch.Tensor:
+def _reference_translate_point_cloud[Bs: IntTuple, D: IntVar](
+    points: "torch.Tensor[[*Elements[Bs], D]]", offset: "torch.Tensor[[3]]"
+) -> "torch.Tensor[[*Elements[Bs], D]]":
     out = points.clone()
     out[..., :3] += offset
     return out
 
 
-def _reference_translate_bounding_boxes(
-    boxes: torch.Tensor, format: BoundingBox3DFormat, offset: torch.Tensor
-) -> torch.Tensor:
+def _reference_translate_bounding_boxes[Bs: IntTuple, K: IntVar](
+    boxes: "torch.Tensor[[*Elements[Bs], K]]",
+    format: BoundingBox3DFormat,
+    offset: "torch.Tensor[[3]]",
+) -> "torch.Tensor[[*Elements[Bs], K]]":
     out = boxes.clone()
     if format is BoundingBox3DFormat.XYZXYZ:
         out[..., :3] += offset
@@ -545,11 +552,11 @@ class TestRandomTranslate3DFusion:
         assert not torch.equal(out["extrinsics"], sample["extrinsics"])
 
 
-def _x_axis() -> torch.Tensor:
+def _x_axis() -> "torch.Tensor[[3]]":
     return torch.tensor([1.0, 0.0, 0.0])
 
 
-def _make_z_rotation(angle: float) -> torch.Tensor:
+def _make_z_rotation(angle: float) -> "torch.Tensor[[3, 3]]":
     c, s = math.cos(angle), math.sin(angle)
     return torch.tensor([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=torch.float32)
 

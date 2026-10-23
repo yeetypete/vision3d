@@ -7,7 +7,7 @@ import urllib.request
 import zipfile
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, ClassVar, override
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict, override
 
 import numpy as np
 import torch
@@ -27,6 +27,14 @@ from vision3d.tensors import (
     CameraIntrinsics,
     PointCloud3D,
 )
+
+if TYPE_CHECKING:
+    from shape_extensions import IntVar
+
+
+class _KittiCalib(TypedDict):
+    extrinsics: "Tensor[[1, 4, 4]]"
+    intrinsics: "Tensor[[1, 3, 3]]"
 
 
 class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
@@ -254,19 +262,19 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
                 dest=self._raw_folder,
             )
 
-    def _load_velodyne(self, base: Path, frame_id: str) -> Tensor:
+    def _load_velodyne(self, base: Path, frame_id: str) -> "Tensor[[int, 4]]":
         path = base / self.velodyne_dir_name / f"{frame_id}.bin"
         points = np.fromfile(path, dtype=np.float32).reshape(-1, 4)
         return torch.from_numpy(points)
 
-    def _load_image(self, base: Path, frame_id: str) -> Tensor:
+    def _load_image(self, base: Path, frame_id: str) -> "Tensor[[1, 3, int, int]]":
         path = base / self.image_dir_name / f"{frame_id}.png"
         if path.exists():
             img = decode_image(str(path), mode=ImageReadMode.RGB)  # [3, H, W] uint8
             return img.unsqueeze(0).float() / 255.0
         return torch.zeros(1, 3, 1, 1)
 
-    def _load_calib(self, base: Path, frame_id: str) -> dict[str, Tensor]:
+    def _load_calib(self, base: Path, frame_id: str) -> _KittiCalib:
         """Parse KITTI calibration file.
 
         Returns:
@@ -313,7 +321,7 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         self,
         base: Path,
         frame_id: str,
-        calib: dict[str, Tensor],
+        calib: _KittiCalib,
     ) -> SampleTargets:
         """Parse KITTI label file and convert to lidar frame.
 
@@ -353,7 +361,9 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
         }
 
 
-def _cam_to_lidar_boxes(boxes_cam: Tensor, extrinsics: Tensor) -> Tensor:
+def _cam_to_lidar_boxes[N: IntVar](
+    boxes_cam: "Tensor[[N, 7]]", extrinsics: "Tensor[[4, 4]]"
+) -> "Tensor[[N, 7]]":
     """Convert KITTI camera-frame boxes to lidar-frame XYZLWHY format.
 
     Args:

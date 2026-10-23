@@ -30,6 +30,8 @@ from vision3d.metrics._types import Prediction3D, Target3D
 from vision3d.ops import extract_box3d_params
 
 if TYPE_CHECKING:
+    from shape_extensions import IntVar
+
     from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
 
 # The five true-positive error metrics, in the order nuScenes reports them.
@@ -80,7 +82,7 @@ class NuScenesDetectionScoreResult(TypedDict):
 
 
 @dataclass
-class _BoxData:
+class _BoxData[N: IntVar]:
     """Per-frame box attributes as CPU float64 / int64 tensors.
 
     Attributes:
@@ -93,13 +95,13 @@ class _BoxData:
         score: ``[N]`` confidence scores (empty for ground truth).
     """
 
-    center: Tensor
-    size: Tensor
-    yaw: Tensor
-    velocity: Tensor
-    attribute: Tensor
-    label: Tensor
-    score: Tensor
+    center: "Tensor[[N, 2]]"
+    size: "Tensor[[N, 3]]"
+    yaw: "Tensor[[N]]"
+    velocity: "Tensor[[N, 2]]"
+    attribute: "Tensor[[N]]"
+    label: "Tensor[[N]]"
+    score: "Tensor[[int]]"
 
 
 class NuScenesDetectionScore:
@@ -188,7 +190,7 @@ class NuScenesDetectionScore:
         self.tp_metrics = tuple(tp_metrics)
         self.orientation_periods = dict(orientation_periods or {})
         self.skip_tp_metrics = {c: set(m) for c, m in (skip_tp_metrics or {}).items()}
-        self._frames: list[tuple[_BoxData, _BoxData]] = []
+        self._frames: list[tuple[_BoxData[int], _BoxData[int]]] = []
 
     @classmethod
     def from_class_names(
@@ -329,7 +331,7 @@ class NuScenesDetectionScore:
         with torch.device("cpu"):  # pyrefly: ignore[bad-context-manager]
             for class_id in self.class_ids:
                 period = self.orientation_periods.get(class_id, 2.0 * math.pi)
-                tp_md: _MetricData | None = None
+                tp_md: _MetricData[int] | None = None
                 for dist_th in self.dist_thresholds:
                     md = _accumulate(self._frames, class_id, dist_th, period)
                     label_aps[(class_id, dist_th)] = _calc_ap(
@@ -382,7 +384,7 @@ class NuScenesDetectionScore:
 
 
 @dataclass
-class _MetricData:
+class _MetricData[R: IntVar]:
     """Interpolated per-(class, threshold) curve, mirroring the devkit.
 
     Each tensor has length :data:`_NUM_RECALL_POINTS`. ``confidence`` is descending and
@@ -396,10 +398,10 @@ class _MetricData:
             :data:`TP_METRICS`.
     """
 
-    recall: Tensor
-    precision: Tensor
-    confidence: Tensor
-    tp_errors: dict[str, Tensor]
+    recall: "Tensor[[R]]"
+    precision: "Tensor[[R]]"
+    confidence: "Tensor[[R]]"
+    tp_errors: "dict[str, Tensor[[R]]]"
 
     @property
     def max_recall_ind(self) -> int:
@@ -408,7 +410,7 @@ class _MetricData:
         return int(nonzero[-1].item()) if nonzero.numel() else 0
 
 
-def _no_predictions_md() -> _MetricData:
+def _no_predictions_md() -> _MetricData[int]:
     """Build the metric data for a class with no matched predictions.
 
     Returns:
@@ -427,11 +429,11 @@ def _no_predictions_md() -> _MetricData:
 
 
 def _accumulate(
-    frames: list[tuple[_BoxData, _BoxData]],
+    frames: list[tuple[_BoxData[int], _BoxData[int]]],
     class_id: int,
     dist_th: float,
     orientation_period: float,
-) -> _MetricData:
+) -> _MetricData[int]:
     """Match detections to ground truth and interpolate the metric curves.
 
     Mirrors ``nuscenes.eval.detection.algo.accumulate`` for a single class
@@ -455,10 +457,10 @@ def _accumulate(
     # Precompute each frame's prediction-vs-GT distance matrix once; the greedy
     # loop then indexes rows. ``donot_use_mm_for_euclid_dist`` forces the direct
     # formula so distances match the devkit's ``np.linalg.norm``.
-    gt_local: list[Tensor] = []
-    pred_local: list[Tensor] = []
-    dist_mats: list[Tensor | None] = []
-    taken: list[Tensor] = []
+    gt_local: list[Tensor[[int]]] = []
+    pred_local: list[Tensor[[int]]] = []
+    dist_mats: list[Tensor[[int, int]] | None] = []
+    taken: list[Tensor[[int]]] = []
     for pred, gt in frames:
         g_idx = torch.nonzero(gt.label == class_id, as_tuple=False).flatten()
         p_idx = torch.nonzero(pred.label == class_id, as_tuple=False).flatten()
@@ -550,7 +552,7 @@ def _accumulate(
         orientation_period,
     )
 
-    resampled: dict[str, Tensor] = {}
+    resampled: dict[str, Tensor[[int]]] = {}
     match_conf_t = torch.tensor(match_conf, dtype=torch.float64)
     for metric in TP_METRICS:
         tmp = _cummean(match_errors[metric])
@@ -567,7 +569,7 @@ def _accumulate(
     )
 
 
-def _calc_ap(md: _MetricData, min_recall: float, min_precision: float) -> float:
+def _calc_ap(md: _MetricData[int], min_recall: float, min_precision: float) -> float:
     """Integrate average precision with recall/precision clipping.
 
     Mirrors ``nuscenes.eval.detection.algo.calc_ap``.
@@ -580,7 +582,7 @@ def _calc_ap(md: _MetricData, min_recall: float, min_precision: float) -> float:
     return float(prec.mean()) / (1.0 - min_precision)
 
 
-def _calc_tp(md: _MetricData, min_recall: float, metric_name: str) -> float:
+def _calc_tp(md: _MetricData[int], min_recall: float, metric_name: str) -> float:
     """Average a TP error metric over the valid recall range.
 
     Mirrors ``nuscenes.eval.detection.algo.calc_tp``.
@@ -596,7 +598,9 @@ def _calc_tp(md: _MetricData, min_recall: float, metric_name: str) -> float:
     return float(errors[first_ind : last_ind + 1].mean())
 
 
-def _interp(x: Tensor, xp: Tensor, fp: Tensor, right: float | None = None) -> Tensor:
+def _interp[N: IntVar, M: IntVar](
+    x: "Tensor[[N]]", xp: "Tensor[[M]]", fp: "Tensor[[M]]", right: float | None = None
+) -> "Tensor[[N]]":
     """1-D linear interpolation: a thin tensor wrapper over :func:`numpy.interp`.
 
     ``xp`` must be non-decreasing (duplicates allowed). Queries below ``xp[0]``
@@ -612,13 +616,13 @@ def _interp(x: Tensor, xp: Tensor, fp: Tensor, right: float | None = None) -> Te
 
 
 def _match_errors(
-    frames: list[tuple[_BoxData, _BoxData]],
+    frames: list[tuple[_BoxData[int], _BoxData[int]]],
     trans_errs: list[float],
     match_frame: list[int],
     match_pred: list[int],
     match_gt: list[int],
     orientation_period: float,
-) -> dict[str, Tensor]:
+) -> "dict[str, Tensor[[int]]]":
     """Vectorized per-true-positive TP errors, in match order.
 
     Translation error is the match distance, already collected. The velocity,
@@ -680,7 +684,7 @@ def _match_errors(
     return out
 
 
-def _cummean(x: Tensor) -> Tensor:
+def _cummean[N: IntVar](x: "Tensor[[N]]") -> "Tensor[[N]]":
     """NaN-aware cumulative mean.
 
     Returns:
@@ -705,13 +709,13 @@ def _nanmean(values: Iterable[float]) -> float:
     return fmean(vals) if vals else math.nan
 
 
-def _to_box_data(
+def _to_box_data[N: IntVar](
     boxes: "BoundingBoxes3D",
-    labels: Tensor,
-    velocities: Tensor | None,
-    attributes: Tensor | None,
-    scores: Tensor | None,
-) -> _BoxData:
+    labels: "Tensor[[N]]",
+    velocities: "Tensor[[N, 2]] | None",
+    attributes: "Tensor[[N]] | None",
+    scores: "Tensor[[N]] | None",
+) -> "_BoxData[N]":
     """Convert a frame's boxes/labels/etc. to CPU float64 ``_BoxData`` tensors.
 
     Centers (xy), sizes and yaw are derived from the box parameters via
