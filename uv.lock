@@ -2554,7 +2554,7 @@ provides-extras = ["viz"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "cuda-toolkit", extras = ["nvcc"] },
+    { name = "cuda-toolkit", extras = ["nvcc"], specifier = ">=13" },
     { name = "hypothesis", specifier = ">=6.152.7" },
     { name = "nuscenes-devkit", specifier = ">=1.2.0" },
     { name = "nvidia-cuda-cccl", specifier = "==13.3.4.3.1" },

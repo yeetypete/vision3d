@@ -33,7 +33,7 @@ dev = [
   # toolkit bundles annotates the <cuda/std/string_view> deduction guides
   # __host__-only, which clang rejects. clang-tidy needs CCCL 3.4 or newer which
   # contains the fix. See: https://github.com/NVIDIA/cccl/issues/7896.
-  "cuda-toolkit[nvcc]",
+  "cuda-toolkit[nvcc]>=13",
   "hypothesis>=6.152.7",
   "nuscenes-devkit>=1.2.0",
   "nvidia-cuda-cccl==13.3.4.3.1",
