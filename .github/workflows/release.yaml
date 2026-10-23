@@ -18,7 +18,7 @@ concurrency:
 jobs:
   verify:
     name: Verify version
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -67,7 +67,7 @@ jobs:
   announce:
     name: Create GitHub release
     needs: [lint, test, build]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment:
       name: release
     permissions:
@@ -96,7 +96,7 @@ jobs:
   publish-pypi:
     name: Publish release to PyPI
     needs: announce
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     environment:
       name: release
     permissions:

@@ -12,13 +12,7 @@ permissions: {}
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
-    container:
-      image: nvidia/cuda:13.0.3-devel-ubuntu24.04
-      volumes:
-        - /usr/share/dotnet:/host/dotnet
-        - /usr/local/lib/android:/host/android
-        - /opt/hostedtoolcache:/host/hostedtoolcache
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     env:
@@ -27,26 +21,6 @@ jobs:
       # needs the extension to import. One arch keeps the build short.
       TORCH_CUDA_ARCH_LIST: "12.0"
     steps:
-      - name: Free disk space
-        shell: bash
-        run: |
-          shopt -s dotglob
-          rm -rf /host/dotnet/* &
-          rm -rf /host/android/* &
-          rm -rf /host/hostedtoolcache/* &
-          wait
-      - name: Install system dependencies
-        run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
-            ca-certificates \
-            git \
-            libgl1 \
-            libsm6 \
-            libxcb1 \
-            libxext6 \
-            libxrender1 \
-            make
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -84,7 +58,7 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: production
