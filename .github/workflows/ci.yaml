@@ -50,7 +50,6 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
   required-checks-passed:
-    name: all required checks passed
     if: always()
     needs:
       - build
