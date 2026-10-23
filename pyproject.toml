@@ -92,6 +92,8 @@ convention = "google"
 docstring-code-format = true
 
 [tool.uv]
+# Older versions rewrite uv.lock with a lower lockfile revision.
+required-version = ">=0.12.22"
 # The PyTorch wheel index (download.pytorch.org/whl/cuXXX) mirrors a stale
 # subset of PyPI. Use `unsafe-first-match` so the resolver exhausts the
 # user-supplied `--index <pytorch>` first (keeping torch on the requested
