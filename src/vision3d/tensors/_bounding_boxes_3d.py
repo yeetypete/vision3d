@@ -102,6 +102,10 @@ class BoundingBoxes3D(TVTensor):
         return bounding_boxes
 
     @classmethod
+    @override
+    # ``tv_tensors.wrap`` dispatches on ``type(like)``, so ``like`` is always a
+    # ``BoundingBoxes3D`` here.
+    # pyrefly: ignore[bad-override]
     def wrap(cls, tensor: Tensor, like: "BoundingBoxes3D", **kwargs: Any) -> Self:
         return cls._wrap(tensor, format=kwargs.get("format", like.format))
 

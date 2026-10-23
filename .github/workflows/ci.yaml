@@ -39,3 +39,33 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/build.yaml
+
+  docs:
+    permissions:
+      contents: read
+      deployments: write
+    uses: ./.github/workflows/docs.yaml
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  required-checks-passed:
+    if: always()
+    needs:
+      - build
+      - docs
+      - lint
+      - pre-commit
+      - test
+    runs-on: ubuntu-slim
+    permissions: {}
+    steps:
+      - name: Check required jobs passed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          failing=$(echo "$NEEDS_JSON" | jq -r 'to_entries[] | select(.value.result != "success" and .value.result != "skipped") | "\(.key): \(.value.result)"')
+          if [ -n "$failing" ]; then
+            echo "$failing"
+            exit 1
+          fi

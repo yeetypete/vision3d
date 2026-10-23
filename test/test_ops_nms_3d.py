@@ -1,5 +1,7 @@
 """Tests for nms_3d and batched_nms_3d."""
 
+import math
+
 import pytest
 import torch
 from common_utils import box_at
@@ -195,7 +197,7 @@ class TestNmsConsistencyWithIou:
         cxy = (torch.rand(n, 2) - 0.5) * 10
         cz = torch.zeros(n, 1)
         lwh = torch.rand(n, 3) * 1.5 + 0.5
-        yaw = (torch.rand(n, 1) - 0.5) * 2 * 3.14159
+        yaw = (torch.rand(n, 1) - 0.5) * 2 * math.pi
         boxes = torch.cat([cxy, cz, lwh, yaw], dim=1)
         scores = torch.rand(n)
 

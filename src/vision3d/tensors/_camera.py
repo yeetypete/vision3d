@@ -165,6 +165,10 @@ class CameraIntrinsics(TVTensor):
         return intrinsics
 
     @classmethod
+    @override
+    # ``tv_tensors.wrap`` dispatches on ``type(like)``, so ``like`` is always a
+    # ``CameraIntrinsics`` here.
+    # pyrefly: ignore[bad-override]
     def wrap(cls, tensor: Tensor, like: "CameraIntrinsics", **kwargs: Any) -> Self:
         return cls._wrap(tensor, image_size=kwargs.get("image_size", like.image_size))
 

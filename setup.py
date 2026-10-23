@@ -26,17 +26,19 @@ _SOURCES = [
     "src/vision3d/ops/csrc/voxelize/voxelize_cpu.cpp",
 ]
 if _HAS_CUDA:
-    _SOURCES.append("src/vision3d/ops/csrc/iou_box3d/iou_box3d.cu")
-    _SOURCES.append("src/vision3d/ops/csrc/voxelize/voxelize.cu")
+    _SOURCES += [
+        "src/vision3d/ops/csrc/iou_box3d/iou_box3d.cu",
+        "src/vision3d/ops/csrc/voxelize/voxelize.cu",
+    ]
 
 Extension = CUDAExtension if _HAS_CUDA else CppExtension
 
-# Define TORCH_TARGET_VERSION with min version 2.10 to expose only the
+# Define TORCH_TARGET_VERSION with min version 2.11 to expose only the
 # stable API subset from torch
 _DEFINE_MACROS: list[tuple[str, str | None]] = [
     (
         "TORCH_TARGET_VERSION",
-        "0x020a000000000000",
+        "0x020b000000000000",
     ),
 ]
 if _HAS_CUDA:

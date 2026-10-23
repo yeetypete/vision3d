@@ -24,6 +24,7 @@ from sphinx.application import Sphinx
 from sphinx.util.typing import ExtensionMetadata
 from sphinx_gallery.gen_rst import GalleryConfig
 from sphinx_gallery.py_source_parser import Block
+from sphinx_gallery.typing import PathLikeStr
 
 # Track (script, app_id) pairs we've already saved+embedded this build.
 # rr.save is incremental, so we deliberately save each recording exactly
@@ -91,7 +92,7 @@ def rerun_scraper(
     return f"\n.. rerun-embed:: {app_id}.rrd\n   :height: 60vh\n"
 
 
-def _reset_rerun_init(gallery_conf: GalleryConfig, fname: str | None) -> None:
+def _reset_rerun_init(gallery_conf: GalleryConfig, fname: PathLikeStr | None) -> None:
     """Rebind ``rr.init`` and clear the per-script init flag."""
     global _init_called
     rr.init = _patched_rr_init

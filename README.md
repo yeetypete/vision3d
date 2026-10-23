@@ -14,7 +14,7 @@ Documentation is available at [vision3d.dev](https://vision3d.dev).
 ## Requirements
 
 - Python 3.12 or newer.
-- PyTorch 2.10 or newer.
+- PyTorch 2.11 or newer.
 - Recommended: A CUDA-capable NVIDIA GPU for GPU execution.
 - For building from source: the
   [CUDA toolkit](https://developer.nvidia.com/cuda-downloads) matching your
@@ -26,7 +26,7 @@ Documentation is available at [vision3d.dev](https://vision3d.dev).
 The wheel is built against the
 [LibTorch Stable ABI](https://docs.pytorch.org/docs/stable/notes/libtorch_stable_abi.html)
 and statically links the CUDA runtime, so one wheel works for any
-Python 3.12+, torch 2.10+, and any
+Python 3.12+, torch 2.11+, and any
 [NVIDIA driver that supports CUDA 12.8 or newer](https://docs.nvidia.com/cuda/cuda-toolkit-release-notes/index.html)
 (Linux driver ≥ 570).
 
