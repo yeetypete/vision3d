@@ -2505,7 +2505,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.11" },
     { name = "torchcodec", specifier = ">=0.16" },
     { name = "torchvision", specifier = ">=0.26" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'", specifier = ">=4.9" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'", specifier = ">=4.11" },
 ]
 provides-extras = ["viz"]
 
