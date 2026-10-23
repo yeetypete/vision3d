@@ -12,7 +12,7 @@ dependencies = [
   "pillow>=11.3",
   "torch>=2.10",
   "torchvision>=0.25",
-  "typing-extensions>=4.13; python_version < '3.13'",
+  "typing-extensions>=4.9; python_version < '3.13'",
 ]
 
 [project.urls]
