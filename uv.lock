@@ -2080,7 +2080,7 @@ requires-dist = [
     { name = "rerun-sdk", marker = "extra == 'viz'", specifier = ">=0.31.1" },
     { name = "torch", specifier = ">=2.10" },
     { name = "torchvision", specifier = ">=0.25" },
-    { name = "typing-extensions", marker = "python_full_version < '3.13'", specifier = ">=4.13" },
+    { name = "typing-extensions", marker = "python_full_version < '3.13'", specifier = ">=4.9" },
 ]
 provides-extras = ["viz"]
 
