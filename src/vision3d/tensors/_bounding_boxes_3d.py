@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 from enum import Enum
-from typing import Any, Self, override
+from typing import TYPE_CHECKING, Any, Self, override
 
 import torch
 from torch import Tensor
@@ -45,7 +45,15 @@ class BoundingBox3DFormat(Enum):
         )
 
 
-class BoundingBoxes3D(TVTensor):
+if TYPE_CHECKING:
+    from shape_extensions import IntTuple
+
+    _BoundingBoxes3DBase = TVTensor[IntTuple[int, int]]
+else:
+    _BoundingBoxes3DBase = TVTensor
+
+
+class BoundingBoxes3D(_BoundingBoxes3DBase):
     """:class:`~torch.Tensor` subclass for 3D bounding boxes with shape ``[N, K]``.
 
     Where ``N`` is the number of bounding boxes and ``K`` depends on the format:

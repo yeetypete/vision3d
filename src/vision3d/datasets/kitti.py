@@ -11,6 +11,7 @@ from typing import Any, ClassVar, override
 
 import numpy as np
 import torch
+import torch.linalg
 from torch import Tensor
 from torch.utils.data import Dataset
 from torchvision.datasets.utils import download_and_extract_archive

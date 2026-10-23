@@ -82,7 +82,8 @@ def device(request: pytest.FixtureRequest) -> Generator[torch.device]:
         The active :class:`torch.device` for the test invocation.
     """
     device = torch.device(request.param)
-    with device:
+    # Fixed by https://github.com/facebook/pyrefly/pull/4912.
+    with device:  # pyrefly: ignore[bad-context-manager]
         yield device
 
 

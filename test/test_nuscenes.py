@@ -13,6 +13,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+import torch.linalg
+import torch.testing
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 from nuscenes.eval.detection.constants import DETECTION_NAMES as DEVKIT_DETECTION_NAMES

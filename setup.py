@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-import torch
+import torch.cuda
 from setuptools import setup
 from torch.utils.cpp_extension import (
     CUDA_HOME,

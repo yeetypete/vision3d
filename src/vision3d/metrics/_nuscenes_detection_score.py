@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
 import torch
+import torch.linalg
 from torch import Tensor
 
 from vision3d.metrics._types import Prediction3D, Target3D
@@ -276,7 +277,8 @@ class NuScenesDetectionScore:
             self._check_required_fields(pred, target)
             # Pin internal tensors to CPU (the matching loop is sequential
             # Python) regardless of any ambient default-device context.
-            with torch.device("cpu"):
+            # Fixed by https://github.com/facebook/pyrefly/pull/4912.
+            with torch.device("cpu"):  # pyrefly: ignore[bad-context-manager]
                 pred_data = _to_box_data(
                     pred["boxes"],
                     pred["labels"],
@@ -323,7 +325,8 @@ class NuScenesDetectionScore:
         label_aps: dict[tuple[int, float], float] = {}
         label_tp_errors: dict[tuple[int, str], float] = {}
         # Pin to CPU regardless of any ambient default-device context.
-        with torch.device("cpu"):
+        # Fixed by https://github.com/facebook/pyrefly/pull/4912.
+        with torch.device("cpu"):  # pyrefly: ignore[bad-context-manager]
             for class_id in self.class_ids:
                 period = self.orientation_periods.get(class_id, 2.0 * math.pi)
                 tp_md: _MetricData | None = None

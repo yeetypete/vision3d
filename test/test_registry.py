@@ -26,7 +26,7 @@ class TestRegisterKernel:
             kernel_was_called = True
             return inpt
 
-        t = MyTensor(torch.rand(3, 3))
+        t = torch.rand(3, 3).as_subclass(MyTensor)
         kernel = _get_kernel(my_functional, type(t))
         kernel(t)
         assert kernel_was_called
@@ -60,7 +60,7 @@ class TestRegisterKernel:
             received_type = type(inpt)
             return inpt
 
-        t = CustomTVTensor(torch.rand(3, 3))
+        t = torch.rand(3, 3).as_subclass(CustomTVTensor)
         kernel = _get_kernel(my_functional, CustomTVTensor)
         out = kernel(t)
 
@@ -84,7 +84,7 @@ class TestRegisterKernel:
             received_type = type(inpt)
             return inpt
 
-        t = CustomTVTensor(torch.rand(3, 3))
+        t = torch.rand(3, 3).as_subclass(CustomTVTensor)
         kernel = _get_kernel(my_functional, CustomTVTensor)
         kernel(t)
 
@@ -118,7 +118,7 @@ class TestGetKernel:
 
         register_kernel(my_functional, KnownTensor)(_identity_kernel)
 
-        t = UnknownTensor(torch.rand(3, 3))
+        t = torch.rand(3, 3).as_subclass(UnknownTensor)
         kernel = _get_kernel(my_functional, type(t), allow_passthrough=True)
         out = kernel(t)
         assert out is t
@@ -165,7 +165,7 @@ class TestGetKernel:
             parent_called = True
             return inpt
 
-        child = ChildTensor(torch.rand(3, 3))
+        child = torch.rand(3, 3).as_subclass(ChildTensor)
         kernel = _get_kernel(my_functional, type(child))
         kernel(child)
         assert parent_called
@@ -195,7 +195,7 @@ class TestGetKernel:
             child_called = True
             return inpt
 
-        child = ChildTensor(torch.rand(3, 3))
+        child = torch.rand(3, 3).as_subclass(ChildTensor)
         kernel = _get_kernel(my_functional, type(child))
         kernel(child)
         assert child_called

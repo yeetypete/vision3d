@@ -122,9 +122,9 @@ class RandomTranslate3D(_RandomApplyTransform):
         tx, ty, tz = self.translation_range
         offset = torch.tensor(
             [
-                (torch.rand(1).item() * 2 - 1) * tx,
-                (torch.rand(1).item() * 2 - 1) * ty,
-                (torch.rand(1).item() * 2 - 1) * tz,
+                (torch.rand(()).item() * 2 - 1) * tx,
+                (torch.rand(()).item() * 2 - 1) * ty,
+                (torch.rand(()).item() * 2 - 1) * tz,
             ]
         )
         return {"offset": offset}
@@ -172,7 +172,7 @@ class RandomRotate3D(_RandomApplyTransform):
         Returns:
             Dict with ``"rotation_matrix"`` key containing a ``[3, 3]`` tensor.
         """
-        angle = (torch.rand(1).item() * 2 - 1) * self.angle_range
+        angle = (torch.rand(()).item() * 2 - 1) * self.angle_range
         R = _rotation_matrix(self.axis, angle)
         return {"rotation_matrix": R}
 
@@ -222,7 +222,7 @@ class RandomScale3D(_RandomApplyTransform):
             Dict with ``"factor"`` key.
         """
         lo, hi = self.scale_range
-        factor = lo + torch.rand(1).item() * (hi - lo)
+        factor = lo + torch.rand(()).item() * (hi - lo)
         return {"factor": factor}
 
     @override

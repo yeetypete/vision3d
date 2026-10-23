@@ -3,6 +3,7 @@
 import math
 
 import torch
+import torch.linalg
 from torch import Tensor
 
 from vision3d.datasets import SampleInputs, SampleTargets

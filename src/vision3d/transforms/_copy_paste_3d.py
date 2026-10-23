@@ -9,6 +9,7 @@ from typing import Any, override
 import numpy as np
 import torch
 import torch.nn.functional as F
+import torch.special
 from PIL import Image, ImageDraw
 from torch import Tensor
 from torch.utils._pytree import tree_flatten, tree_unflatten
@@ -464,7 +465,7 @@ class CopyPaste3D(Transform):
         for inp, tgt in zip(batch_inputs, batch_targets):
             self._extract_objects(inp, tgt)
 
-        if torch.rand(1).item() >= self.p:
+        if torch.rand(()).item() >= self.p:
             return tree_unflatten(flat_inputs, spec)
 
         output_inputs = []

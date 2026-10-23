@@ -3,6 +3,7 @@ from typing import Any, override
 
 import pytest
 import torch
+import torch.testing
 from common_utils import (
     check_transform,
     make_bounding_boxes_3d,

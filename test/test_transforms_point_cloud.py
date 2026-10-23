@@ -31,7 +31,8 @@ class TestShufflePointsKernel:
         perm = torch.randperm(50)
         out = shuffle_points_point_cloud(points, perm=perm)
         assert out.shape == points.shape
-        assert torch.allclose(out.sort(dim=0).values, points.sort(dim=0).values)
+        # Fixed by https://github.com/facebook/pyrefly/pull/4916.
+        assert torch.allclose(out.sort(dim=0).values, points.sort(dim=0).values)  # pyrefly: ignore[missing-attribute]
 
     def test_does_not_modify_input(self) -> None:
         points = torch.randn(50, 4)

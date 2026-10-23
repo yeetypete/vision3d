@@ -1,10 +1,17 @@
-from typing import Any, Self, override
+from typing import TYPE_CHECKING, Any, Self, override
 
 import torch
 from torchvision.tv_tensors import TVTensor
 
+if TYPE_CHECKING:
+    from shape_extensions import IntTuple
 
-class PointCloud3D(TVTensor):
+    _PointCloud3DBase = TVTensor[IntTuple[int, int]]
+else:
+    _PointCloud3DBase = TVTensor
+
+
+class PointCloud3D(_PointCloud3DBase):
     """:class:`~torch.Tensor` subclass for 3D point clouds with shape ``[N, 3+C]``.
 
     The first 3 columns are ``(x, y, z)`` coordinates. Additional columns are

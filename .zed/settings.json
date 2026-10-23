@@ -10,6 +10,14 @@
         "source.organizeImports.ruff": true
       },
       "format_on_save": "on",
+      "formatter": {
+        "language_server": {
+          "name": "ruff"
+        }
+      },
+      "inlay_hints": {
+        "enabled": true
+      },
       "language_servers": [
         "pyrefly",
         "!basedpyright",
@@ -25,22 +33,12 @@
       "binary": {
         "arguments": ["lsp"],
         "path": ".venv/bin/pyrefly"
-      },
-      "settings": {
-        "python": {
-          "pyrefly": {
-            "displayTypeErrors": "force-on"
-          }
-        }
       }
     },
     "ruff": {
-      "initialization_options": {
-        "settings": {
-          "lint": {
-            "enable": true
-          }
-        }
+      "binary": {
+        "arguments": ["server"],
+        "path": ".venv/bin/ruff"
       }
     }
   }
