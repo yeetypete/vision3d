@@ -35,6 +35,16 @@ jobs:
       contents: read
     uses: ./.github/workflows/test.yaml
 
+  test-gpu:
+    # PRs from forks do not receive Modal secrets.
+    if: ${{ !github.event.pull_request.head.repo.fork }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test-gpu.yaml
+    secrets:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+
   build:
     permissions:
       contents: read
@@ -57,6 +67,7 @@ jobs:
       - lint
       - pre-commit
       - test
+      - test-gpu
     runs-on: ubuntu-slim
     permissions: {}
     steps:

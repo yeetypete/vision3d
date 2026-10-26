@@ -1,0 +1,53 @@
+name: test-gpu
+
+on:
+  workflow_call:
+    inputs:
+      cache:
+        description: "Whether the build should be cached."
+        type: boolean
+        default: true
+    secrets:
+      MODAL_TOKEN_ID:
+        required: true
+      MODAL_TOKEN_SECRET:
+        required: true
+
+permissions: {}
+
+jobs:
+  test-gpu:
+    name: test-gpu (${{ matrix.resolution }}, python ${{ matrix.python-version }})
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - resolution: highest
+            python-version: "3.14"
+          - resolution: lowest-direct
+            python-version: "3.12"
+    env:
+      # `uv sync` and `uv run` re-lock if this differs from the lockfile's
+      # strategy (default is `highest`).
+      UV_RESOLUTION: ${{ matrix.resolution }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: ${{ inputs.cache }}
+          cache-local-path: ${{ runner.temp }}/uv-cache
+          cache-suffix: test-gpu
+      - name: Run tests on Modal GPU
+        env:
+          MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+          MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+          MODAL_IGNORE_CACHE: ${{ !inputs.cache }}
+        run: uv run --only-group modal modal run ci/modal_tests.py
