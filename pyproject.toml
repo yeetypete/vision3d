@@ -28,13 +28,15 @@ viz = [
 
 [dependency-groups]
 dev = [
+  # cuda-toolkit and nvidia-cuda-cccl are used only by `make tidy`, which builds
+  # in the project environment. cuda-toolkit provides nvcc. The CCCL the CUDA
+  # toolkit bundles annotates the <cuda/std/string_view> deduction guides
+  # __host__-only, which clang rejects. clang-tidy needs CCCL 3.4 or newer which
+  # contains the fix. See: https://github.com/NVIDIA/cccl/issues/7896.
+  "cuda-toolkit[nvcc]>=13",
   "hypothesis>=6.152.7",
   "nuscenes-devkit>=1.2.0",
-  # nvidia-cuda-cccl is used only by `make tidy`. The CCCL CUDA toolkit bundles
-  # annotates the <cuda/std/string_view> deduction guides __host__-only, which
-  # clang rejects. clang-tidy needs CCCL 3.4 or newer which contains the fix.
-  # See: https://github.com/NVIDIA/cccl/issues/7896.
-  "nvidia-cuda-cccl==13.3.4.1.2rc1",
+  "nvidia-cuda-cccl==13.3.4.3.1",
   "pyrefly>=1.4.0",
   "pytest>=9.0.2",
   "pytest-cov>=7.1.0",
@@ -113,6 +115,13 @@ cache-keys = [
   { file = "pyproject.toml" },
   { file = "setup.py" },
   { file = "src/vision3d/ops/csrc/**" },
+  { env = "CUDA_HOME" },
+  { env = "CUDA_PATH" },
   { env = "FORCE_CUDA" },
   { env = "TORCH_CUDA_ARCH_LIST" },
 ]
+
+# Build against nvcc from the `cuda-toolkit` wheels. Only uv reads this,
+# so other installers still need a system-wide CUDA toolkit installation.
+[tool.uv.extra-build-dependencies]
+vision3d = ["cuda-toolkit[nvcc,cccl]"]

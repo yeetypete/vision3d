@@ -13,6 +13,13 @@ endif
 
 TIDY_ARGS := $(foreach d,$(subst :, ,$(CCCL_INCLUDE_DIRS)),-extra-arg-before=-I$(d))
 
+# Point clang at the CUDA toolkit setup.py builds with.
+CUDA_TOOLKIT_DIR := $(or $(CUDA_HOME),$(CUDA_PATH),$(patsubst %/bin/nvcc,%,\
+    $(firstword $(wildcard $(CURDIR)/.venv/lib/python*/site-packages/nvidia/cu*/bin/nvcc))))
+
+TIDY_ARGS += $(if $(CUDA_TOOLKIT_DIR),-extra-arg=--cuda-path=$(CUDA_TOOLKIT_DIR) \
+    -extra-arg=-Wno-unused-command-line-argument)
+
 # Remove -gencode flags from the database, since clang cannot parse them.
 GENCODE_ARGS = $(addprefix -removed-arg=,\
     $(shell grep -oh -- '-gencode=[^ "]*' $(DB) | sort -u))

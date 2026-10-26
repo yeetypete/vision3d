@@ -1,10 +1,29 @@
 """setuptools entry point for vision3d."""
 
 import os
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 
 import torch
 from setuptools import setup
+
+# Prefer the nvcc from the `cuda-toolkit` wheels when they are installed
+# (see `extra-build-dependencies` in pyproject.toml). NVIDIA only publishes
+# nvcc wheels for CUDA 13 and newer, so older torch builds still need a
+# system-wide CUDA toolkit installation.
+#
+# `torch.utils.cpp_extension` reads `CUDA_HOME` on import, so this runs first.
+if torch.version.cuda and not (os.getenv("CUDA_HOME") or os.getenv("CUDA_PATH")):
+    try:
+        _nvcc = distribution("nvidia-cuda-nvcc")
+    except PackageNotFoundError:
+        pass
+    else:
+        _cuda_major = torch.version.cuda.split(".")[0]
+        _wheel_cuda_home = Path(str(_nvcc.locate_file(f"nvidia/cu{_cuda_major}")))
+        if (_wheel_cuda_home / "bin/nvcc").is_file():
+            os.environ["CUDA_HOME"] = str(_wheel_cuda_home)
+
 from torch.utils.cpp_extension import (
     CUDA_HOME,
     BuildExtension,
