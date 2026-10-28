@@ -1,6 +1,7 @@
-"""Mirror of ``torchvision.transforms.v2`` with geometric safety guarantees.
+"""Mirror of ``torchvision.transforms.v2`` for samples with 3D data.
 
-Swap
+Import torchvision transforms through this module whenever a sample
+contains vision3d TVTensors. Swap
 
 .. code-block:: python
 
@@ -14,12 +15,15 @@ for
 
 to make every transform that would silently break the geometric
 consistency of a 3D scene refuse vision3d-aware TVTensor inputs with a
-:class:`TypeError` instead.
+:class:`TypeError` instead. In samples that contain a vision3d TVTensor,
+plain tensors such as labels are passed through rather than transformed
+as images. Wrap a tensor in :class:`~torchvision.tv_tensors.Image` to
+transform it as one.
 
-The module forwards every public name from ``torchvision.transforms.v2``
-unchanged, except for the transforms listed in the module-private
-``_REFUSED`` set. Those are subclassed with a refusal mixin: calling one
-on a sample containing any vision3d TVTensor
+The module forwards every public name from ``torchvision.transforms.v2``.
+Transform classes are subclassed to add the behavior above. The
+transforms listed in the module-private ``_REFUSED`` set additionally
+refuse 3D samples: calling one on a sample containing any vision3d TVTensor
 (:class:`~vision3d.tensors.PointCloud3D`,
 :class:`~vision3d.tensors.BoundingBoxes3D`,
 :class:`~vision3d.tensors.CameraImages`,
@@ -55,6 +59,8 @@ from typing import TYPE_CHECKING, Any, override
 
 import torchvision.transforms.v2 as _T
 from torch.utils._pytree import tree_flatten
+from torchvision.transforms.v2 import has_any
+from torchvision.transforms.v2.functional import is_pure_tensor
 
 from vision3d.tensors import (
     BoundingBoxes3D,
@@ -77,9 +83,8 @@ _3D_AWARE_TVTENSORS = (
 )
 
 #: Torchvision v2 transforms that vision3d refuses when a vision3d
-#: TVTensor is present in the sample. Anything not listed is forwarded
-#: from :mod:`torchvision.transforms.v2` unchanged. Edit this set as
-#: kernels are added that make a transform safe for 3D-aware samples.
+#: TVTensor is present in the sample. Edit this set as kernels are added
+#: that make a transform safe for 3D-aware samples.
 _REFUSED: frozenset[str] = frozenset(
     {
         # Non-rigid image-plane warp
@@ -103,6 +108,35 @@ _REFUSED: frozenset[str] = frozenset(
         "MixUp",
     }
 )
+
+
+class _PassPureTensorsIn3DSamplesMixin(_T.Transform):
+    """Mixin that passes plain tensors through unchanged in samples with vision3d TVTensors.
+
+    torchvision has a heuristic that transforms the first plain tensor in a
+    sample as an image when the sample has no
+    :class:`~torchvision.tv_tensors.Image`,
+    :class:`~torchvision.tv_tensors.Video`, or PIL image. In a
+    lidar-only sample that tensor usually represents box labels, which
+    would then be reordered, corrupted, or cause a crash. We avoid this with
+    this mixin. See
+    https://github.com/pytorch/vision/blob/v0.29.1/torchvision/transforms/v2/_transform.py#L75-L105
+    """
+
+    @override
+    def _needs_transform_list(self, flat_inputs: list[Any]) -> list[bool]:
+        """Skip plain tensors when the sample holds a vision3d TVTensor.
+
+        Returns:
+            List of bools, one per element of ``flat_inputs``.
+        """
+        needs = super()._needs_transform_list(flat_inputs)
+        if not has_any(flat_inputs, *_3D_AWARE_TVTENSORS):
+            return needs
+        return [
+            need and not is_pure_tensor(inpt)
+            for need, inpt in zip(needs, flat_inputs, strict=True)
+        ]
 
 
 class _Refuse3DAwareMixin(_T.Transform):
@@ -156,34 +190,46 @@ class _Refuse3DAwareMixin(_T.Transform):
         return super().forward(*inputs)
 
 
+#: Cache of wrapped transform classes by name.
 _WRAPPED_CLASSES: dict[str, type] = {}
 
 
-def _wrap_refused(parent: type[_T.Transform]) -> type[_T.Transform]:
-    """Build a refuse-3d-aware subclass of a torchvision transform.
+def _wrap(parent: type[_T.Transform], *, refuse: bool) -> type[_T.Transform]:
+    """Build a vision3d-aware subclass of a torchvision transform.
 
     Returns:
-        A new class subclassing :class:`_Refuse3DAwareMixin` and ``parent``,
+        A new class subclassing :class:`_PassPureTensorsIn3DSamplesMixin`,
+        :class:`_Refuse3DAwareMixin` if ``refuse`` is set, and ``parent``,
         with ``__module__`` / ``__qualname__`` set so it pickles as a
         ``vision3d.transforms.v2`` attribute.
     """
-    cls = type(parent.__name__, (_Refuse3DAwareMixin, parent), {})
-    cls.__module__ = __name__
-    cls.__qualname__ = parent.__name__
-    cls.__doc__ = parent.__doc__
-    return cls
+    mixins: tuple[type, ...] = (_PassPureTensorsIn3DSamplesMixin,)
+    if refuse:
+        mixins = (_Refuse3DAwareMixin, *mixins)
+    return type(
+        parent.__name__,
+        (*mixins, parent),
+        {
+            "__module__": __name__,
+            "__qualname__": parent.__name__,
+            "__doc__": parent.__doc__,
+        },
+    )
 
 
 def __getattr__(name: str) -> Any:
     """Forward attributes from torchvision.transforms.v2.
 
-    Names in :data:`_REFUSED` are wrapped with :class:`_Refuse3DAwareMixin`
-    on first access and cached so identity is stable across calls (so
-    ``isinstance``, pickling, and ``issubclass`` checks behave normally).
+    Transform classes are wrapped with
+    :class:`_PassPureTensorsIn3DSamplesMixin`, and names in
+    :data:`_REFUSED` additionally with :class:`_Refuse3DAwareMixin`.
+    Wrapped classes are built on first access and cached so identity is
+    stable across calls (so ``isinstance``, pickling, and ``issubclass``
+    checks behave normally). Other names are forwarded unchanged.
 
     Returns:
-        The torchvision class for ``name``, or its refuse-3d-aware
-        subclass if ``name`` is in :data:`_REFUSED`.
+        The vision3d-aware subclass for a transform class, otherwise the
+        torchvision attribute for ``name``.
 
     Raises:
         AttributeError: If ``name`` is private or not exposed by
@@ -195,10 +241,10 @@ def __getattr__(name: str) -> Any:
     if parent is None:
         msg = f"module 'vision3d.transforms.v2' has no attribute {name!r}"
         raise AttributeError(msg)
-    if name not in _REFUSED:
+    if not (isinstance(parent, type) and issubclass(parent, _T.Transform)):
         return parent
     if name not in _WRAPPED_CLASSES:
-        _WRAPPED_CLASSES[name] = _wrap_refused(parent)
+        _WRAPPED_CLASSES[name] = _wrap(parent, refuse=name in _REFUSED)
     return _WRAPPED_CLASSES[name]
 
 
