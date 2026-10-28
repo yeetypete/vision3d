@@ -22,6 +22,7 @@ livehtml:
 		--watch ../src \
 		--ignore "$(SOURCEDIR)/auto_examples/*" \
 		--ignore "$(SOURCEDIR)/api/generated/*" \
+		--ignore "$(SOURCEDIR)/sg_execution_times.rst*" \
 		$(SPHINXOPTS) $(O)
 
 .PHONY: help livehtml Makefile
