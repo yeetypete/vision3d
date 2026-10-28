@@ -16,8 +16,10 @@ async function initRerunEmbeds() {
   if (containers.length === 0) return;
 
   const version = containers[0].dataset.rerunVersion;
+
+  // The rerun viewer wasm exceeds jsDelivr's 50 MB file limit so we use unpkg instead.
   const { WebViewer } = await import(
-    `https://cdn.jsdelivr.net/npm/@rerun-io/web-viewer@${version}/+esm`
+    `https://unpkg.com/@rerun-io/web-viewer@${version}/index.js`
   );
 
   const theme = rerunThemeFromDocs();
