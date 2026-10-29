@@ -11,7 +11,7 @@ from vision3d.tensors import GridMask3D, wrap
 from vision3d.tensors._grid_mask_3d import _Grid
 
 from ._geometry import flip_3d, rotate_3d, scale_3d, translate_3d
-from ._registry import register_kernel
+from ._registry import _get_kernel, register_kernel
 
 
 # TODO: Add implementations for the grid kernels and resample_grid_mask_3d.
@@ -80,7 +80,8 @@ def resample_grid(
     Returns:
         Resampled tensor.
     """
-    return inpt
+    kernel = _get_kernel(resample_grid, type(inpt))
+    return kernel(inpt, affine=affine, size=size, fill=fill)
 
 
 def resample_grid_mask_3d(

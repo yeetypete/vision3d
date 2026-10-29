@@ -25,15 +25,19 @@ from vision3d.transforms.functional import resample_grid
 
 
 class TestResampleGridDispatch:
-    def test_passthrough_point_cloud(self) -> None:
-        pc = make_point_cloud_3d(num_points=10)
-        out = resample_grid(pc, affine=torch.eye(4), size=(8, 8))
-        assert out is pc
+    def test_dispatches_grid(self) -> None:
+        with pytest.raises(NotImplementedError, match="grids"):
+            resample_grid(make_grid_mask_3d(), affine=torch.eye(4), size=(8, 8))
 
-    def test_passthrough_plain_tensor(self) -> None:
+    def test_rejects_point_cloud(self) -> None:
+        pc = make_point_cloud_3d(num_points=10)
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            resample_grid(pc, affine=torch.eye(4), size=(8, 8))
+
+    def test_rejects_plain_tensor(self) -> None:
         labels = torch.tensor([0, 1, 2])
-        out = resample_grid(labels, affine=torch.eye(4), size=(8, 8))
-        assert out is labels
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            resample_grid(labels, affine=torch.eye(4), size=(8, 8))
 
 
 class TestResampleGrid:
@@ -46,6 +50,11 @@ class TestResampleGrid:
     def test_rejects_size(self, size: tuple[int, ...]) -> None:
         with pytest.raises(ValueError, match="2 or 3 elements"):
             ResampleGrid(affine=torch.eye(4), size=size)
+
+    def test_passthrough_point_cloud(self) -> None:
+        pc = make_point_cloud_3d(num_points=10)
+        out = ResampleGrid(affine=torch.eye(4), size=(8, 8))({"points": pc})
+        assert out["points"] is pc
 
     def test_rejects_invalid_fill(self) -> None:
         fill: Any = "255"
