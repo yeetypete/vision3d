@@ -15,6 +15,7 @@ from ._registry import register_kernel
 
 
 # TODO: Add implementations for the grid kernels and resample_grid_mask_3d.
+# TODO: Register a to_dtype kernel for _Grid.
 def _not_implemented(operation: str) -> NotImplementedError:
     return NotImplementedError(f"{operation} is not implemented for grids yet.")
 
