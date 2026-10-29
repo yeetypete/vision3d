@@ -1,5 +1,6 @@
 """Functional form of the 3D transforms in :mod:`vision3d.transforms`."""
 
+from . import _misc  # noqa: F401  # registers kernels on torchvision functionals
 from ._camera import (
     center_crop_camera_intrinsics,
     crop_camera_intrinsics,
