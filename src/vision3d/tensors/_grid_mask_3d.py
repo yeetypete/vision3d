@@ -24,12 +24,7 @@ def _as_affine(affine: Any) -> Tensor:
 
 
 class _Grid(TVTensor):
-    """Shared base for dense grids that carry an index-to-frame affine transform.
-
-    Kernels that only update the affine transform should be registered on this
-    class rather than on :class:`GridMask3D`. This ensures that any later grid
-    type shares them via the class hierarchy.
-    """
+    """Shared base for dense grids that carry an index-to-frame affine transform."""
 
     affine: Tensor
 

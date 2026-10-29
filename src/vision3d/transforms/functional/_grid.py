@@ -8,52 +8,49 @@ from torchvision.transforms.v2.functional import register_kernel as _register_ke
 from torchvision.transforms.v2.functional._utils import _FillTypeJIT
 
 from vision3d.tensors import GridMask3D, wrap
-from vision3d.tensors._grid_mask_3d import _Grid
 
 from ._geometry import flip_3d, rotate_3d, scale_3d, translate_3d
 from ._registry import _get_kernel, register_kernel
 
 
 # TODO: Add implementations for the grid kernels and resample_grid_mask_3d.
-# TODO: Register a to_dtype kernel for _Grid.
+# TODO: Register a to_dtype kernel for GridMask3D.
 def _not_implemented(operation: str) -> NotImplementedError:
     return NotImplementedError(f"{operation} is not implemented for grids yet.")
 
 
-# Because 3D transforms only update the affine transform, which every grid type
-# carries, these kernels are registered on the shared base.
-
-
-@register_kernel(flip_3d, _Grid, tv_tensor_wrapper=False)
-def _flip_3d_grid_dispatch(inpt: _Grid, *, axis: str) -> _Grid:
+@register_kernel(flip_3d, GridMask3D, tv_tensor_wrapper=False)
+def _flip_3d_grid_dispatch(inpt: GridMask3D, *, axis: str) -> GridMask3D:
     raise _not_implemented("flip_3d")
 
 
-@register_kernel(translate_3d, _Grid, tv_tensor_wrapper=False)
-def _translate_3d_grid_dispatch(inpt: _Grid, *, offset: Tensor) -> _Grid:
+@register_kernel(translate_3d, GridMask3D, tv_tensor_wrapper=False)
+def _translate_3d_grid_dispatch(inpt: GridMask3D, *, offset: Tensor) -> GridMask3D:
     raise _not_implemented("translate_3d")
 
 
-@register_kernel(rotate_3d, _Grid, tv_tensor_wrapper=False)
-def _rotate_3d_grid_dispatch(inpt: _Grid, *, rotation_matrix: Tensor) -> _Grid:
+@register_kernel(rotate_3d, GridMask3D, tv_tensor_wrapper=False)
+def _rotate_3d_grid_dispatch(
+    inpt: GridMask3D, *, rotation_matrix: Tensor
+) -> GridMask3D:
     raise _not_implemented("rotate_3d")
 
 
-@register_kernel(scale_3d, _Grid, tv_tensor_wrapper=False)
-def _scale_3d_grid_dispatch(inpt: _Grid, *, factor: float) -> _Grid:
+@register_kernel(scale_3d, GridMask3D, tv_tensor_wrapper=False)
+def _scale_3d_grid_dispatch(inpt: GridMask3D, *, factor: float) -> GridMask3D:
     raise _not_implemented("scale_3d")
 
 
 # Otherwise torchvision flips would pass grids through unchanged.
 
 
-@_register_kernel(_F.horizontal_flip, _Grid)
-def _horizontal_flip_grid(inpt: _Grid) -> _Grid:
+@_register_kernel(_F.horizontal_flip, GridMask3D)
+def _horizontal_flip_grid(inpt: GridMask3D) -> GridMask3D:
     raise _not_implemented("horizontal_flip")
 
 
-@_register_kernel(_F.vertical_flip, _Grid)
-def _vertical_flip_grid(inpt: _Grid) -> _Grid:
+@_register_kernel(_F.vertical_flip, GridMask3D)
+def _vertical_flip_grid(inpt: GridMask3D) -> GridMask3D:
     raise _not_implemented("vertical_flip")
 
 
