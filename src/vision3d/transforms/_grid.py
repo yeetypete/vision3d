@@ -17,11 +17,10 @@ class ResampleGrid(Transform):
     """Resample grids into a target grid layout.
 
     3D transforms only update the ``affine`` of a
-    :class:`~vision3d.tensors.GridMask3D`, so its cells may no longer match
-    the grid layout the model expects. Use this transform, typically as the
-    last transform, to resample the cells into that layout. Values are
-    resampled with nearest-neighbor interpolation. Other inputs pass through
-    unchanged.
+    :class:`~vision3d.tensors.GridMask3D`. Use this transform, typically as the
+    last transform, to resample the cells onto the target ``affine`` and
+    ``size``. Values are resampled with nearest-neighbor interpolation. Other
+    inputs pass through unchanged.
 
     Args:
         affine: ``[4, 4]`` index-to-frame transform of the target grid.
