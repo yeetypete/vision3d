@@ -108,8 +108,8 @@ class GridMask3D(_Grid):
 
     Args:
         data: Any data that can be turned into a tensor with :func:`torch.as_tensor`.
-        affine (tensor-like): ``[4, 4]`` index-to-frame transform. Stored as
-            ``float64`` on the CPU.
+        affine: ``[4, 4]`` index-to-frame transform. Stored as ``float64``
+            on the CPU.
         dtype (torch.dtype, optional): Desired data type. If omitted, will be
             inferred from ``data``.
         device (torch.device, optional): Desired device. If omitted and ``data``
