@@ -5,16 +5,22 @@ from torch import Tensor
 
 from vision3d.tensors import PointCloud3D
 
-from ._registry import register_kernel
+from ._registry import _get_kernel, register_kernel
 
 
 def shuffle_points(inpt: Tensor) -> Tensor:
-    """Dispatcher entry point for point shuffling.
+    """Randomly shuffle the points of a point cloud.
+
+    Dispatcher entry point. Type-specific kernels are registered below.
+
+    Args:
+        inpt: Input tensor.
 
     Returns:
-        Input unchanged (passthrough for non-point types).
+        Shuffled tensor.
     """
-    return inpt
+    kernel = _get_kernel(shuffle_points, type(inpt))
+    return kernel(inpt)
 
 
 def shuffle_points_point_cloud(points: Tensor) -> Tensor:
@@ -35,12 +41,19 @@ def _shuffle_points_kernel(points: Tensor) -> Tensor:
 
 
 def sample_points(inpt: Tensor, *, n: int) -> Tensor:
-    """Dispatcher entry point for point sampling.
+    """Randomly sample a point cloud to ``n`` points.
+
+    Dispatcher entry point. Type-specific kernels are registered below.
+
+    Args:
+        inpt: Input tensor.
+        n: Target number of points.
 
     Returns:
-        Input unchanged (passthrough for non-point types).
+        Sampled tensor.
     """
-    return inpt
+    kernel = _get_kernel(sample_points, type(inpt))
+    return kernel(inpt, n=n)
 
 
 def sample_points_point_cloud(points: Tensor, *, n: int) -> Tensor:
@@ -68,12 +81,19 @@ def _sample_points_kernel(points: Tensor, *, n: int) -> Tensor:
 
 
 def jitter_points(inpt: Tensor, *, sigma: float) -> Tensor:
-    """Dispatcher entry point for point jittering.
+    """Add Gaussian noise to the xyz coordinates of a point cloud.
+
+    Dispatcher entry point. Type-specific kernels are registered below.
+
+    Args:
+        inpt: Input tensor.
+        sigma: Standard deviation of the noise.
 
     Returns:
-        Input unchanged (passthrough for non-point types).
+        Jittered tensor.
     """
-    return inpt
+    kernel = _get_kernel(jitter_points, type(inpt))
+    return kernel(inpt, sigma=sigma)
 
 
 def jitter_points_point_cloud(points: Tensor, *, sigma: float) -> Tensor:
