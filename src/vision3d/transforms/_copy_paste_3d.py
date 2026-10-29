@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from PIL import Image, ImageDraw
 from torch import Tensor
 from torch.utils._pytree import tree_flatten, tree_unflatten
+from torchvision.transforms.v2 import has_any
 from torchvision.tv_tensors import TVTensor
 
 from vision3d.ops import (
@@ -28,6 +29,7 @@ from vision3d.tensors import (
     CameraExtrinsics,
     CameraImages,
     CameraIntrinsics,
+    GridMask3D,
     PointCloud3D,
 )
 from vision3d.transforms._transform import Transform
@@ -443,6 +445,22 @@ class CopyPaste3D(Transform):
         self._database: dict[int, deque[ObjectEntry]] = defaultdict(
             lambda: deque(maxlen=self.max_database_size)
         )
+
+    @override
+    def check_inputs(self, flat_inputs: list[Any]) -> None:
+        """Reject grid inputs.
+
+        Raises:
+            TypeError: If any :class:`~vision3d.tensors.GridMask3D` is
+                present.
+        """
+        if has_any(flat_inputs, GridMask3D):
+            msg = (
+                f"{type(self).__name__} cannot operate on samples that contain "
+                f"grids: pasted objects change the scene, so grid contents "
+                f"would no longer match it."
+            )
+            raise TypeError(msg)
 
     @override
     def forward(self, *inputs: Any) -> Any:
