@@ -33,6 +33,7 @@ from ._geometry import (
     vertical_flip_bounding_boxes_3d,
     vertical_flip_point_cloud_3d,
 )
+from ._grid import resample_grid, resample_grid_mask_3d
 from ._point_cloud import (
     jitter_points,
     jitter_points_point_cloud,
@@ -57,6 +58,8 @@ __all__ = [
     "jitter_points_point_cloud",
     "pad_camera_intrinsics",
     "register_kernel",
+    "resample_grid",
+    "resample_grid_mask_3d",
     "resize_camera_intrinsics",
     "resized_crop_camera_intrinsics",
     "rotate_3d",
