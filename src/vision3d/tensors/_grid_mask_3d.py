@@ -13,7 +13,7 @@ _HOMOGENEOUS_ROW = torch.tensor([0.0, 0.0, 0.0, 1.0], dtype=torch.float64)
 
 def _as_affine(affine: Any) -> Tensor:
     # affine is metadata so we want to keep it on the cpu.
-    affine = torch.as_tensor(affine, dtype=torch.float64, device="cpu")
+    affine = torch.as_tensor(affine, dtype=torch.float64, device="cpu").clone()
     if affine.shape != (4, 4):
         raise ValueError(f"Expected a [4, 4] affine, got shape {tuple(affine.shape)}")
     if not torch.equal(affine[3], _HOMOGENEOUS_ROW):

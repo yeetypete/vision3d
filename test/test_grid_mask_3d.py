@@ -37,6 +37,15 @@ class TestConstruction:
         assert mask.affine.dtype == torch.float64
         assert mask.affine.device == torch.device("cpu")
 
+    def test_affine_is_copied(self) -> None:
+        # If affine is float64 on the CPU, torch.as_tensor does not copy it.
+        affine = torch.eye(4, dtype=torch.float64, device="cpu")
+        mask = GridMask3D(torch.zeros(1, 4, 4), affine=affine)
+        affine[0, 3] = 1.0
+        torch.testing.assert_close(
+            mask.affine, torch.eye(4, dtype=torch.float64, device="cpu")
+        )
+
     def test_accepts_nested_list_affine(self) -> None:
         mask = GridMask3D(torch.zeros(1, 4, 4), affine=torch.eye(4).tolist())
         torch.testing.assert_close(
