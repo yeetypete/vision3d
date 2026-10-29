@@ -240,6 +240,19 @@ class TestProjectBox3dToImage:
             boxes_2d[0], torch.tensor([615.0, 215.0, 640.0, 265.0])
         )
 
+    def test_box_across_top_left_border(
+        self, identity_ext: torch.Tensor, simple_K: torch.Tensor
+    ) -> None:
+        # A flat box at depth 10 spanning u in [-25, 25] and v in [-25, 25]:
+        # clipped to the image, it starts exactly at the origin and stays
+        # valid.
+        boxes = torch.tensor([[-6.4, -4.8, 10.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0]])
+        boxes_2d, valid = project_box3d_to_image(
+            boxes, FMT, identity_ext, simple_K, IMAGE_SIZE
+        )
+        assert valid.tolist() == [True]
+        torch.testing.assert_close(boxes_2d[0], torch.tensor([0.0, 0.0, 25.0, 25.0]))
+
     def test_rotated_box_across_image_corner_is_tight(
         self, identity_ext: torch.Tensor, simple_K: torch.Tensor
     ) -> None:
