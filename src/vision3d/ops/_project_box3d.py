@@ -42,6 +42,10 @@ def project_box3d_to_image(
     depth along the optical axis, and ``x`` and ``y`` map to image ``u``
     (right) and ``v`` (down) through the intrinsics.
 
+    The camera is a pinhole without lens distortion, as in
+    :func:`project_to_image`. A distorted image bends straight box edges, so
+    rectify such images first.
+
     Args:
         boxes: 3D bounding boxes in the source frame ``[N, K]``.
         format: Format of the bounding boxes.
@@ -49,7 +53,11 @@ def project_box3d_to_image(
         intrinsics: Camera intrinsic matrix ``[3, 3]``.
         image_size: Image height and width in pixels as ``(height, width)``.
         near: Camera-frame depth of the clipping plane, in the units of the
-            extrinsics. Must be positive.
+            extrinsics. Must be positive. The field of view already excludes
+            everything behind the camera, so the result converges as ``near``
+            goes to zero and the default only avoids dividing by a zero
+            depth. Raise it to ignore the parts of a box closer than the
+            camera can see.
 
     Returns:
         ``(boxes_2d, valid)`` where ``boxes_2d`` ``[N, 4]``, in the dtype of
