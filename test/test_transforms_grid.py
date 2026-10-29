@@ -51,6 +51,11 @@ class TestResampleGrid:
         with pytest.raises(ValueError, match="2 or 3 elements"):
             ResampleGrid(affine=torch.eye(4), size=size)
 
+    @pytest.mark.parametrize("size", [(0, 8), (-1, 8), (8.5, 8)])
+    def test_rejects_non_positive_int_size(self, size: tuple[Any, ...]) -> None:
+        with pytest.raises(ValueError, match="positive integers"):
+            ResampleGrid(affine=torch.eye(4), size=size)
+
     def test_passthrough_point_cloud(self) -> None:
         pc = make_point_cloud_3d(num_points=10)
         out = ResampleGrid(affine=torch.eye(4), size=(8, 8))({"points": pc})

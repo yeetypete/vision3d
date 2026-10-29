@@ -45,6 +45,9 @@ class ResampleGrid(Transform):
         if len(size) not in (2, 3):
             msg = f"size must have 2 or 3 elements, got {len(size)}."
             raise ValueError(msg)
+        if not all(isinstance(s, int) and s > 0 for s in size):
+            msg = f"size must contain positive integers, got {tuple(size)}."
+            raise ValueError(msg)
         self.affine = _as_affine(affine)
         self.size = tuple(size)
         self.fill = fill
