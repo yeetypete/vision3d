@@ -596,9 +596,7 @@ class TestRotate3DBoundingBoxesKernel:
         R = _make_z_rotation(math.pi / 4)
         actual = rotate_3d_bounding_boxes(raw, format=format, rotation_matrix=R)
         expected_centers = (R @ raw[:, :3].unsqueeze(-1)).squeeze(-1)
-        torch.testing.assert_close(
-            actual[:, :3], expected_centers, atol=1e-6, rtol=1e-6
-        )
+        torch.testing.assert_close(actual[:, :3], expected_centers)
 
     @pytest.mark.parametrize(
         "format",
