@@ -217,7 +217,7 @@ def translate_3d_point_cloud(points: Tensor, *, offset: Tensor) -> Tensor:
         Translated point cloud with the same shape.
     """
     points = points.clone()
-    points[..., :3] += offset
+    points[..., :3] += offset.to(points)
     return points
 
 
@@ -240,6 +240,7 @@ def translate_3d_bounding_boxes(
         Translated bounding boxes with the same shape.
     """
     boxes = boxes.clone()
+    offset = offset.to(boxes)
 
     if format is BoundingBox3DFormat.XYZXYZ:
         boxes[..., :3] += offset
@@ -277,7 +278,7 @@ def translate_3d_camera_extrinsics(extrinsics: Tensor, *, offset: Tensor) -> Ten
     extrinsics = extrinsics.clone()
     # E' = E @ T_inv where T_inv translates by -offset
     # This is equivalent to: E'[:3, 3] -= E[:3, :3] @ offset
-    extrinsics[..., :3, 3] -= extrinsics[..., :3, :3] @ offset
+    extrinsics[..., :3, 3] -= extrinsics[..., :3, :3] @ offset.to(extrinsics)
     return extrinsics
 
 
@@ -339,7 +340,7 @@ def rotate_3d_point_cloud(points: Tensor, *, rotation_matrix: Tensor) -> Tensor:
         Rotated point cloud with the same shape.
     """
     points = points.clone()
-    points[..., :3] = points[..., :3] @ rotation_matrix.T
+    points[..., :3] = points[..., :3] @ rotation_matrix.to(points).T
     return points
 
 
@@ -378,7 +379,7 @@ def rotate_3d_bounding_boxes(
         raise NotImplementedError(msg)
 
     boxes = boxes.clone()
-    boxes[..., :3] = boxes[..., :3] @ rotation_matrix.T
+    boxes[..., :3] = boxes[..., :3] @ rotation_matrix.to(boxes).T
 
     if format is BoundingBox3DFormat.XYZLWHY:
         # Only pure Z-axis rotation is valid for yaw-only boxes
@@ -455,7 +456,7 @@ def rotate_3d_camera_extrinsics(
         Updated extrinsics with the same shape.
     """
     extrinsics = extrinsics.clone()
-    R_inv_4x4 = torch.eye(4, dtype=extrinsics.dtype)
+    R_inv_4x4 = torch.eye(4, dtype=extrinsics.dtype, device=extrinsics.device)
     R_inv_4x4[:3, :3] = rotation_matrix.T
     extrinsics = extrinsics @ R_inv_4x4
     return extrinsics

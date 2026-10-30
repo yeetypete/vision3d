@@ -97,6 +97,14 @@ class TestJitterPointsKernel:
         )
         assert out.dtype == torch.float64
 
+    def test_params_follow_input_dtype_and_device(self) -> None:
+        points = torch.randn(20, 4, dtype=torch.float64)
+        noise = torch.randn(20, 3, device="cpu")
+        torch.testing.assert_close(
+            jitter_points_point_cloud(points, noise=noise),
+            jitter_points_point_cloud(points, noise=noise.to(points)),
+        )
+
 
 class TestShufflePointsDispatch:
     def test_dispatches_point_cloud(self) -> None:
