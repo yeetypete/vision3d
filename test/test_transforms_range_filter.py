@@ -1,5 +1,6 @@
 """Tests for RangeFilter3D."""
 
+import pickle
 from typing import Any
 
 import pytest
@@ -249,6 +250,12 @@ class TestLabelsGetter:
         _, out_targets = f(inputs, targets)
         assert out_targets["boxes"].shape[0] == 2
         assert out_targets["labels"].shape[0] == 3
+
+    def test_none_getter_is_pickleable(self) -> None:
+        f = RangeFilter3D(point_cloud_range=_RANGE, labels_getter=None)
+        restored = pickle.loads(pickle.dumps(f))
+        _, out_targets = restored(*_make_two_dict_sample())
+        assert out_targets["boxes"].shape[0] == 2
 
     def test_non_standard_dict_structure(self) -> None:
         inputs, targets = _make_two_dict_sample()
