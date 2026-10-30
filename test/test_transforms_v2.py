@@ -1,11 +1,19 @@
 """Tests for the safety-aware torchvision v2 mirror."""
 
 import math
+import pickle
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 import torch
-from common_utils import make_camera_images, make_fusion_sample
+from common_utils import (
+    make_camera_extrinsics,
+    make_camera_images,
+    make_camera_intrinsics,
+    make_fusion_sample,
+    make_point_cloud_3d,
+)
 from torch import nn
 from torchvision.transforms import v2 as tv_v2
 from torchvision.tv_tensors import Image
@@ -267,16 +275,24 @@ class TestFlipDispatchOnFusion:
 
 
 class TestBehaviourMatchesTorchvision:
-    """Bare re-exports must be the same object as torchvision's; wrapped
-    transforms must remain a subclass of the torchvision original so
-    framework features (``isinstance``, pickling, ``torch.compile``)
-    keep working."""
+    """Forwarded transforms must remain a subclass of the torchvision
+    original so framework features (``isinstance``, pickling,
+    ``torch.compile``) keep working. Non-transform names are forwarded
+    unchanged."""
 
-    @pytest.mark.parametrize(
-        "name",
-        ["ColorJitter", "GaussianBlur", "Normalize", "Resize", "CenterCrop", "Pad"],
-    )
-    def test_safe_reexport_is_identity(self, name: str) -> None:
+    def test_forwarded_subclasses_torchvision_original(self) -> None:
+        cls = v3d_v2.Resize
+        assert issubclass(cls, tv_v2.Resize)
+        assert cls.__name__ == "Resize"
+        assert cls.__module__ == "vision3d.transforms.v2"
+
+    def test_forwarded_transform_pickles(self) -> None:
+        transform = pickle.loads(pickle.dumps(v3d_v2.RandomHorizontalFlip(p=0.3)))
+        assert type(transform) is v3d_v2.RandomHorizontalFlip
+        assert transform.p == pytest.approx(0.3)
+
+    @pytest.mark.parametrize("name", ["InterpolationMode", "functional"])
+    def test_non_transform_reexport_is_identity(self, name: str) -> None:
         assert getattr(v3d_v2, name) is getattr(tv_v2, name)
 
     @pytest.mark.parametrize("name", sorted(_REFUSED))
@@ -325,3 +341,77 @@ class TestComposeInterop:
         )
         with pytest.raises(TypeError):
             chain(sample)
+
+
+def _image_free_sample(**tensors: Any) -> dict[str, Any]:
+    """Add plain tensors to a sample of vision3d TVTensors without an image.
+
+    ``plain_image_like`` has an image shape, so torchvision's heuristic would
+    transform it. See ``_PassPureTensorsIn3DSamplesMixin`` in
+    ``vision3d/transforms/v2.py``.
+
+    Returns:
+        ``tensors`` plus plain ``labels`` and ``plain_image_like`` tensors.
+    """
+    return {
+        **tensors,
+        "labels": torch.tensor([0, 1, 2]),
+        "plain_image_like": torch.rand(3, 8, 8),
+    }
+
+
+#: Samples that contain vision3d TVTensors but no image.
+_IMAGE_FREE_SAMPLES: dict[str, Callable[[], dict[str, Any]]] = {
+    "points": lambda: _image_free_sample(points=make_point_cloud_3d()),
+    "calibration": lambda: _image_free_sample(
+        extrinsics=make_camera_extrinsics(num_cameras=2),
+        intrinsics=make_camera_intrinsics(num_cameras=2),
+    ),
+}
+
+_PLAIN_KEYS = ("labels", "plain_image_like")
+
+_FORWARDED_TRANSFORMS: dict[str, Callable[[], nn.Module]] = {
+    "Compose": lambda: v3d_v2.Compose([v3d_v2.Resize(size=[16, 16])]),
+    "RandomHorizontalFlip": lambda: v3d_v2.RandomHorizontalFlip(p=1.0),
+    "Resize": lambda: v3d_v2.Resize(size=[16, 16]),
+    "ToImage": v3d_v2.ToImage,
+}
+
+
+class TestPlainTensorsInImageFreeSamples:
+    """Forwarded transforms must pass plain tensors through unchanged in
+    samples that contain vision3d TVTensors but no image."""
+
+    @pytest.mark.parametrize("sample_name", sorted(_IMAGE_FREE_SAMPLES))
+    @pytest.mark.parametrize("transform_name", sorted(_FORWARDED_TRANSFORMS))
+    def test_plain_tensors_untouched(
+        self, transform_name: str, sample_name: str
+    ) -> None:
+        sample = _IMAGE_FREE_SAMPLES[sample_name]()
+        out = _FORWARDED_TRANSFORMS[transform_name]()(sample)
+        for key in _PLAIN_KEYS:
+            assert out[key] is sample[key]
+
+    @pytest.mark.parametrize(
+        "make_transform",
+        [
+            # Queries the image size.
+            lambda: v3d_v2.RandomCrop(size=4),
+            # Queries the image channels.
+            lambda: v3d_v2.RandomGrayscale(p=1.0),
+        ],
+    )
+    def test_image_query_ignores_plain_tensors(
+        self, make_transform: Callable[[], nn.Module]
+    ) -> None:
+        with pytest.raises(TypeError, match="No image"):
+            make_transform()(_IMAGE_FREE_SAMPLES["points"]())
+
+    def test_plain_tensor_matches_torchvision(self) -> None:
+        # Samples without vision3d tensors behave as in torchvision. This ensures
+        # the vision3d.transforms.v2 mirror is a drop-in replacement for
+        # torchvision.transforms.v2.
+        tensor = torch.rand(3, 8, 8)
+        out = v3d_v2.RandomHorizontalFlip(p=1.0)({"img": tensor, "y": torch.tensor(1)})
+        torch.testing.assert_close(out["img"], tensor.flip(-1))

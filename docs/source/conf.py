@@ -10,6 +10,7 @@ from sphinx.environment import BuildEnvironment
 from sphinx.util.typing import ExtensionMetadata
 
 import vision3d
+from vision3d.transforms.v2 import _REFUSED
 
 sys.path.insert(0, str(Path(__file__).parent / "_ext"))
 
@@ -67,6 +68,7 @@ napoleon_use_ivar = True
 nitpick_ignore = [
     ("py:class", "vision3d.transforms._transform._RandomApplyTransform"),
     ("py:class", "vision3d.transforms.v2._Refuse3DAwareMixin"),
+    ("py:class", "vision3d.transforms.v2._PassPureTensorsIn3DSamplesMixin"),
     ("py:class", "torchvision.transforms.v2._transform._RandomApplyTransform"),
 ]
 
@@ -119,13 +121,38 @@ def _suppress_v2_inherited_refs(
     return contnode
 
 
+def _skip_forwarded_v2_transforms(
+    app: Sphinx,
+    what: str,
+    name: str,
+    obj: object,
+    skip: bool,
+    options: object,
+) -> bool | None:
+    """Skip forwarded torchvision transforms that vision3d does not refuse.
+
+    Returns:
+        ``True`` to skip documenting a forwarded transform that is not
+        refused, otherwise ``None`` to let Sphinx decide.
+    """
+    del app, what, name, skip, options
+    if (
+        isinstance(obj, type)
+        and obj.__module__ == "vision3d.transforms.v2"
+        and obj.__name__ not in _REFUSED
+    ):
+        return True
+    return None
+
+
 def setup(app: Sphinx) -> ExtensionMetadata:
-    """Register the v2-scoped missing-reference handler with Sphinx.
+    """Register autodoc handlers with Sphinx.
 
     Returns:
         Extension metadata advertising version and parallel-safety.
     """
     app.connect("missing-reference", _suppress_v2_inherited_refs)
+    app.connect("autodoc-skip-member", _skip_forwarded_v2_transforms)
     return {
         "version": "0.1",
         "parallel_read_safe": True,
