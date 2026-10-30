@@ -1,11 +1,27 @@
-"""Tests for CameraImages/CameraIntrinsics kernel registrations on torchvision v2 transforms."""
+"""Tests for vision3d kernel registrations on torchvision v2 transforms."""
+
+from collections.abc import Callable
 
 import pytest
 import torch
+from common_utils import (
+    make_bounding_boxes_3d,
+    make_camera_extrinsics,
+    make_camera_intrinsics,
+    make_point_cloud_3d,
+)
 from torchvision.transforms import v2
 from torchvision.transforms.v2 import functional as F
+from torchvision.tv_tensors import TVTensor
 
 from vision3d.tensors import CameraImages, CameraIntrinsics
+
+MAKE_3D_INPUTS = [
+    make_point_cloud_3d,
+    make_bounding_boxes_3d,
+    make_camera_extrinsics,
+    make_camera_intrinsics,
+]
 
 
 @pytest.fixture
@@ -104,6 +120,50 @@ class TestToDtype:
         assert isinstance(output, CameraImages)
         assert output.dtype == torch.float32
         assert output.max() <= 1.0
+
+    @pytest.mark.parametrize("make_input", MAKE_3D_INPUTS)
+    @pytest.mark.parametrize("input_dtype", [torch.float32, torch.float64])
+    @pytest.mark.parametrize(
+        "output_dtype", [torch.float16, torch.float32, torch.float64]
+    )
+    def test_functional(
+        self,
+        make_input: Callable[..., TVTensor],
+        input_dtype: torch.dtype,
+        output_dtype: torch.dtype,
+    ) -> None:
+        inpt = make_input(dtype=input_dtype)
+        output = F.to_dtype(inpt, output_dtype)
+        assert type(output) is type(inpt)
+        assert output.dtype == output_dtype
+        assert output.__dict__ == inpt.__dict__
+
+    @pytest.mark.parametrize("make_input", MAKE_3D_INPUTS)
+    @pytest.mark.parametrize("input_dtype", [torch.float32, torch.float64])
+    @pytest.mark.parametrize(
+        "output_dtype", [torch.float16, torch.float32, torch.float64]
+    )
+    def test_transform(
+        self,
+        make_input: Callable[..., TVTensor],
+        input_dtype: torch.dtype,
+        output_dtype: torch.dtype,
+    ) -> None:
+        inpt = make_input(dtype=input_dtype)
+        transform = v2.ToDtype({type(inpt): output_dtype, "others": None})
+        output = transform(inpt)
+        assert type(output) is type(inpt)
+        assert output.dtype == output_dtype
+        assert output.__dict__ == inpt.__dict__
+
+    @pytest.mark.parametrize("make_input", MAKE_3D_INPUTS)
+    def test_plain_dtype_passes_through(
+        self, make_input: Callable[..., TVTensor]
+    ) -> None:
+        # A bare dtype only converts images and videos, as in torchvision.
+        inpt = make_input(dtype=torch.float32)
+        output = v2.ToDtype(torch.float64)(inpt)
+        assert output is inpt
 
 
 class TestGrayscale:
