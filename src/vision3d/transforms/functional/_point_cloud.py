@@ -18,7 +18,11 @@ def shuffle_points(inpt: Tensor) -> Tensor:
 
     Returns:
         Shuffled tensor.
-    """
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D`.
+    """  # noqa: DOC502
     kernel = _get_kernel(shuffle_points, type(inpt))
     return kernel(inpt)
 
@@ -51,7 +55,11 @@ def sample_points(inpt: Tensor, *, n: int) -> Tensor:
 
     Returns:
         Sampled tensor.
-    """
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D`.
+    """  # noqa: DOC502
     kernel = _get_kernel(sample_points, type(inpt))
     return kernel(inpt, n=n)
 
@@ -91,7 +99,11 @@ def jitter_points(inpt: Tensor, *, sigma: float) -> Tensor:
 
     Returns:
         Jittered tensor.
-    """
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D`.
+    """  # noqa: DOC502
     kernel = _get_kernel(jitter_points, type(inpt))
     return kernel(inpt, sigma=sigma)
 
