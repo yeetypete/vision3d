@@ -8,6 +8,7 @@ from common_utils import (
     make_bounding_boxes_3d,
     make_camera_extrinsics,
     make_camera_intrinsics,
+    make_grid_mask_3d,
     make_point_cloud_3d,
 )
 from torchvision.transforms import v2
@@ -21,6 +22,7 @@ MAKE_3D_INPUTS = [
     make_bounding_boxes_3d,
     make_camera_extrinsics,
     make_camera_intrinsics,
+    make_grid_mask_3d,
 ]
 
 
