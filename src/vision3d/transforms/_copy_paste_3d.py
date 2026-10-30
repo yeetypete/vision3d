@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from PIL import Image, ImageDraw
 from torch import Tensor
 from torch.utils._pytree import tree_flatten, tree_unflatten
+from torchvision.transforms.v2 import has_any
 from torchvision.tv_tensors import TVTensor
 
 from vision3d.ops import (
@@ -459,6 +460,9 @@ class CopyPaste3D(Transform):
         """
         flat_inputs, spec = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
         self.check_inputs(flat_inputs)
+
+        if not has_any(flat_inputs, BoundingBoxes3D):
+            return tree_unflatten(flat_inputs, spec)
 
         batch_inputs, batch_targets = self._extract_samples(flat_inputs)
 
