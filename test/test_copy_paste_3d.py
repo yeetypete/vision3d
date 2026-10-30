@@ -8,6 +8,7 @@ from typing import Any, Protocol
 import pytest
 import torch
 from common_utils import make_bounding_boxes_3d
+from torch.utils._pytree import tree_flatten
 
 from vision3d.ops import box3d_overlap, points_in_boxes_3d
 from vision3d.tensors import (
@@ -551,6 +552,18 @@ class TestCrossModal:
         assert isinstance(out_inputs[0]["points"], PointCloud3D)
         assert "images" not in out_inputs[0]
         assert out_targets[0]["boxes"].shape[0] >= 1
+
+    @pytest.mark.parametrize(
+        "make_fn", [_make_lidar_batch, _make_camera_batch, _make_fusion_batch]
+    )
+    def test_box_free_batch_passes_through(self, make_fn: _MakeBatch) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(*make_fn())
+        inputs, _ = make_fn()
+        flat_inputs, in_spec = tree_flatten(inputs)
+        flat_outputs, out_spec = tree_flatten(cp(inputs))
+        assert out_spec == in_spec
+        assert all(o is i for o, i in zip(flat_outputs, flat_inputs, strict=True))
 
 
 # Position jitter
