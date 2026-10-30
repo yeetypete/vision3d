@@ -222,6 +222,7 @@ class TestFlip3DDispatch:
         pc = make_point_cloud_3d(num_points=10)
         out = flip_3d(pc, axis=axis)
         assert isinstance(out, PointCloud3D)
+        assert out is not pc
 
     @pytest.mark.parametrize("axis", ALL_AXES)
     @pytest.mark.parametrize("format", ALL_FORMATS)
@@ -231,27 +232,28 @@ class TestFlip3DDispatch:
         bbox = make_bounding_boxes_3d(format=format, num_boxes=3)
         out = flip_3d(bbox, axis=axis)
         assert isinstance(out, BoundingBoxes3D)
+        assert out is not bbox
         assert out.format == format
 
-    def test_passthrough_camera_images(self) -> None:
+    def test_rejects_camera_images(self) -> None:
         imgs = make_camera_images(num_cameras=2, height=32, width=32)
-        out = flip_3d(imgs, axis="x")
-        assert out is imgs
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            flip_3d(imgs, axis="x")
 
-    def test_passthrough_camera_extrinsics(self) -> None:
+    def test_rejects_camera_extrinsics(self) -> None:
         ext = make_camera_extrinsics(num_cameras=4)
-        out = flip_3d(ext, axis="x")
-        assert out is ext
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            flip_3d(ext, axis="x")
 
-    def test_passthrough_camera_intrinsics(self) -> None:
+    def test_rejects_camera_intrinsics(self) -> None:
         intr = make_camera_intrinsics(num_cameras=2)
-        out = flip_3d(intr, axis="x")
-        assert out is intr
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            flip_3d(intr, axis="x")
 
-    def test_passthrough_plain_tensor(self) -> None:
+    def test_rejects_plain_tensor(self) -> None:
         labels = torch.tensor([0, 1, 2])
-        out = flip_3d(labels, axis="x")
-        assert out is labels
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            flip_3d(labels, axis="x")
 
 
 class TestRandomFlip3D:
@@ -484,6 +486,7 @@ class TestTranslate3DDispatch:
         offset = torch.tensor([1.0, 0, 0])
         out = translate_3d(pc, offset=offset)
         assert isinstance(out, PointCloud3D)
+        assert out is not pc
 
     @pytest.mark.parametrize("format", ALL_FORMATS)
     def test_dispatches_bounding_boxes(self, format: BoundingBox3DFormat) -> None:
@@ -491,6 +494,7 @@ class TestTranslate3DDispatch:
         offset = torch.tensor([1.0, 0, 0])
         out = translate_3d(bbox, offset=offset)
         assert isinstance(out, BoundingBoxes3D)
+        assert out is not bbox
         assert out.format == format
 
     def test_dispatches_camera_extrinsics(self) -> None:
@@ -498,11 +502,12 @@ class TestTranslate3DDispatch:
         offset = torch.tensor([1.0, 0, 0])
         out = translate_3d(ext, offset=offset)
         assert isinstance(out, CameraExtrinsics)
+        assert out is not ext
 
-    def test_passthrough_plain_tensor(self) -> None:
+    def test_rejects_plain_tensor(self) -> None:
         labels = torch.tensor([0, 1, 2])
-        out = translate_3d(labels, offset=torch.tensor([1.0, 0, 0]))
-        assert out is labels
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            translate_3d(labels, offset=torch.tensor([1.0, 0, 0]))
 
 
 # Transform tests
@@ -718,6 +723,7 @@ class TestRotate3DDispatch:
         R = _make_z_rotation(0.5)
         out = rotate_3d(pc, rotation_matrix=R)
         assert isinstance(out, PointCloud3D)
+        assert out is not pc
 
     @pytest.mark.parametrize(
         "format", [BoundingBox3DFormat.XYZLWHY, BoundingBox3DFormat.XYZLWHYPR]
@@ -727,6 +733,7 @@ class TestRotate3DDispatch:
         R = _make_z_rotation(0.5)
         out = rotate_3d(bbox, rotation_matrix=R)
         assert isinstance(out, BoundingBoxes3D)
+        assert out is not bbox
         assert out.format == format
 
     def test_dispatches_camera_extrinsics(self) -> None:
@@ -734,12 +741,13 @@ class TestRotate3DDispatch:
         R = _make_z_rotation(0.5)
         out = rotate_3d(ext, rotation_matrix=R)
         assert isinstance(out, CameraExtrinsics)
+        assert out is not ext
 
-    def test_passthrough_plain_tensor(self) -> None:
+    def test_rejects_plain_tensor(self) -> None:
         labels = torch.tensor([0, 1, 2])
         R = _make_z_rotation(0.5)
-        out = rotate_3d(labels, rotation_matrix=R)
-        assert out is labels
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            rotate_3d(labels, rotation_matrix=R)
 
 
 # Transform tests
@@ -911,23 +919,26 @@ class TestScale3DDispatch:
         pc = make_point_cloud_3d(num_points=10)
         out = scale_3d(pc, factor=2.0)
         assert isinstance(out, PointCloud3D)
+        assert out is not pc
 
     @pytest.mark.parametrize("format", ALL_FORMATS)
     def test_dispatches_bounding_boxes(self, format: BoundingBox3DFormat) -> None:
         bbox = make_bounding_boxes_3d(format=format, num_boxes=3)
         out = scale_3d(bbox, factor=2.0)
         assert isinstance(out, BoundingBoxes3D)
+        assert out is not bbox
         assert out.format == format
 
     def test_dispatches_camera_extrinsics(self) -> None:
         ext = make_camera_extrinsics(num_cameras=4)
         out = scale_3d(ext, factor=2.0)
         assert isinstance(out, CameraExtrinsics)
+        assert out is not ext
 
-    def test_passthrough_plain_tensor(self) -> None:
+    def test_rejects_plain_tensor(self) -> None:
         labels = torch.tensor([0, 1, 2])
-        out = scale_3d(labels, factor=2.0)
-        assert out is labels
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            scale_3d(labels, factor=2.0)
 
 
 # Transform tests

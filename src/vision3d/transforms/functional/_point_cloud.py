@@ -4,16 +4,27 @@ from torch import Tensor
 
 from vision3d.tensors import PointCloud3D
 
-from ._registry import register_kernel
+from ._registry import _get_kernel, register_kernel
 
 
 def shuffle_points(inpt: Tensor, *, perm: Tensor) -> Tensor:
-    """Dispatcher entry point for point shuffling.
+    """Shuffle the points of a point cloud.
+
+    Dispatcher entry point. Type-specific kernels are registered below.
+
+    Args:
+        inpt: Input tensor.
+        perm: Permutation indices ``[N]``.
 
     Returns:
-        Input unchanged (passthrough for non-point types).
-    """
-    return inpt
+        Shuffled tensor.
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D`.
+    """  # noqa: DOC502
+    kernel = _get_kernel(shuffle_points, type(inpt))
+    return kernel(inpt, perm=perm)
 
 
 def shuffle_points_point_cloud(points: Tensor, *, perm: Tensor) -> Tensor:
@@ -35,12 +46,24 @@ def _shuffle_points_kernel(points: Tensor, *, perm: Tensor) -> Tensor:
 
 
 def sample_points(inpt: Tensor, *, indices: Tensor) -> Tensor:
-    """Dispatcher entry point for point sampling.
+    """Select points of a point cloud by index.
+
+    Dispatcher entry point. Type-specific kernels are registered below.
+
+    Args:
+        inpt: Input tensor.
+        indices: Selection indices ``[M]``. May contain repeats for
+            oversampling.
 
     Returns:
-        Input unchanged (passthrough for non-point types).
-    """
-    return inpt
+        Sampled tensor.
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D`.
+    """  # noqa: DOC502
+    kernel = _get_kernel(sample_points, type(inpt))
+    return kernel(inpt, indices=indices)
 
 
 def sample_points_point_cloud(points: Tensor, *, indices: Tensor) -> Tensor:
@@ -63,12 +86,23 @@ def _sample_points_kernel(points: Tensor, *, indices: Tensor) -> Tensor:
 
 
 def jitter_points(inpt: Tensor, *, noise: Tensor) -> Tensor:
-    """Dispatcher entry point for point jittering.
+    """Add noise to the xyz coordinates of a point cloud.
+
+    Dispatcher entry point. Type-specific kernels are registered below.
+
+    Args:
+        inpt: Input tensor.
+        noise: Additive noise ``[N, 3]``.
 
     Returns:
-        Input unchanged (passthrough for non-point types).
-    """
-    return inpt
+        Jittered tensor.
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D`.
+    """  # noqa: DOC502
+    kernel = _get_kernel(jitter_points, type(inpt))
+    return kernel(inpt, noise=noise)
 
 
 def jitter_points_point_cloud(points: Tensor, *, noise: Tensor) -> Tensor:

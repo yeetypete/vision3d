@@ -2,6 +2,7 @@
 
 import functools
 
+import pytest
 import torch
 from common_utils import (
     check_transform,
@@ -103,18 +104,19 @@ class TestShufflePointsDispatch:
         pc = make_point_cloud_3d(num_points=20)
         out = shuffle_points(pc, perm=torch.randperm(20))
         assert isinstance(out, PointCloud3D)
+        assert out is not pc
 
-    def test_passthrough_bounding_boxes(self) -> None:
+    def test_rejects_bounding_boxes(self) -> None:
         boxes = make_bounding_boxes_3d(
             format=BoundingBox3DFormat.XYZLWHYPR, num_boxes=3
         )
-        out = shuffle_points(boxes, perm=torch.randperm(3))
-        assert out is boxes
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            shuffle_points(boxes, perm=torch.randperm(3))
 
-    def test_passthrough_plain_tensor(self) -> None:
+    def test_rejects_plain_tensor(self) -> None:
         labels = torch.tensor([0, 1, 2])
-        out = shuffle_points(labels, perm=torch.randperm(3))
-        assert out is labels
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            shuffle_points(labels, perm=torch.randperm(3))
 
 
 class TestSamplePointsDispatch:
@@ -122,18 +124,19 @@ class TestSamplePointsDispatch:
         pc = make_point_cloud_3d(num_points=20)
         out = sample_points(pc, indices=torch.arange(10))
         assert isinstance(out, PointCloud3D)
+        assert out is not pc
 
-    def test_passthrough_bounding_boxes(self) -> None:
+    def test_rejects_bounding_boxes(self) -> None:
         boxes = make_bounding_boxes_3d(
             format=BoundingBox3DFormat.XYZLWHYPR, num_boxes=3
         )
-        out = sample_points(boxes, indices=torch.arange(3))
-        assert out is boxes
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            sample_points(boxes, indices=torch.arange(3))
 
-    def test_passthrough_plain_tensor(self) -> None:
+    def test_rejects_plain_tensor(self) -> None:
         labels = torch.tensor([0, 1, 2])
-        out = sample_points(labels, indices=torch.arange(3))
-        assert out is labels
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            sample_points(labels, indices=torch.arange(3))
 
 
 class TestJitterPointsDispatch:
@@ -141,18 +144,19 @@ class TestJitterPointsDispatch:
         pc = make_point_cloud_3d(num_points=20)
         out = jitter_points(pc, noise=torch.randn(20, 3))
         assert isinstance(out, PointCloud3D)
+        assert out is not pc
 
-    def test_passthrough_bounding_boxes(self) -> None:
+    def test_rejects_bounding_boxes(self) -> None:
         boxes = make_bounding_boxes_3d(
             format=BoundingBox3DFormat.XYZLWHYPR, num_boxes=3
         )
-        out = jitter_points(boxes, noise=torch.randn(3, 3))
-        assert out is boxes
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            jitter_points(boxes, noise=torch.randn(3, 3))
 
-    def test_passthrough_plain_tensor(self) -> None:
+    def test_rejects_plain_tensor(self) -> None:
         labels = torch.tensor([0, 1, 2])
-        out = jitter_points(labels, noise=torch.randn(3, 3))
-        assert out is labels
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            jitter_points(labels, noise=torch.randn(3, 3))
 
 
 class TestPointShuffle:
