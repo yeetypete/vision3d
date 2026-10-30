@@ -139,6 +139,11 @@ def _default_labels_getter(inputs: Any) -> Tensor:
     raise ValueError(msg)
 
 
+def _no_labels_getter(_inputs: Any) -> None:
+    """Report that a sample contains no labels."""
+    return
+
+
 def _parse_labels_getter(
     labels_getter: str | Callable[[Any], Any] | None,
 ) -> Callable[[Any], Any]:
@@ -161,6 +166,6 @@ def _parse_labels_getter(
     if callable(labels_getter):
         return labels_getter
     if labels_getter is None:
-        return lambda _inputs: None
+        return _no_labels_getter
     msg = "`labels_getter` must be 'default', a callable, or None."
     raise ValueError(msg)

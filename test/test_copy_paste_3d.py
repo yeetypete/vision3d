@@ -2,6 +2,7 @@
 
 import functools
 import math
+import pickle
 from typing import Any, Protocol
 
 import pytest
@@ -270,6 +271,13 @@ class TestDatabase:
         cp(*_make_lidar_batch(batch_size=2, num_boxes=4, labels=[CAR, PED, CAR, PED]))
         assert len(cp._database[CAR]) > 0
         assert len(cp._database[PED]) > 0
+
+    def test_pickle_round_trip(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10, PED: 10}, max_database_size=5)
+        cp(*_make_lidar_batch(batch_size=2, num_boxes=3))
+        restored = pickle.loads(pickle.dumps(cp))
+        assert len(restored._database[CAR]) == len(cp._database[CAR])
+        assert restored._database[PED].maxlen == 5
 
 
 # Core paste correctness

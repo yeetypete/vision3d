@@ -1,5 +1,6 @@
 """3D copy-paste data augmentation with lazy object database."""
 
+import functools
 import math
 from collections import defaultdict, deque
 from collections.abc import Sequence
@@ -441,7 +442,7 @@ class CopyPaste3D(Transform):
         self.p = p
 
         self._database: dict[int, deque[ObjectEntry]] = defaultdict(
-            lambda: deque(maxlen=self.max_database_size)
+            functools.partial(deque, maxlen=self.max_database_size)
         )
 
     @override
