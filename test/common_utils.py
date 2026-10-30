@@ -11,6 +11,7 @@ from vision3d.tensors import (
     CameraExtrinsics,
     CameraImages,
     CameraIntrinsics,
+    GridMask3D,
     PointCloud3D,
 )
 from vision3d.transforms import Transform
@@ -182,6 +183,42 @@ def box_at(
     if fmt == BoundingBox3DFormat.XYZLWHYPR:
         return [cx, cy, cz, 2.0, 2.0, 2.0, 0.0, 0.0, 0.0]
     raise ValueError(fmt)
+
+
+def make_grid_affine(*, cell_size: float = 0.5) -> torch.Tensor:
+    """Build an index-to-frame affine transform for a grid with uniform cells.
+
+    Returns:
+        ``[4, 4]`` float64 affine transform with ``cell_size`` on the diagonal and a
+        non-zero origin.
+    """
+    affine = torch.eye(4, dtype=torch.float64)
+    affine[:3, :3] *= cell_size
+    affine[:3, 3] = torch.tensor([-1.0, -10.0, -10.0], dtype=torch.float64)
+    return affine
+
+
+def make_grid_mask_3d(
+    *,
+    channels: int = 1,
+    spatial_shape: tuple[int, ...] = (8, 8),
+    num_classes: int = 4,
+    dtype: torch.dtype = torch.int64,
+) -> GridMask3D:
+    """Generate a random label grid for testing.
+
+    Floating point dtypes produce soft labels in ``[0, 1)`` and integer
+    dtypes produce class indices below ``num_classes``.
+
+    Returns:
+        GridMask3D with shape ``[channels, *spatial_shape]``.
+    """
+    shape = (channels, *spatial_shape)
+    if dtype.is_floating_point:
+        data = torch.rand(shape, dtype=dtype)
+    else:
+        data = torch.randint(0, num_classes, shape, dtype=dtype)
+    return GridMask3D(data, affine=make_grid_affine())
 
 
 def make_lidar_sample(
