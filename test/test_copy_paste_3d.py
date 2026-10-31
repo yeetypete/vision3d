@@ -432,6 +432,53 @@ class TestMixedFormats:
 
 
 # Probability
+class TestLabelsGetter:
+    def test_other_plain_tensors_pass_through(self) -> None:
+        inputs, targets = _make_lidar_batch(batch_size=2)
+        for inp in inputs:
+            inp["timestamp"] = torch.tensor(1.0)
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        out_inputs, out_targets = cp(inputs, targets)
+        for inp, out_inp, out_tgt in zip(inputs, out_inputs, out_targets):
+            assert out_inp["timestamp"] is inp["timestamp"]
+            assert out_tgt["labels"].shape[0] == out_tgt["boxes"].shape[0]
+
+    def test_default_getter_falls_back_to_label_like_key(self) -> None:
+        inputs, targets = _make_lidar_batch(batch_size=2)
+        for tgt in targets:
+            tgt["gt_labels"] = tgt.pop("labels")
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        _, out_targets = cp(inputs, targets)
+        assert len(cp._database[CAR]) > 0
+        for tgt in out_targets:
+            assert tgt["gt_labels"].shape[0] == tgt["boxes"].shape[0]
+
+    def test_default_getter_raises_without_labels(self) -> None:
+        inputs, targets = _make_lidar_batch(batch_size=2)
+        for tgt in targets:
+            del tgt["labels"]
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        with pytest.raises(ValueError, match="could not find a label-like key"):
+            cp(inputs, targets)
+
+    def test_callable_getter(self) -> None:
+        cp = CopyPaste3D(
+            target_counts={CAR: 10},
+            min_points=1,
+            labels_getter=lambda batch: tuple(tgt["labels"] for tgt in batch[1]),
+        )
+        cp(*_make_lidar_batch(batch_size=2))
+        assert len(cp._database[CAR]) > 0
+
+    def test_none_getter_without_labels(self) -> None:
+        inputs, targets = _make_lidar_batch(batch_size=2)
+        for tgt in targets:
+            del tgt["labels"]
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1, labels_getter=None)
+        _, out_targets = cp(inputs, targets)
+        assert all("labels" not in tgt for tgt in out_targets)
+
+
 class TestProbability:
     def test_p_zero_no_paste(self) -> None:
         cp = CopyPaste3D(target_counts={CAR: 10}, p=0.0)
