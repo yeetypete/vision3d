@@ -17,6 +17,7 @@ from torchvision.transforms.v2 import has_any
 from torchvision.tv_tensors import TVTensor
 
 from vision3d.ops import (
+    box3d_convert,
     box3d_corners,
     box3d_overlap,
     extract_box3d_params,
@@ -57,7 +58,8 @@ class ObjectEntry:
     Attributes:
         points: Points in scene frame ``[M, 3+C]``, or ``None`` for
             camera-only entries.
-        box: Full box tensor ``[K]`` in its original format.
+        box: Full box tensor ``[K]`` in ``format``.
+        format: Format of ``box``.
         label: Integer class label.
         camera_crops: Per-camera crops, or None when no camera data is
             available.  ``camera_crops[i]`` is None if the object is not
@@ -66,6 +68,7 @@ class ObjectEntry:
 
     points: Tensor | None
     box: Tensor
+    format: BoundingBox3DFormat
     label: int
     camera_crops: list[CameraCrop | None] | None = field(default=None, repr=False)
 
@@ -636,6 +639,7 @@ class CopyPaste3D(Transform):
             entry = ObjectEntry(
                 points=obj_points.detach().cpu() if obj_points is not None else None,
                 box=boxes[j].detach().cpu(),
+                format=fmt,
                 label=label,
                 camera_crops=camera_crops_map.get(j),
             )
@@ -846,7 +850,12 @@ class CopyPaste3D(Transform):
                 continue
 
             perm = torch.randperm(len(db)).tolist()
-            candidates = [db[i] for i in perm[:n_paste]]
+            candidates = [
+                replace(
+                    db[i], box=box3d_convert(db[i].box, db[i].format, fmt), format=fmt
+                )
+                for i in perm[:n_paste]
+            ]
 
             if self._jitter:
                 # Jitter path: place one at a time so each candidate's jittered

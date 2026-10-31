@@ -10,7 +10,7 @@ import torch
 from common_utils import make_bounding_boxes_3d
 from torch.utils._pytree import tree_flatten
 
-from vision3d.ops import box3d_overlap, points_in_boxes_3d
+from vision3d.ops import box3d_convert, box3d_overlap, points_in_boxes_3d
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -392,6 +392,43 @@ class TestPasteCorrectness:
         )
         assert isinstance(tgt["boxes"], BoundingBoxes3D)
         assert tgt["boxes"].format == fmt
+
+
+# Mixed box formats
+def _empty_scene(fmt: BoundingBox3DFormat) -> _Batch:
+    inputs = ({"points": PointCloud3D(torch.rand(10, 3))},)
+    targets = (
+        {
+            "boxes": make_bounding_boxes_3d(format=fmt, num_boxes=0),
+            "labels": torch.zeros(0, dtype=torch.long),
+        },
+    )
+    return inputs, targets
+
+
+class TestMixedFormats:
+    def test_converts_stored_objects_to_sample_format(self) -> None:
+        xyzxyz, xyzlwh = BoundingBox3DFormat.XYZXYZ, BoundingBox3DFormat.XYZLWH
+        inputs, targets = _make_lidar_batch(format=xyzlwh)
+        source = torch.cat([t["boxes"].as_subclass(torch.Tensor) for t in targets])
+        for t in targets:
+            raw = t["boxes"].as_subclass(torch.Tensor)
+            t["boxes"] = BoundingBoxes3D(
+                box3d_convert(raw, xyzlwh, xyzxyz), format=xyzxyz
+            )
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(inputs, targets)
+        _, out_targets = cp(*_empty_scene(xyzlwh))
+        pasted = out_targets[0]["boxes"].as_subclass(torch.Tensor)
+        assert pasted.shape[0] > 0
+        for box in pasted:
+            assert torch.isclose(box, source).all(dim=1).any()
+
+    def test_unsupported_conversion_raises(self) -> None:
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(*_make_lidar_batch(format=BoundingBox3DFormat.XYZLWHY))
+        with pytest.raises(NotImplementedError, match="XYZLWHY to XYZLWHYPR"):
+            cp(*_empty_scene(BoundingBox3DFormat.XYZLWHYPR))
 
 
 # Probability
