@@ -5,7 +5,7 @@ import math
 from collections import defaultdict, deque
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, override
+from typing import Any, Literal, override
 
 import numpy as np
 import torch
@@ -280,6 +280,7 @@ def _batch_hull_masks(
 _AxisRange = tuple[float, float]
 _OffsetRange = _AxisRange | Sequence[_AxisRange]
 _OffsetStd = float | Sequence[float | None] | None
+_SampleKey = Literal["points", "images", "extrinsics", "intrinsics", "boxes", "labels"]
 
 
 def _normalize_offset_range(offset_range: _OffsetRange) -> tuple[_AxisRange, ...]:
@@ -487,8 +488,12 @@ class CopyPaste3D(Transform):
             return tree_unflatten(flat_inputs, spec)
 
         label_ids = _resolve_label_ids(self._labels_getter(inputs), flat_inputs, None)
-        labels = [leaf for leaf in flat_inputs if id(leaf) in label_ids]
-        batch_inputs, batch_targets = self._extract_samples(flat_inputs, labels)
+        label_indices = [
+            i for i, leaf in enumerate(flat_inputs) if id(leaf) in label_ids
+        ]
+        batch_inputs, batch_targets, slots = self._extract_samples(
+            flat_inputs, label_indices
+        )
 
         for inp, tgt in zip(batch_inputs, batch_targets):
             self._extract_objects(inp, tgt)
@@ -503,47 +508,50 @@ class CopyPaste3D(Transform):
             output_inputs.append(new_inp)
             output_targets.append(new_tgt)
 
-        self._insert_outputs(flat_inputs, labels, output_inputs, output_targets)
+        self._insert_outputs(flat_inputs, slots, output_inputs, output_targets)
         return tree_unflatten(flat_inputs, spec)
 
     def _extract_samples(
-        self, flat_inputs: list[Any], labels: list[Tensor]
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        self, flat_inputs: list[Any], label_indices: list[int]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[_SampleKey, int]]]:
         """Group flat pytree leaves into per-sample input and target dicts.
 
         Args:
             flat_inputs: Leaves from :func:`torch.utils._pytree.tree_flatten`.
-            labels: Per-sample label tensors in batch order, or empty when the
-                batch has no labels.
+            label_indices: Positions of the per-sample label tensors in
+                ``flat_inputs``, in batch order, or empty when the batch has no
+                labels.
 
         Returns:
-            ``(batch_inputs, batch_targets)``: Lists of per-sample dicts.
+            ``(batch_inputs, batch_targets, slots)``: Lists of per-sample dicts,
+            and for each sample the position in ``flat_inputs`` of every leaf
+            stored under each key.
 
         Raises:
             TypeError: If required types are missing or counts don't match.
         """
-        points: list[PointCloud3D] = []
-        boxes: list[BoundingBoxes3D] = []
-        images: list[CameraImages] = []
-        extrinsics: list[CameraExtrinsics] = []
-        intrinsics: list[CameraIntrinsics] = []
+        points: list[int] = []
+        boxes: list[int] = []
+        images: list[int] = []
+        extrinsics: list[int] = []
+        intrinsics: list[int] = []
 
-        for obj in flat_inputs:
+        for i, obj in enumerate(flat_inputs):
             if isinstance(obj, PointCloud3D):
-                points.append(obj)
+                points.append(i)
             elif isinstance(obj, BoundingBoxes3D):
-                boxes.append(obj)
+                boxes.append(i)
             elif isinstance(obj, CameraImages):
-                images.append(obj)
+                images.append(i)
             elif isinstance(obj, CameraExtrinsics):
-                extrinsics.append(obj)
+                extrinsics.append(i)
             elif isinstance(obj, CameraIntrinsics):
-                intrinsics.append(obj)
+                intrinsics.append(i)
 
         n = len(boxes)
         has_points = len(points) > 0
         has_cameras = len(images) > 0
-        has_labels = len(labels) > 0
+        has_labels = len(label_indices) > 0
 
         mismatched: list[str] = []
         if has_points and len(points) != n:
@@ -554,8 +562,8 @@ class CopyPaste3D(Transform):
             mismatched.append(f"CameraExtrinsics ({len(extrinsics)})")
         if has_cameras and len(intrinsics) != n:
             mismatched.append(f"CameraIntrinsics ({len(intrinsics)})")
-        if has_labels and len(labels) != n:
-            mismatched.append(f"label tensors ({len(labels)})")
+        if has_labels and len(label_indices) != n:
+            mismatched.append(f"label tensors ({len(label_indices)})")
         if mismatched:
             raise TypeError(
                 f"{type(self).__name__}() requires equal sized lists of "
@@ -565,8 +573,9 @@ class CopyPaste3D(Transform):
 
         batch_inputs: list[dict[str, Any]] = []
         batch_targets: list[dict[str, Any]] = []
+        slots: list[dict[_SampleKey, int]] = []
         for i in range(n):
-            inp: dict[str, Any] = {}
+            inp: dict[_SampleKey, int] = {}
             if has_points:
                 inp["points"] = points[i]
             if has_cameras:
@@ -574,49 +583,28 @@ class CopyPaste3D(Transform):
                 inp["extrinsics"] = extrinsics[i]
                 inp["intrinsics"] = intrinsics[i]
 
-            tgt: dict[str, Any] = {"boxes": boxes[i]}
+            tgt: dict[_SampleKey, int] = {"boxes": boxes[i]}
             if has_labels:
-                tgt["labels"] = labels[i]
+                tgt["labels"] = label_indices[i]
 
-            batch_inputs.append(inp)
-            batch_targets.append(tgt)
+            batch_inputs.append({key: flat_inputs[j] for key, j in inp.items()})
+            batch_targets.append({key: flat_inputs[j] for key, j in tgt.items()})
+            slots.append(inp | tgt)
 
-        return batch_inputs, batch_targets
+        return batch_inputs, batch_targets, slots
 
     def _insert_outputs(
         self,
         flat_inputs: list[Any],
-        labels: list[Tensor],
+        slots: list[dict[_SampleKey, int]],
         output_inputs: list[dict[str, Any]],
         output_targets: list[dict[str, Any]],
     ) -> None:
-        """Replace modified leaves in *flat_inputs* in-place.
-
-        Uses per-type counters to walk through the flat list and replace
-        each leaf with the corresponding value from the output dicts. Label
-        leaves are matched to their sample by identity.
-        """
-        c_pts = 0
-        c_img = 0
-        c_box = 0
-        label_index = {id(label): i for i, label in enumerate(labels)}
-
-        for i, obj in enumerate(flat_inputs):
-            if isinstance(obj, PointCloud3D):
-                flat_inputs[i] = output_inputs[c_pts]["points"]
-                c_pts += 1
-            elif isinstance(obj, CameraImages):
-                new_img = output_inputs[c_img].get("images")
-                if new_img is not None:
-                    flat_inputs[i] = new_img
-                c_img += 1
-            elif isinstance(obj, BoundingBoxes3D):
-                flat_inputs[i] = output_targets[c_box]["boxes"]
-                c_box += 1
-            elif isinstance(obj, (CameraExtrinsics, CameraIntrinsics)):
-                pass  # never modified by copy-paste
-            elif id(obj) in label_index:
-                flat_inputs[i] = output_targets[label_index[id(obj)]]["labels"]
+        """Write each sample's output leaves back into *flat_inputs* in-place."""
+        for slot, out_inp, out_tgt in zip(slots, output_inputs, output_targets):
+            outputs = out_inp | out_tgt
+            for key, i in slot.items():
+                flat_inputs[i] = outputs[key]
 
     def _has_camera_data(self, inputs: dict[str, Any]) -> bool:
         return "images" in inputs and "extrinsics" in inputs and "intrinsics" in inputs
