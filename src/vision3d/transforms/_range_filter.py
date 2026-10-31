@@ -36,10 +36,11 @@ class RangeFilter3D(Transform):
             or ``None``. The returned tensors must be the exact objects stored
             in the sample, not copies or views, since labels are matched to
             their leaf by identity. Alternatively, pass the string
-            ``"default"`` (the default) to use the built-in heuristic, which
-            finds the labels under a case-insensitive ``"labels"`` key and
-            raises if the sample has boxes but no such tensor, or pass ``None``
-            to filter the boxes without touching any labels.
+            ``"default"`` (the default) to use torchvision's heuristic, which
+            finds the labels under a case-insensitive ``"labels"`` key, or else
+            the first key containing ``"label"``, and raises if the sample has
+            boxes but no such key, or pass ``None`` to filter the boxes without
+            touching any labels.
     """
 
     def __init__(

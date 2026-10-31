@@ -1,9 +1,10 @@
 """Shared helpers for transforms."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from torch import Tensor
+from torchvision.transforms.v2.functional import is_pure_tensor
 
 from vision3d.tensors import BoundingBoxes3D
 
@@ -93,50 +94,51 @@ def _resolve_label_ids(
     return {id(label) for label in labels}
 
 
-def _default_labels_getter(inputs: Any) -> Tensor:
-    """Locate a per-box ``labels`` tensor by a case-insensitive ``"labels"`` key.
+def _default_labels_getter(inputs: Any) -> Any:
+    """Locate a sample's per-box labels under a label-like key.
 
-    Mirrors torchvision's default ``labels_getter``. The sample is a dict, or a
-    two-tuple whose second element is the targets dict (or a bare labels
-    tensor). Raises if no labels tensor can be found, so a silent no-op never
-    hides a mislabelled sample. Callers that have no labels to sync should pass
-    ``labels_getter=None`` instead of relying on this heuristic.
+    Mirrors torchvision's default ``labels_getter``. The sample is a mapping, or
+    a tuple/list whose second item is that mapping or a pure labels tensor. In
+    the mapping, a case-insensitive ``"labels"`` key takes priority, otherwise
+    the first key containing ``"label"`` is used (e.g. ``gt_labels``). Callers
+    that have no labels to sync should pass ``labels_getter=None``.
 
     Args:
-        inputs: The sample passed to ``forward`` (a dict, or a two-tuple).
+        inputs: The sample passed to ``forward``.
 
     Returns:
-        The labels tensor found in the sample.
+        The value stored under the label-like key, or the pure tensor.
 
     Raises:
-        ValueError: If no case-insensitive ``"labels"`` key is found, or the
-            key exists but its value is not a tensor.
+        ValueError: If the sample is not structured as described above, or
+            holds no label-like key.
     """
-    candidate: Any = inputs
-    if isinstance(inputs, (tuple, list)) and len(inputs) == 2:
-        second = inputs[1]
-        if isinstance(second, Tensor):
-            return second
-        candidate = second
-    if isinstance(candidate, dict):
-        for key, value in candidate.items():
-            if isinstance(key, str) and key.lower() == "labels":
-                if not isinstance(value, Tensor):
-                    msg = (
-                        "the default `labels_getter` found a 'labels' key whose "
-                        f"value is a {type(value).__name__}, not a tensor. Pass "
-                        "a callable as `labels_getter` to locate the labels, or "
-                        "`labels_getter=None` if the sample has no labels."
-                    )
-                    raise ValueError(msg)
-                return value
-    msg = (
-        "the default `labels_getter` could not find a labels tensor in the "
-        "sample, expected a case-insensitive 'labels' key holding a tensor. "
-        "Pass a callable as `labels_getter` to locate the labels, or "
-        "`labels_getter=None` if the sample has no labels."
-    )
-    raise ValueError(msg)
+    if isinstance(inputs, (tuple, list)):
+        inputs = inputs[1]
+    if is_pure_tensor(inputs):
+        return inputs
+    if not isinstance(inputs, Mapping):
+        msg = (
+            "the default `labels_getter` expects a mapping, or a tuple/list whose "
+            "second item is a mapping or a labels tensor, but got "
+            f"{type(inputs).__name__}. Pass a callable as `labels_getter` to "
+            "locate the labels, or `labels_getter=None` if the sample has no "
+            "labels."
+        )
+        raise ValueError(msg)  # noqa: TRY004
+    keys = [key for key in inputs if isinstance(key, str)]
+    key = next((key for key in keys if key.lower() == "labels"), None)
+    if key is None:
+        key = next((key for key in keys if "label" in key.lower()), None)
+    if key is None:
+        msg = (
+            "the default `labels_getter` could not find a label-like key in the "
+            "sample, expected a key matching 'labels' or containing 'label'. Pass "
+            "a callable as `labels_getter` to locate the labels, or "
+            "`labels_getter=None` if the sample has no labels."
+        )
+        raise ValueError(msg)
+    return inputs[key]
 
 
 def _no_labels_getter(_inputs: Any) -> None:

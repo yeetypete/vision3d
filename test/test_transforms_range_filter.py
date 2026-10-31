@@ -219,6 +219,28 @@ class TestLabelsGetter:
         _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
         assert out_targets["Labels"].tolist() == [0, 1]
 
+    def test_default_getter_falls_back_to_label_like_key(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        targets = {"boxes": targets["boxes"], "gt_labels": targets["labels"]}
+        _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
+        assert out_targets["gt_labels"].tolist() == [0, 1]
+
+    def test_default_getter_prefers_labels_key(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        targets = {
+            "boxes": targets["boxes"],
+            "gt_labels": targets["labels"].clone(),
+            "labels": targets["labels"],
+        }
+        _, out_targets = RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
+        assert out_targets["labels"].tolist() == [0, 1]
+        assert out_targets["gt_labels"].shape[0] == 3
+
+    def test_default_getter_rejects_tv_tensor_target(self) -> None:
+        inputs, targets = _make_two_dict_sample()
+        with pytest.raises(ValueError, match="expects a mapping"):
+            RangeFilter3D(point_cloud_range=_RANGE)(inputs["points"], targets["boxes"])
+
     def test_custom_labels_getter(self) -> None:
         inputs, targets = _make_two_dict_sample()
         targets = {"boxes": targets["boxes"], "gt_labels": targets["labels"]}
@@ -293,13 +315,13 @@ class TestLabelsGetter:
     def test_default_getter_non_tensor_labels_raises(self) -> None:
         inputs, targets = _make_two_dict_sample()
         targets = {"boxes": targets["boxes"], "labels": ["a", "b", "c"]}
-        with pytest.raises(ValueError, match="not a tensor"):
+        with pytest.raises(ValueError, match="must return a tensor"):
             RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
 
     def test_default_getter_missing_labels_with_boxes_raises(self) -> None:
         inputs, targets = _make_two_dict_sample()
         targets = {"boxes": targets["boxes"]}
-        with pytest.raises(ValueError, match="could not find a labels tensor"):
+        with pytest.raises(ValueError, match="could not find a label-like key"):
             RangeFilter3D(point_cloud_range=_RANGE)(inputs, targets)
 
     def test_default_getter_missing_labels_without_boxes_ok(self) -> None:
