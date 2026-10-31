@@ -3,9 +3,9 @@
 import functools
 import math
 from collections import defaultdict, deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
-from typing import Any, override
+from typing import Any, Literal, override
 
 import numpy as np
 import torch
@@ -14,7 +14,6 @@ from PIL import Image, ImageDraw
 from torch import Tensor
 from torch.utils._pytree import tree_flatten, tree_unflatten
 from torchvision.transforms.v2 import has_any
-from torchvision.tv_tensors import TVTensor
 
 from vision3d.ops import (
     box3d_convert,
@@ -34,6 +33,11 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 from vision3d.transforms._transform import Transform
+from vision3d.transforms._utils import (
+    _default_batch_labels_getter,
+    _parse_labels_getter,
+    _resolve_label_ids,
+)
 
 
 @dataclass
@@ -276,6 +280,7 @@ def _batch_hull_masks(
 _AxisRange = tuple[float, float]
 _OffsetRange = _AxisRange | Sequence[_AxisRange]
 _OffsetStd = float | Sequence[float | None] | None
+_SampleKey = Literal["points", "images", "extrinsics", "intrinsics", "boxes", "labels"]
 
 
 def _normalize_offset_range(offset_range: _OffsetRange) -> tuple[_AxisRange, ...]:
@@ -400,6 +405,15 @@ class CopyPaste3D(Transform):
             values raise the chance of placing a genuinely jittered object in a
             crowded scene. Ignored when jittering is disabled. Default: ``5``.
         p: Probability of applying the augmentation. Default: ``1.0``.
+        labels_getter: How to locate each sample's per-box label tensor, which
+            is extended in sync with the pasted boxes. Pass a callable that
+            takes the batch and returns the label tensors stored in it, one per
+            sample, or ``None``. Alternatively, pass the string ``"default"``
+            (the default) to apply torchvision's heuristic to each mapping that
+            holds a box set, which finds the labels under a case-insensitive
+            ``"labels"`` key, or else the first key containing ``"label"``, and
+            raises if such a mapping has no such key, or pass ``None`` for a
+            batch without labels.
     """
 
     def __init__(
@@ -411,6 +425,7 @@ class CopyPaste3D(Transform):
         offset_std: _OffsetStd = None,
         max_jitter_attempts: int = 5,
         p: float = 1.0,
+        labels_getter: str | Callable[[Any], Any] | None = "default",
     ) -> None:
         super().__init__()
         if not (0.0 <= p <= 1.0):
@@ -444,6 +459,10 @@ class CopyPaste3D(Transform):
         self.max_jitter_attempts = max_jitter_attempts
         self._jitter = any(r != (0.0, 0.0) for r in self.offset_range)
         self.p = p
+        self.labels_getter = labels_getter
+        self._labels_getter = _parse_labels_getter(
+            labels_getter, default=_default_batch_labels_getter
+        )
 
         self._database: dict[int, deque[ObjectEntry]] = defaultdict(
             functools.partial(deque, maxlen=self.max_database_size)
@@ -456,18 +475,25 @@ class CopyPaste3D(Transform):
         Accepts any pytree structure containing
         :class:`~vision3d.tensors.PointCloud3D`,
         :class:`~vision3d.tensors.BoundingBoxes3D`, and optionally camera
-        tensors and plain-tensor labels.
+        tensors and per-box labels located via ``labels_getter``.
 
         Returns:
             The same pytree structure with modified leaves.
         """
-        flat_inputs, spec = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
+        inputs = inputs if len(inputs) > 1 else inputs[0]
+        flat_inputs, spec = tree_flatten(inputs)
         self.check_inputs(flat_inputs)
 
         if not has_any(flat_inputs, BoundingBoxes3D):
             return tree_unflatten(flat_inputs, spec)
 
-        batch_inputs, batch_targets = self._extract_samples(flat_inputs)
+        label_ids = _resolve_label_ids(self._labels_getter(inputs), flat_inputs, None)
+        label_indices = [
+            i for i, leaf in enumerate(flat_inputs) if id(leaf) in label_ids
+        ]
+        batch_inputs, batch_targets, slots = self._extract_samples(
+            flat_inputs, label_indices
+        )
 
         for inp, tgt in zip(batch_inputs, batch_targets):
             self._extract_objects(inp, tgt)
@@ -482,45 +508,50 @@ class CopyPaste3D(Transform):
             output_inputs.append(new_inp)
             output_targets.append(new_tgt)
 
-        self._insert_outputs(flat_inputs, output_inputs, output_targets)
+        self._insert_outputs(flat_inputs, slots, output_inputs, output_targets)
         return tree_unflatten(flat_inputs, spec)
 
     def _extract_samples(
-        self, flat_inputs: list[Any]
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        self, flat_inputs: list[Any], label_indices: list[int]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[_SampleKey, int]]]:
         """Group flat pytree leaves into per-sample input and target dicts.
 
+        Args:
+            flat_inputs: Leaves from :func:`torch.utils._pytree.tree_flatten`.
+            label_indices: Positions of the per-sample label tensors in
+                ``flat_inputs``, in batch order, or empty when the batch has no
+                labels.
+
         Returns:
-            ``(batch_inputs, batch_targets)``: Lists of per-sample dicts.
+            ``(batch_inputs, batch_targets, slots)``: Lists of per-sample dicts,
+            and for each sample the position in ``flat_inputs`` of every leaf
+            stored under each key.
 
         Raises:
             TypeError: If required types are missing or counts don't match.
         """
-        points: list[PointCloud3D] = []
-        boxes: list[BoundingBoxes3D] = []
-        images: list[CameraImages] = []
-        extrinsics: list[CameraExtrinsics] = []
-        intrinsics: list[CameraIntrinsics] = []
-        labels: list[Tensor] = []
+        points: list[int] = []
+        boxes: list[int] = []
+        images: list[int] = []
+        extrinsics: list[int] = []
+        intrinsics: list[int] = []
 
-        for obj in flat_inputs:
+        for i, obj in enumerate(flat_inputs):
             if isinstance(obj, PointCloud3D):
-                points.append(obj)
+                points.append(i)
             elif isinstance(obj, BoundingBoxes3D):
-                boxes.append(obj)
+                boxes.append(i)
             elif isinstance(obj, CameraImages):
-                images.append(obj)
+                images.append(i)
             elif isinstance(obj, CameraExtrinsics):
-                extrinsics.append(obj)
+                extrinsics.append(i)
             elif isinstance(obj, CameraIntrinsics):
-                intrinsics.append(obj)
-            elif isinstance(obj, Tensor) and not isinstance(obj, TVTensor):
-                labels.append(obj)
+                intrinsics.append(i)
 
         n = len(boxes)
         has_points = len(points) > 0
         has_cameras = len(images) > 0
-        has_labels = len(labels) > 0
+        has_labels = len(label_indices) > 0
 
         mismatched: list[str] = []
         if has_points and len(points) != n:
@@ -531,8 +562,8 @@ class CopyPaste3D(Transform):
             mismatched.append(f"CameraExtrinsics ({len(extrinsics)})")
         if has_cameras and len(intrinsics) != n:
             mismatched.append(f"CameraIntrinsics ({len(intrinsics)})")
-        if has_labels and len(labels) != n:
-            mismatched.append(f"plain tensors ({len(labels)})")
+        if has_labels and len(label_indices) != n:
+            mismatched.append(f"label tensors ({len(label_indices)})")
         if mismatched:
             raise TypeError(
                 f"{type(self).__name__}() requires equal sized lists of "
@@ -542,8 +573,9 @@ class CopyPaste3D(Transform):
 
         batch_inputs: list[dict[str, Any]] = []
         batch_targets: list[dict[str, Any]] = []
+        slots: list[dict[_SampleKey, int]] = []
         for i in range(n):
-            inp: dict[str, Any] = {}
+            inp: dict[_SampleKey, int] = {}
             if has_points:
                 inp["points"] = points[i]
             if has_cameras:
@@ -551,50 +583,28 @@ class CopyPaste3D(Transform):
                 inp["extrinsics"] = extrinsics[i]
                 inp["intrinsics"] = intrinsics[i]
 
-            tgt: dict[str, Any] = {"boxes": boxes[i]}
+            tgt: dict[_SampleKey, int] = {"boxes": boxes[i]}
             if has_labels:
-                tgt["labels"] = labels[i]
+                tgt["labels"] = label_indices[i]
 
-            batch_inputs.append(inp)
-            batch_targets.append(tgt)
+            batch_inputs.append({key: flat_inputs[j] for key, j in inp.items()})
+            batch_targets.append({key: flat_inputs[j] for key, j in tgt.items()})
+            slots.append(inp | tgt)
 
-        return batch_inputs, batch_targets
+        return batch_inputs, batch_targets, slots
 
     def _insert_outputs(
         self,
         flat_inputs: list[Any],
+        slots: list[dict[_SampleKey, int]],
         output_inputs: list[dict[str, Any]],
         output_targets: list[dict[str, Any]],
     ) -> None:
-        """Replace modified leaves in *flat_inputs* in-place.
-
-        Uses per-type counters to walk through the flat list and replace
-        each leaf with the corresponding value from the output dicts.
-        """
-        c_pts = 0
-        c_img = 0
-        c_box = 0
-        c_lbl = 0
-
-        for i, obj in enumerate(flat_inputs):
-            if isinstance(obj, PointCloud3D):
-                flat_inputs[i] = output_inputs[c_pts]["points"]
-                c_pts += 1
-            elif isinstance(obj, CameraImages):
-                new_img = output_inputs[c_img].get("images")
-                if new_img is not None:
-                    flat_inputs[i] = new_img
-                c_img += 1
-            elif isinstance(obj, BoundingBoxes3D):
-                flat_inputs[i] = output_targets[c_box]["boxes"]
-                c_box += 1
-            elif isinstance(obj, (CameraExtrinsics, CameraIntrinsics)):
-                pass  # never modified by copy-paste
-            elif isinstance(obj, Tensor) and not isinstance(obj, TVTensor):
-                new_lbl = output_targets[c_lbl].get("labels")
-                if new_lbl is not None:
-                    flat_inputs[i] = new_lbl
-                c_lbl += 1
+        """Write each sample's output leaves back into *flat_inputs* in-place."""
+        for slot, out_inp, out_tgt in zip(slots, output_inputs, output_targets):
+            outputs = out_inp | out_tgt
+            for key, i in slot.items():
+                flat_inputs[i] = outputs[key]
 
     def _has_camera_data(self, inputs: dict[str, Any]) -> bool:
         return "images" in inputs and "extrinsics" in inputs and "intrinsics" in inputs

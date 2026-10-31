@@ -4,6 +4,8 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from torch import Tensor
+from torch.utils._pytree import tree_leaves
+from torchvision.transforms.v2 import has_any
 from torchvision.transforms.v2.functional import is_pure_tensor
 
 from vision3d.tensors import BoundingBoxes3D
@@ -94,6 +96,22 @@ def _resolve_label_ids(
     return {id(label) for label in labels}
 
 
+def _find_label_key(mapping: Mapping[Any, Any]) -> str | None:
+    """Find the key holding a mapping's labels.
+
+    A case-insensitive ``"labels"`` key takes priority, otherwise the first key
+    containing ``"label"`` is used.
+
+    Returns:
+        The matching key, or ``None`` if the mapping has no label-like key.
+    """
+    keys = [key for key in mapping if isinstance(key, str)]
+    key = next((key for key in keys if key.lower() == "labels"), None)
+    if key is None:
+        key = next((key for key in keys if "label" in key.lower()), None)
+    return key
+
+
 def _default_labels_getter(inputs: Any) -> Any:
     """Locate a sample's per-box labels under a label-like key.
 
@@ -126,10 +144,7 @@ def _default_labels_getter(inputs: Any) -> Any:
             "labels."
         )
         raise ValueError(msg)  # noqa: TRY004
-    keys = [key for key in inputs if isinstance(key, str)]
-    key = next((key for key in keys if key.lower() == "labels"), None)
-    if key is None:
-        key = next((key for key in keys if "label" in key.lower()), None)
+    key = _find_label_key(inputs)
     if key is None:
         msg = (
             "the default `labels_getter` could not find a label-like key in the "
@@ -141,6 +156,50 @@ def _default_labels_getter(inputs: Any) -> Any:
     return inputs[key]
 
 
+def _has_boxes(node: Any) -> bool:
+    return isinstance(node, Mapping) and has_any(list(node.values()), BoundingBoxes3D)
+
+
+def _default_batch_labels_getter(inputs: Any) -> tuple[Any, ...]:
+    """Locate the per-box labels of every sample in a batch.
+
+    Each mapping that directly holds a ``BoundingBoxes3D`` must also hold that
+    sample's labels, under a key chosen as in :func:`_default_labels_getter`.
+
+    Args:
+        inputs: The batch passed to ``forward``.
+
+    Returns:
+        The labels of each box-holding mapping, in traversal order.
+
+    Raises:
+        ValueError: If a mapping holds boxes but no label-like key, or no
+            mapping holds boxes.
+    """
+    found: list[Any] = []
+    for mapping in filter(_has_boxes, tree_leaves(inputs, is_leaf=_has_boxes)):
+        key = _find_label_key(mapping)
+        if key is None:
+            msg = (
+                "the default `labels_getter` could not find a label-like key next "
+                "to the boxes, expected a key matching 'labels' or containing "
+                "'label' in each mapping holding a BoundingBoxes3D tensor. Pass a "
+                "callable as `labels_getter` to locate the labels, or "
+                "`labels_getter=None` if the batch has no labels."
+            )
+            raise ValueError(msg)
+        found.append(mapping[key])
+    if not found:
+        msg = (
+            "the default `labels_getter` expects each sample's boxes and labels in "
+            "a shared mapping, but found no mapping holding a BoundingBoxes3D tensor. "
+            "Pass a callable as `labels_getter` to locate the labels, or "
+            "`labels_getter=None` if the batch has no labels."
+        )
+        raise ValueError(msg)
+    return tuple(found)
+
+
 def _no_labels_getter(_inputs: Any) -> None:
     """Report that a sample contains no labels."""
     return
@@ -148,6 +207,7 @@ def _no_labels_getter(_inputs: Any) -> None:
 
 def _parse_labels_getter(
     labels_getter: str | Callable[[Any], Any] | None,
+    default: Callable[[Any], Any] = _default_labels_getter,
 ) -> Callable[[Any], Any]:
     """Resolve the ``labels_getter`` argument to a callable.
 
@@ -155,6 +215,7 @@ def _parse_labels_getter(
         labels_getter: ``"default"`` for the built-in heuristic, a callable
             taking the sample and returning the labels tensor (or ``None``),
             or ``None`` to disable label syncing.
+        default: The getter that ``"default"`` resolves to.
 
     Returns:
         A callable mapping a sample to its labels tensor or ``None``.
@@ -164,7 +225,7 @@ def _parse_labels_getter(
             ``None``.
     """
     if labels_getter == "default":
-        return _default_labels_getter
+        return default
     if callable(labels_getter):
         return labels_getter
     if labels_getter is None:
