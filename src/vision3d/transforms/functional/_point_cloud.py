@@ -83,7 +83,7 @@ def jitter_points_point_cloud(points: Tensor, *, noise: Tensor) -> Tensor:
         are unchanged.
     """
     out = points.clone()
-    out[:, :3] += noise
+    out[:, :3] += noise.to(out)
     return out
 
 

@@ -382,6 +382,14 @@ class TestTranslate3DPointCloudKernel:
         )
         torch.testing.assert_close(roundtripped, points)
 
+    def test_params_follow_input_dtype_and_device(self) -> None:
+        points = torch.rand(10, 3, dtype=torch.float64)
+        offset = torch.tensor([1.0, 2.0, 3.0], device="cpu")
+        torch.testing.assert_close(
+            translate_3d_point_cloud(points, offset=offset),
+            translate_3d_point_cloud(points, offset=offset.to(points)),
+        )
+
 
 class TestTranslate3DBoundingBoxesKernel:
     @pytest.mark.parametrize("format", ALL_FORMATS)
@@ -425,6 +433,15 @@ class TestTranslate3DBoundingBoxesKernel:
         # Dimensions (columns 3-6) and angles (columns 6-9) should be unchanged
         torch.testing.assert_close(translated[:, 3:], raw[:, 3:])
 
+    def test_params_follow_input_dtype_and_device(self) -> None:
+        format = BoundingBox3DFormat.XYZLWHYPR
+        raw = make_bounding_boxes_3d(format=format).as_subclass(torch.Tensor).double()
+        offset = torch.tensor([1.0, 2.0, 3.0], device="cpu")
+        torch.testing.assert_close(
+            translate_3d_bounding_boxes(raw, format=format, offset=offset),
+            translate_3d_bounding_boxes(raw, format=format, offset=offset.to(raw)),
+        )
+
 
 class TestTranslate3DCameraExtrinsicsKernel:
     def test_correctness(self) -> None:
@@ -452,6 +469,14 @@ class TestTranslate3DCameraExtrinsicsKernel:
             ext.as_subclass(torch.Tensor), offset=torch.tensor([1.0, 2.0, 3.0])
         )
         torch.testing.assert_close(ext, original)
+
+    def test_params_follow_input_dtype_and_device(self) -> None:
+        raw = make_camera_extrinsics(num_cameras=2).as_subclass(torch.Tensor).double()
+        offset = torch.tensor([1.0, 2.0, 3.0], device="cpu")
+        torch.testing.assert_close(
+            translate_3d_camera_extrinsics(raw, offset=offset),
+            translate_3d_camera_extrinsics(raw, offset=offset.to(raw)),
+        )
 
     def test_projection_consistent(self) -> None:
         """Verify projection is unchanged after translate."""
@@ -584,6 +609,14 @@ class TestRotate3DPointCloudKernel:
         )
         torch.testing.assert_close(roundtripped, points, atol=1e-6, rtol=1e-6)
 
+    def test_params_follow_input_dtype_and_device(self) -> None:
+        points = torch.rand(10, 3, dtype=torch.float64)
+        R = _make_z_rotation(0.5).cpu()
+        torch.testing.assert_close(
+            rotate_3d_point_cloud(points, rotation_matrix=R),
+            rotate_3d_point_cloud(points, rotation_matrix=R.to(points)),
+        )
+
 
 class TestRotate3DBoundingBoxesKernel:
     @pytest.mark.parametrize(
@@ -668,6 +701,15 @@ class TestRotate3DBoundingBoxesKernel:
         )
         torch.testing.assert_close(roundtripped, raw, atol=1e-5, rtol=1e-5)
 
+    def test_params_follow_input_dtype_and_device(self) -> None:
+        format = BoundingBox3DFormat.XYZLWHYPR
+        raw = make_bounding_boxes_3d(format=format).as_subclass(torch.Tensor).double()
+        R = _make_z_rotation(0.5).cpu()
+        torch.testing.assert_close(
+            rotate_3d_bounding_boxes(raw, format=format, rotation_matrix=R),
+            rotate_3d_bounding_boxes(raw, format=format, rotation_matrix=R.to(raw)),
+        )
+
 
 class TestRotate3DCameraExtrinsicsKernel:
     def test_projection_consistent(self) -> None:
@@ -707,6 +749,15 @@ class TestRotate3DCameraExtrinsicsKernel:
         R = _make_z_rotation(0.3)
         rotate_3d_camera_extrinsics(ext.as_subclass(torch.Tensor), rotation_matrix=R)
         torch.testing.assert_close(ext, original)
+
+    def test_params_follow_input_dtype_and_device(self) -> None:
+        raw = make_camera_extrinsics(num_cameras=2).as_subclass(torch.Tensor).double()
+        R = _make_z_rotation(0.5).cpu()
+        with torch.device("cpu"):
+            actual = rotate_3d_camera_extrinsics(raw, rotation_matrix=R)
+        torch.testing.assert_close(
+            actual, rotate_3d_camera_extrinsics(raw, rotation_matrix=R.to(raw))
+        )
 
 
 # Functional tests
