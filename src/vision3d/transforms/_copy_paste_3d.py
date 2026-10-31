@@ -3,7 +3,7 @@
 import functools
 import math
 from collections import defaultdict, deque
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, override
 
@@ -14,7 +14,6 @@ from PIL import Image, ImageDraw
 from torch import Tensor
 from torch.utils._pytree import tree_flatten, tree_unflatten
 from torchvision.transforms.v2 import has_any
-from torchvision.tv_tensors import TVTensor
 
 from vision3d.ops import (
     box3d_convert,
@@ -34,6 +33,11 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 from vision3d.transforms._transform import Transform
+from vision3d.transforms._utils import (
+    _default_batch_labels_getter,
+    _parse_labels_getter,
+    _resolve_label_ids,
+)
 
 
 @dataclass
@@ -400,6 +404,15 @@ class CopyPaste3D(Transform):
             values raise the chance of placing a genuinely jittered object in a
             crowded scene. Ignored when jittering is disabled. Default: ``5``.
         p: Probability of applying the augmentation. Default: ``1.0``.
+        labels_getter: How to locate each sample's per-box label tensor, which
+            is extended in sync with the pasted boxes. Pass a callable that
+            takes the batch and returns the label tensors stored in it, one per
+            sample, or ``None``. Alternatively, pass the string ``"default"``
+            (the default) to apply torchvision's heuristic to each mapping that
+            holds a box set, which finds the labels under a case-insensitive
+            ``"labels"`` key, or else the first key containing ``"label"``, and
+            raises if such a mapping has no such key, or pass ``None`` for a
+            batch without labels.
     """
 
     def __init__(
@@ -411,6 +424,7 @@ class CopyPaste3D(Transform):
         offset_std: _OffsetStd = None,
         max_jitter_attempts: int = 5,
         p: float = 1.0,
+        labels_getter: str | Callable[[Any], Any] | None = "default",
     ) -> None:
         super().__init__()
         if not (0.0 <= p <= 1.0):
@@ -444,6 +458,10 @@ class CopyPaste3D(Transform):
         self.max_jitter_attempts = max_jitter_attempts
         self._jitter = any(r != (0.0, 0.0) for r in self.offset_range)
         self.p = p
+        self.labels_getter = labels_getter
+        self._labels_getter = _parse_labels_getter(
+            labels_getter, default=_default_batch_labels_getter
+        )
 
         self._database: dict[int, deque[ObjectEntry]] = defaultdict(
             functools.partial(deque, maxlen=self.max_database_size)
@@ -456,18 +474,21 @@ class CopyPaste3D(Transform):
         Accepts any pytree structure containing
         :class:`~vision3d.tensors.PointCloud3D`,
         :class:`~vision3d.tensors.BoundingBoxes3D`, and optionally camera
-        tensors and plain-tensor labels.
+        tensors and per-box labels located via ``labels_getter``.
 
         Returns:
             The same pytree structure with modified leaves.
         """
-        flat_inputs, spec = tree_flatten(inputs if len(inputs) > 1 else inputs[0])
+        inputs = inputs if len(inputs) > 1 else inputs[0]
+        flat_inputs, spec = tree_flatten(inputs)
         self.check_inputs(flat_inputs)
 
         if not has_any(flat_inputs, BoundingBoxes3D):
             return tree_unflatten(flat_inputs, spec)
 
-        batch_inputs, batch_targets = self._extract_samples(flat_inputs)
+        label_ids = _resolve_label_ids(self._labels_getter(inputs), flat_inputs, None)
+        labels = [leaf for leaf in flat_inputs if id(leaf) in label_ids]
+        batch_inputs, batch_targets = self._extract_samples(flat_inputs, labels)
 
         for inp, tgt in zip(batch_inputs, batch_targets):
             self._extract_objects(inp, tgt)
@@ -482,13 +503,18 @@ class CopyPaste3D(Transform):
             output_inputs.append(new_inp)
             output_targets.append(new_tgt)
 
-        self._insert_outputs(flat_inputs, output_inputs, output_targets)
+        self._insert_outputs(flat_inputs, labels, output_inputs, output_targets)
         return tree_unflatten(flat_inputs, spec)
 
     def _extract_samples(
-        self, flat_inputs: list[Any]
+        self, flat_inputs: list[Any], labels: list[Tensor]
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Group flat pytree leaves into per-sample input and target dicts.
+
+        Args:
+            flat_inputs: Leaves from :func:`torch.utils._pytree.tree_flatten`.
+            labels: Per-sample label tensors in batch order, or empty when the
+                batch has no labels.
 
         Returns:
             ``(batch_inputs, batch_targets)``: Lists of per-sample dicts.
@@ -501,7 +527,6 @@ class CopyPaste3D(Transform):
         images: list[CameraImages] = []
         extrinsics: list[CameraExtrinsics] = []
         intrinsics: list[CameraIntrinsics] = []
-        labels: list[Tensor] = []
 
         for obj in flat_inputs:
             if isinstance(obj, PointCloud3D):
@@ -514,8 +539,6 @@ class CopyPaste3D(Transform):
                 extrinsics.append(obj)
             elif isinstance(obj, CameraIntrinsics):
                 intrinsics.append(obj)
-            elif isinstance(obj, Tensor) and not isinstance(obj, TVTensor):
-                labels.append(obj)
 
         n = len(boxes)
         has_points = len(points) > 0
@@ -532,7 +555,7 @@ class CopyPaste3D(Transform):
         if has_cameras and len(intrinsics) != n:
             mismatched.append(f"CameraIntrinsics ({len(intrinsics)})")
         if has_labels and len(labels) != n:
-            mismatched.append(f"plain tensors ({len(labels)})")
+            mismatched.append(f"label tensors ({len(labels)})")
         if mismatched:
             raise TypeError(
                 f"{type(self).__name__}() requires equal sized lists of "
@@ -563,18 +586,20 @@ class CopyPaste3D(Transform):
     def _insert_outputs(
         self,
         flat_inputs: list[Any],
+        labels: list[Tensor],
         output_inputs: list[dict[str, Any]],
         output_targets: list[dict[str, Any]],
     ) -> None:
         """Replace modified leaves in *flat_inputs* in-place.
 
         Uses per-type counters to walk through the flat list and replace
-        each leaf with the corresponding value from the output dicts.
+        each leaf with the corresponding value from the output dicts. Label
+        leaves are matched to their sample by identity.
         """
         c_pts = 0
         c_img = 0
         c_box = 0
-        c_lbl = 0
+        label_index = {id(label): i for i, label in enumerate(labels)}
 
         for i, obj in enumerate(flat_inputs):
             if isinstance(obj, PointCloud3D):
@@ -590,11 +615,8 @@ class CopyPaste3D(Transform):
                 c_box += 1
             elif isinstance(obj, (CameraExtrinsics, CameraIntrinsics)):
                 pass  # never modified by copy-paste
-            elif isinstance(obj, Tensor) and not isinstance(obj, TVTensor):
-                new_lbl = output_targets[c_lbl].get("labels")
-                if new_lbl is not None:
-                    flat_inputs[i] = new_lbl
-                c_lbl += 1
+            elif id(obj) in label_index:
+                flat_inputs[i] = output_targets[label_index[id(obj)]]["labels"]
 
     def _has_camera_data(self, inputs: dict[str, Any]) -> bool:
         return "images" in inputs and "extrinsics" in inputs and "intrinsics" in inputs
