@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 import pytest
 import torch
-from common_utils import make_camera_images, make_fusion_sample
+from common_utils import make_camera_images, make_fusion_sample, make_grid_mask_3d
 from torch import nn
 from torchvision.transforms import v2 as tv_v2
 from torchvision.tv_tensors import Image
@@ -76,6 +76,13 @@ class TestRefusedAlongside3D:
         transform = _REFUSED_FACTORIES[name]()
         sample = {"images": make_camera_images(num_cameras=2, height=8, width=8)}
         with pytest.raises(TypeError, match="CameraImages"):
+            transform(sample)
+
+    @pytest.mark.parametrize("name", sorted(_REFUSED_FACTORIES))
+    def test_raises_on_grid_alone(self, name: str) -> None:
+        transform = _REFUSED_FACTORIES[name]()
+        sample = {"grid": make_grid_mask_3d()}
+        with pytest.raises(TypeError, match="GridMask3D"):
             transform(sample)
 
     def test_plain_image_still_works(self) -> None:
