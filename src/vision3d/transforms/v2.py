@@ -244,7 +244,10 @@ def __getattr__(name: str) -> Any:
     if parent is None:
         msg = f"module 'vision3d.transforms.v2' has no attribute {name!r}"
         raise AttributeError(msg)
-    if not (isinstance(parent, type) and issubclass(parent, _T.Transform)):
+    if (
+        not (isinstance(parent, type) and issubclass(parent, _T.Transform))
+        or parent is _T.Transform
+    ):
         return parent
     if name not in _WRAPPED_CLASSES:
         _WRAPPED_CLASSES[name] = _wrap(parent, refuse=name in _REFUSED)

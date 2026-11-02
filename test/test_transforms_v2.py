@@ -303,6 +303,16 @@ class TestBehaviourMatchesTorchvision:
     def test_non_transform_reexport_is_identity(self, name: str) -> None:
         assert getattr(v3d_v2, name) is getattr(tv_v2, name)
 
+    def test_transform_base_is_identity(self) -> None:
+        assert v3d_v2.Transform is tv_v2.Transform
+
+    @pytest.mark.parametrize("name", ["Resize", *sorted(_REFUSED)])
+    def test_forwarded_subclasses_mirror_base(self, name: str) -> None:
+        assert issubclass(getattr(v3d_v2, name), v3d_v2.Transform)
+
+    def test_forwarded_instance_of_mirror_base(self) -> None:
+        assert isinstance(v3d_v2.Resize([16, 16]), v3d_v2.Transform)
+
     @pytest.mark.parametrize("name", sorted(_REFUSED))
     def test_wrapped_subclasses_torchvision_original(self, name: str) -> None:
         assert issubclass(getattr(v3d_v2, name), getattr(tv_v2, name))
