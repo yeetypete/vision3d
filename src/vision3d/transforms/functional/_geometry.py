@@ -35,8 +35,7 @@ _FLIP_NEGATE_YPR: dict[str, list[int]] = {
 def flip_3d(inpt: Tensor, *, axis: str) -> Tensor:
     """Flip a tensor along a 3D spatial axis.
 
-    This is the dispatcher entry point. Type-specific kernels are registered
-    below.
+    Dispatcher entry point. Type-specific kernels are registered below.
 
     Args:
         inpt: Input tensor.
