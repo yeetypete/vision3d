@@ -226,6 +226,30 @@ class TestProjectBox3dToImage:
         )
         assert valid.tolist() == [False]
 
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.float64])
+    def test_flat_box_edge_on_off_axis_is_invalid(
+        self, dtype: torch.dtype, identity_ext: torch.Tensor, simple_K: torch.Tensor
+    ) -> None:
+        # Flat boxes (no extent in x) pitched so that their planes pass
+        # through the camera, off the optical axis: they project to lines up
+        # to rounding.
+        with torch.device("cpu"):
+            g = torch.Generator().manual_seed(0)
+            xy = torch.rand(64, 2, generator=g, dtype=torch.float64) * 4 - 2
+            z = 4 + 6 * torch.rand(64, generator=g, dtype=torch.float64)
+        pitch = torch.atan2(xy[:, 0], z)
+        ones, zeros = torch.ones_like(z), torch.zeros_like(z)
+        boxes = torch.stack([*xy.T, z, zeros, ones, ones, zeros, pitch, zeros], -1)
+        boxes_2d, valid = project_box3d_to_image(
+            boxes.to(identity_ext.device, dtype),
+            FMT,
+            identity_ext.to(dtype),
+            simple_K.to(dtype),
+            IMAGE_SIZE,
+        )
+        assert not valid.any()
+        assert (boxes_2d == 0).all()
+
     def test_box_across_image_border(
         self, identity_ext: torch.Tensor, simple_K: torch.Tensor
     ) -> None:
@@ -407,6 +431,68 @@ class TestProjectBox3dToImage:
         )
         for g, e in zip(got, expected, strict=True):
             torch.testing.assert_close(g, e)
+
+    def test_camera_dtype_is_promoted(self, simple_K: torch.Tensor) -> None:
+        # float32 boxes with a float64 pose far from the origin: the pose is
+        # not rounded to float32 before it is applied.
+        offset = 1e6 + 0.3
+        ext = torch.eye(4, dtype=torch.float64)
+        ext[0, 3] = -offset
+        boxes = torch.tensor([_box(offset, 0.0, 10.0)], dtype=torch.float64)
+        got, _ = project_box3d_to_image(boxes, FMT, ext, simple_K, IMAGE_SIZE)
+        assert got.dtype == torch.float64
+        expected, _ = project_box3d_to_image(
+            torch.tensor([_box(0.0, 0.0, 10.0)]),
+            FMT,
+            torch.eye(4),
+            simple_K,
+            IMAGE_SIZE,
+        )
+        torch.testing.assert_close(got.float(), expected)
+
+    def test_camera_on_other_device(
+        self, identity_ext: torch.Tensor, simple_K: torch.Tensor, device: torch.device
+    ) -> None:
+        boxes = torch.tensor([_box(0.0, 0.0, 10.0)])
+        got = project_box3d_to_image(
+            boxes, FMT, identity_ext.cpu(), simple_K.cpu(), IMAGE_SIZE
+        )
+        expected = project_box3d_to_image(
+            boxes, FMT, identity_ext, simple_K, IMAGE_SIZE
+        )
+        for g, e in zip(got, expected, strict=True):
+            assert g.device == boxes.device
+            torch.testing.assert_close(g, e)
+
+    def test_intrinsics_last_row_is_unused(
+        self, identity_ext: torch.Tensor, simple_K: torch.Tensor
+    ) -> None:
+        # As in project_to_image, pixels are divided by the depth.
+        boxes = torch.tensor([_box(6.0, 0.0, 10.0, size=2.0)])
+        K = simple_K.clone()
+        K[2] = torch.tensor([0.1, -0.2, 3.0])
+        got = project_box3d_to_image(boxes, FMT, identity_ext, K, IMAGE_SIZE)
+        expected = project_box3d_to_image(
+            boxes, FMT, identity_ext, simple_K, IMAGE_SIZE
+        )
+        for g, e in zip(got, expected, strict=True):
+            torch.testing.assert_close(g, e)
+
+    @pytest.mark.parametrize(
+        ("ext_shape", "k_shape", "match"),
+        [((1, 4, 4), (3, 3), "extrinsics"), ((4, 4), (1, 3, 3), "intrinsics")],
+    )
+    def test_rejects_batched_cameras(
+        self, ext_shape: tuple[int, ...], k_shape: tuple[int, ...], match: str
+    ) -> None:
+        with pytest.raises(ValueError, match=match):
+            project_box3d_to_image(
+                torch.zeros(1, 9),
+                FMT,
+                torch.zeros(ext_shape),
+                torch.zeros(k_shape),
+                IMAGE_SIZE,
+            )
 
     def test_gradients(self, simple_K: torch.Tensor) -> None:
         # One box inside the image, one crossing its border and the camera
