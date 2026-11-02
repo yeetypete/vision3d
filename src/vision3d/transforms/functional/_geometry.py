@@ -16,7 +16,7 @@ from vision3d.tensors import (
     wrap,
 )
 
-from ._registry import register_kernel
+from ._registry import _get_kernel, register_kernel
 
 # Axis indices for flip
 AXIS_INDEX = {"x": 0, "y": 1, "z": 2}
@@ -35,8 +35,7 @@ _FLIP_NEGATE_YPR: dict[str, list[int]] = {
 def flip_3d(inpt: Tensor, *, axis: str) -> Tensor:
     """Flip a tensor along a 3D spatial axis.
 
-    This is the dispatcher entry point. Type-specific kernels are registered
-    below.
+    Dispatcher entry point. Type-specific kernels are registered below.
 
     Args:
         inpt: Input tensor.
@@ -44,8 +43,14 @@ def flip_3d(inpt: Tensor, *, axis: str) -> Tensor:
 
     Returns:
         Flipped tensor.
-    """
-    return inpt
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D` or
+            :class:`~vision3d.tensors.BoundingBoxes3D`.
+    """  # noqa: DOC502
+    kernel = _get_kernel(flip_3d, type(inpt))
+    return kernel(inpt, axis=axis)
 
 
 def flip_3d_point_cloud(points: Tensor, *, axis: str) -> Tensor:
@@ -202,8 +207,15 @@ def translate_3d(inpt: Tensor, *, offset: Tensor) -> Tensor:
 
     Returns:
         Translated tensor.
-    """
-    return inpt
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D`,
+            :class:`~vision3d.tensors.BoundingBoxes3D`, or
+            :class:`~vision3d.tensors.CameraExtrinsics`.
+    """  # noqa: DOC502
+    kernel = _get_kernel(translate_3d, type(inpt))
+    return kernel(inpt, offset=offset)
 
 
 def translate_3d_point_cloud(points: Tensor, *, offset: Tensor) -> Tensor:
@@ -325,8 +337,15 @@ def rotate_3d(inpt: Tensor, *, rotation_matrix: Tensor) -> Tensor:
 
     Returns:
         Rotated tensor.
-    """
-    return inpt
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D`,
+            :class:`~vision3d.tensors.BoundingBoxes3D`, or
+            :class:`~vision3d.tensors.CameraExtrinsics`.
+    """  # noqa: DOC502
+    kernel = _get_kernel(rotate_3d, type(inpt))
+    return kernel(inpt, rotation_matrix=rotation_matrix)
 
 
 def rotate_3d_point_cloud(points: Tensor, *, rotation_matrix: Tensor) -> Tensor:
@@ -480,8 +499,15 @@ def scale_3d(inpt: Tensor, *, factor: float) -> Tensor:
 
     Returns:
         Scaled tensor.
-    """
-    return inpt
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D`,
+            :class:`~vision3d.tensors.BoundingBoxes3D`, or
+            :class:`~vision3d.tensors.CameraExtrinsics`.
+    """  # noqa: DOC502
+    kernel = _get_kernel(scale_3d, type(inpt))
+    return kernel(inpt, factor=factor)
 
 
 def scale_3d_point_cloud(points: Tensor, *, factor: float) -> Tensor:
