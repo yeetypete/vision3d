@@ -8,7 +8,7 @@ from torch import Tensor
 from torch.utils._pytree import tree_flatten
 from torchvision.tv_tensors import TVTensor
 
-_HOMOGENEOUS_ROW = torch.tensor([0.0, 0.0, 0.0, 1.0], dtype=torch.float64)
+_HOMOGENEOUS_ROW = torch.tensor([0.0, 0.0, 0.0, 1.0], dtype=torch.float64, device="cpu")
 
 
 def _as_affine(affine: Any) -> Tensor:
