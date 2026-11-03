@@ -36,7 +36,7 @@ from vision3d.transforms._transform import Transform
 from vision3d.transforms._utils import (
     _default_batch_labels_getter,
     _parse_labels_getter,
-    _resolve_label_ids,
+    _resolve_labels,
 )
 
 
@@ -487,9 +487,9 @@ class CopyPaste3D(Transform):
         if not has_any(flat_inputs, BoundingBoxes3D):
             return tree_unflatten(flat_inputs, spec)
 
-        label_ids = _resolve_label_ids(self._labels_getter(inputs), flat_inputs, None)
+        labels = _resolve_labels(self._labels_getter(inputs), flat_inputs, None)
         position = {id(leaf): i for i, leaf in enumerate(flat_inputs)}
-        label_indices = [position[label_id] for label_id in label_ids]
+        label_indices = [position[id(label)] for label in labels]
         batch_inputs, batch_targets, slots = self._extract_samples(
             flat_inputs, label_indices
         )
