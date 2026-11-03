@@ -71,13 +71,9 @@ class RangeFilter3D(Transform):
                 sample (e.g. a copy, view, or nested tensor). If a returned
                 label tensor's length does not match the number of boxes.
         """
-        # Unlike most transforms, forward is hand-rolled rather than routed
-        # through the base per-leaf ``transform()`` loop. Points and boxes have
-        # distinguishing tensor types and would dispatch fine, but labels are
-        # plain tensors with no distinguishing type, so they can only be located
-        # via ``labels_getter`` against the nested structure -- which is gone
-        # once the tree is flattened for the base loop. The base hooks
-        # (check_inputs, make_params) do not fire here.
+        # Overrides the base forward because ``labels_getter`` needs the nested
+        # sample, which the base forward flattens before calling any hook. As a
+        # result, ``check_inputs`` and ``make_params`` are not called.
         if not inputs:
             msg = "RangeFilter3D.forward requires at least one input sample"
             raise ValueError(msg)
@@ -92,22 +88,20 @@ class RangeFilter3D(Transform):
         # ``labels_getter=None``. The label tensors are matched to their leaf by
         # identity, so the keep-mask applies wherever they live.
         if boxes is None:
-            box_keep = None
+            valid = None
             label_ids: list[int] = []
         else:
-            box_keep = self._box_keep_mask(boxes)
+            valid = self._box_keep_mask(boxes)
             label_ids = _resolve_label_ids(
                 self._labels_getter(inputs), flat_inputs, boxes.shape[0]
             )
 
-        flat_outputs = [
-            self._filter_leaf(inpt, box_keep, label_ids) for inpt in flat_inputs
-        ]
+        params = {"valid": valid, "label_ids": label_ids}
+        flat_outputs = [self.transform(inpt, params) for inpt in flat_inputs]
         return tree_unflatten(flat_outputs, spec)
 
-    def _filter_leaf(
-        self, inpt: Any, box_keep: Tensor | None, label_ids: list[int]
-    ) -> Any:
+    @override
+    def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
         """Filter a single flattened leaf according to its type.
 
         Returns:
@@ -116,14 +110,13 @@ class RangeFilter3D(Transform):
         """
         if isinstance(inpt, PointCloud3D):
             return self._filter_points(inpt)
-        if box_keep is None:
+        valid = params["valid"]
+        if valid is None:
             return inpt
         if isinstance(inpt, BoundingBoxes3D):
-            return BoundingBoxes3D(
-                inpt.as_subclass(Tensor)[box_keep], format=inpt.format
-            )
-        if id(inpt) in label_ids:
-            return inpt[box_keep]
+            return BoundingBoxes3D(inpt.as_subclass(Tensor)[valid], format=inpt.format)
+        if id(inpt) in params["label_ids"]:
+            return inpt[valid]
         return inpt
 
     def _filter_points(self, points: PointCloud3D) -> PointCloud3D:
