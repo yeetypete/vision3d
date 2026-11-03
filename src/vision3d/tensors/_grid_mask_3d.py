@@ -58,7 +58,9 @@ class _Grid(TVTensor):
         kwargs: Mapping[str, Any] | None = None,
     ) -> Tensor:
         # Metadata is lost after __torch_function__ calls. Restore it by taking
-        # the affine from the first grid in the args.
+        # the affine from the first grid in the args. This is correct in most
+        # cases. Mixing grids with different affines in one operation silently
+        # keeps the first affine, which is likely a misuse we don't guard against.
         flat_params, _ = tree_flatten(
             tuple(args) + (tuple(kwargs.values()) if kwargs else ())
         )
