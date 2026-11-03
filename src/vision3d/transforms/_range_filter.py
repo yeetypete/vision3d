@@ -93,7 +93,7 @@ class RangeFilter3D(Transform):
         # identity, so the keep-mask applies wherever they live.
         if boxes is None:
             box_keep = None
-            label_ids: set[int] = set()
+            label_ids: list[int] = []
         else:
             box_keep = self._box_keep_mask(boxes)
             label_ids = _resolve_label_ids(
@@ -106,7 +106,7 @@ class RangeFilter3D(Transform):
         return tree_unflatten(flat_outputs, spec)
 
     def _filter_leaf(
-        self, inpt: Any, box_keep: Tensor | None, label_ids: set[int]
+        self, inpt: Any, box_keep: Tensor | None, label_ids: list[int]
     ) -> Any:
         """Filter a single flattened leaf according to its type.
 

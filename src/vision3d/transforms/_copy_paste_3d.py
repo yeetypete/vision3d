@@ -488,9 +488,8 @@ class CopyPaste3D(Transform):
             return tree_unflatten(flat_inputs, spec)
 
         label_ids = _resolve_label_ids(self._labels_getter(inputs), flat_inputs, None)
-        label_indices = [
-            i for i, leaf in enumerate(flat_inputs) if id(leaf) in label_ids
-        ]
+        position = {id(leaf): i for i, leaf in enumerate(flat_inputs)}
+        label_indices = [position[label_id] for label_id in label_ids]
         batch_inputs, batch_targets, slots = self._extract_samples(
             flat_inputs, label_indices
         )
