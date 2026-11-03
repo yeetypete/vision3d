@@ -197,6 +197,28 @@ class TestTorchFunction:
         torch.testing.assert_close(mask_copy.affine, mask.affine)
         assert mask_copy.requires_grad is requires_grad
 
+    @pytest.mark.parametrize("derive", [torch.Tensor.clone, deepcopy])
+    def test_derived_affine_is_independent(
+        self, derive: "Callable[[GridMask3D], torch.Tensor]"
+    ) -> None:
+        mask = make_grid_mask_3d()
+        original = mask.affine.clone()
+        derived = derive(mask)
+        assert isinstance(derived, GridMask3D)
+        derived.affine[0, 3] = 99.0
+        torch.testing.assert_close(mask.affine, original)
+
+    def test_unbind_affines_are_independent(self) -> None:
+        mask = make_grid_mask_3d(channels=2)
+        original = mask.affine.clone()
+        with tv_tensors.set_return_type("TVTensor"):
+            first, second = torch.unbind(mask)
+        assert isinstance(first, GridMask3D)
+        assert isinstance(second, GridMask3D)
+        first.affine[0, 3] = 99.0
+        torch.testing.assert_close(second.affine, original)
+        torch.testing.assert_close(mask.affine, original)
+
 
 class TestWrap:
     def test_preserves_type_and_affine(self) -> None:
@@ -206,6 +228,14 @@ class TestWrap:
         assert type(wrapped) is GridMask3D
         assert wrapped.data_ptr() == output.data_ptr()
         torch.testing.assert_close(wrapped.affine, mask.affine)
+
+    def test_affine_is_independent(self) -> None:
+        mask = make_grid_mask_3d()
+        original = mask.affine.clone()
+        wrapped = wrap(mask.as_subclass(torch.Tensor), like=mask)
+        assert isinstance(wrapped, GridMask3D)
+        wrapped.affine[0, 3] = 99.0
+        torch.testing.assert_close(mask.affine, original)
 
     def test_override_affine(self) -> None:
         mask = make_grid_mask_3d()

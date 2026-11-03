@@ -26,6 +26,15 @@ MAKE_3D_INPUTS = [
 ]
 
 
+def _assert_metadata_equal(output: TVTensor, inpt: TVTensor) -> None:
+    assert output.__dict__.keys() == inpt.__dict__.keys()
+    for name, value in inpt.__dict__.items():
+        if isinstance(value, torch.Tensor):
+            torch.testing.assert_close(output.__dict__[name], value)
+        else:
+            assert output.__dict__[name] == value
+
+
 @pytest.fixture
 def camera_images() -> CameraImages:
     return CameraImages(torch.rand(6, 3, 64, 80))
@@ -138,7 +147,7 @@ class TestToDtype:
         output = F.to_dtype(inpt, output_dtype)
         assert type(output) is type(inpt)
         assert output.dtype == output_dtype
-        assert output.__dict__ == inpt.__dict__
+        _assert_metadata_equal(output, inpt)
 
     @pytest.mark.parametrize("make_input", MAKE_3D_INPUTS)
     @pytest.mark.parametrize("input_dtype", [torch.float32, torch.float64])
@@ -156,7 +165,7 @@ class TestToDtype:
         output = transform(inpt)
         assert type(output) is type(inpt)
         assert output.dtype == output_dtype
-        assert output.__dict__ == inpt.__dict__
+        _assert_metadata_equal(output, inpt)
 
     @pytest.mark.parametrize("make_input", MAKE_3D_INPUTS)
     def test_plain_dtype_passes_through(

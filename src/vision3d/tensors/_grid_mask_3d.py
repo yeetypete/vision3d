@@ -55,7 +55,7 @@ class _Grid(TVTensor):
     # pyrefly: ignore[bad-override]
     def wrap(cls, tensor: Tensor, like: "_Grid", **kwargs: Any) -> Self:
         affine = kwargs.get("affine")
-        affine = like.affine if affine is None else _as_affine(affine)
+        affine = like.affine.clone() if affine is None else _as_affine(affine)
         return cls._wrap(tensor, affine=affine)
 
     @classmethod
@@ -76,11 +76,12 @@ class _Grid(TVTensor):
         affine = next(x for x in flat_params if isinstance(x, _Grid)).affine
 
         if isinstance(output, Tensor) and not isinstance(output, _Grid):
-            output = cls._wrap(output, affine=affine, check_dims=False)
+            output = cls._wrap(output, affine=affine.clone(), check_dims=False)
         elif isinstance(output, (tuple, list)):
             # This branch exists for chunk() and unbind()
             output = type(output)(
-                cls._wrap(part, affine=affine, check_dims=False) for part in output
+                cls._wrap(part, affine=affine.clone(), check_dims=False)
+                for part in output
             )
         return output
 
