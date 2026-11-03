@@ -63,6 +63,38 @@ class TestConstruction:
         with pytest.raises(ValueError, match="last affine row"):
             GridMask3D(torch.zeros(1, 4, 4), affine=affine)
 
+    @pytest.mark.parametrize(
+        "linear",
+        [
+            pytest.param([[0.0, 0, 0], [0, 0.5, 0], [0, 0, 0.5]], id="zero-d-column"),
+            pytest.param([[1.0, 0, 1], [0, 1, 1], [1, 1, 2]], id="dependent-columns"),
+        ],
+    )
+    def test_rejects_singular_affine(self, linear: list[list[float]]) -> None:
+        affine = torch.eye(4)
+        affine[:3, :3] = torch.tensor(linear)
+        with pytest.raises(ValueError, match="invertible affine"):
+            GridMask3D(torch.zeros(1, 4, 4), affine=affine)
+
+    @pytest.mark.parametrize(
+        "diagonal",
+        [
+            pytest.param((1e-6, 1e-6, 1e-6), id="small-cells"),
+            pytest.param((1e3, 1e-3, 1e-3), id="anisotropic-cells"),
+        ],
+    )
+    def test_accepts_invertible_affine(self, diagonal: tuple[float, ...]) -> None:
+        affine = torch.diag(torch.tensor((*diagonal, 1.0), dtype=torch.float64))
+        mask = GridMask3D(torch.zeros(1, 4, 4), affine=affine)
+        torch.testing.assert_close(mask.affine, affine.cpu())
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf")])
+    def test_rejects_non_finite_affine(self, value: float) -> None:
+        affine = torch.eye(4)
+        affine[0, 0] = value
+        with pytest.raises(ValueError, match="finite affine"):
+            GridMask3D(torch.zeros(1, 4, 4), affine=affine)
+
     def test_wrapping_no_copy(self) -> None:
         tensor = torch.zeros(1, 4, 4, dtype=torch.int64)
         mask = GridMask3D(tensor, affine=torch.eye(4))
@@ -181,6 +213,13 @@ class TestWrap:
         wrapped = wrap(mask.as_subclass(torch.Tensor), like=mask, affine=new_affine)
         assert isinstance(wrapped, GridMask3D)
         torch.testing.assert_close(wrapped.affine, new_affine.cpu())
+
+    def test_override_rejects_singular_affine(self) -> None:
+        mask = make_grid_mask_3d()
+        affine = make_grid_affine()
+        affine[:3, 0] = 0.0
+        with pytest.raises(ValueError, match="invertible affine"):
+            wrap(mask.as_subclass(torch.Tensor), like=mask, affine=affine)
 
     def test_shares_memory(self) -> None:
         mask = make_grid_mask_3d()

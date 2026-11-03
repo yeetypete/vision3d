@@ -56,6 +56,12 @@ class TestResampleGrid:
         with pytest.raises(ValueError, match="positive integers"):
             ResampleGrid(affine=torch.eye(4), size=size)
 
+    def test_rejects_singular_affine(self) -> None:
+        affine = torch.eye(4)
+        affine[0, 0] = 0.0
+        with pytest.raises(ValueError, match="invertible affine"):
+            ResampleGrid(affine=affine, size=(8, 8))
+
     def test_passthrough_point_cloud(self) -> None:
         pc = make_point_cloud_3d(num_points=10)
         out = ResampleGrid(affine=torch.eye(4), size=(8, 8))({"points": pc})

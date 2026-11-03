@@ -16,10 +16,14 @@ def _as_affine(affine: Any) -> Tensor:
     affine = torch.as_tensor(affine, dtype=torch.float64, device="cpu").clone()
     if affine.shape != (4, 4):
         raise ValueError(f"Expected a [4, 4] affine, got shape {tuple(affine.shape)}")
+    if not affine.isfinite().all():
+        raise ValueError(f"Expected a finite affine, got {affine.tolist()}")
     if not torch.equal(affine[3], _HOMOGENEOUS_ROW):
         raise ValueError(
             f"Expected the last affine row to be [0, 0, 0, 1], got {affine[3].tolist()}"
         )
+    if torch.linalg.matrix_rank(affine[:3, :3]) < 3:
+        raise ValueError(f"Expected an invertible affine, got {affine.tolist()}")
     return affine
 
 
@@ -105,8 +109,8 @@ class GridMask3D(_Grid):
 
     Args:
         data: Any data that can be turned into a tensor with :func:`torch.as_tensor`.
-        affine: ``[4, 4]`` index-to-frame transform. Stored as ``float64``
-            on the CPU.
+        affine: ``[4, 4]`` invertible index-to-frame transform. Stored as
+            ``float64`` on the CPU.
         dtype (torch.dtype, optional): Desired data type. If omitted, will be
             inferred from ``data``.
         device (torch.device, optional): Desired device. If omitted and ``data``

@@ -23,7 +23,8 @@ class ResampleGrid(Transform):
     inputs pass through unchanged.
 
     Args:
-        affine: ``[4, 4]`` index-to-frame transform of the target grid.
+        affine: ``[4, 4]`` invertible index-to-frame transform of the target
+            grid.
         size: Spatial size of the target grid, ``(H, W)`` for a planar grid
             or ``(D, H, W)`` for a volume.
         fill: Value for target cells that fall outside the input grid. A
