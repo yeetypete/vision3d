@@ -41,8 +41,6 @@ def _scale_3d_grid_dispatch(inpt: GridMask3D, *, factor: float) -> GridMask3D:
 
 
 # Otherwise torchvision flips would pass grids through unchanged.
-
-
 @_register_kernel(_F.horizontal_flip, GridMask3D)
 def _horizontal_flip_grid(inpt: GridMask3D) -> GridMask3D:
     raise _not_implemented("horizontal_flip")
