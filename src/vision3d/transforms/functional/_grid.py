@@ -100,6 +100,7 @@ def resample_grid_mask_3d(
     Raises:
         NotImplementedError: Always, until resampling is implemented.
     """
+    # TODO: Raise a ValueError if len(size) != mask.ndim - 1.
     msg = "resample_grid is not implemented for grids yet."
     raise NotImplementedError(msg)
 
