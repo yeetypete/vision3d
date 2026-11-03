@@ -15,15 +15,20 @@ def _as_affine(affine: Any) -> Tensor:
     # affine is metadata so we want to keep it on the cpu.
     affine = torch.as_tensor(affine, dtype=torch.float64, device="cpu").clone()
     if affine.shape != (4, 4):
-        raise ValueError(f"Expected a [4, 4] affine, got shape {tuple(affine.shape)}")
+        raise ValueError(
+            f"Expected a [4, 4] affine transform, got shape {tuple(affine.shape)}"
+        )
     if not affine.isfinite().all():
-        raise ValueError(f"Expected a finite affine, got {affine.tolist()}")
+        raise ValueError(f"Expected a finite affine transform, got {affine.tolist()}")
     if not torch.equal(affine[3], _HOMOGENEOUS_ROW):
         raise ValueError(
-            f"Expected the last affine row to be [0, 0, 0, 1], got {affine[3].tolist()}"
+            "Expected the last row of the affine transform to be [0, 0, 0, 1], "
+            f"got {affine[3].tolist()}"
         )
     if torch.linalg.matrix_rank(affine[:3, :3]) < 3:
-        raise ValueError(f"Expected an invertible affine, got {affine.tolist()}")
+        raise ValueError(
+            f"Expected an invertible affine transform, got {affine.tolist()}"
+        )
     return affine
 
 

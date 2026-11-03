@@ -54,13 +54,13 @@ class TestConstruction:
 
     @pytest.mark.parametrize("shape", [(3, 3), (3, 4), (4, 4, 1)])
     def test_rejects_affine_shape(self, shape: tuple[int, ...]) -> None:
-        with pytest.raises(ValueError, match=r"\[4, 4\] affine"):
+        with pytest.raises(ValueError, match=r"\[4, 4\] affine transform"):
             GridMask3D(torch.zeros(1, 4, 4), affine=torch.zeros(shape))
 
     def test_rejects_non_homogeneous_affine(self) -> None:
         affine = torch.eye(4)
         affine[3, 0] = 1.0
-        with pytest.raises(ValueError, match="last affine row"):
+        with pytest.raises(ValueError, match="last row of the affine transform"):
             GridMask3D(torch.zeros(1, 4, 4), affine=affine)
 
     @pytest.mark.parametrize(
@@ -73,7 +73,7 @@ class TestConstruction:
     def test_rejects_singular_affine(self, linear: list[list[float]]) -> None:
         affine = torch.eye(4)
         affine[:3, :3] = torch.tensor(linear)
-        with pytest.raises(ValueError, match="invertible affine"):
+        with pytest.raises(ValueError, match="invertible affine transform"):
             GridMask3D(torch.zeros(1, 4, 4), affine=affine)
 
     @pytest.mark.parametrize(
@@ -92,7 +92,7 @@ class TestConstruction:
     def test_rejects_non_finite_affine(self, value: float) -> None:
         affine = torch.eye(4)
         affine[0, 0] = value
-        with pytest.raises(ValueError, match="finite affine"):
+        with pytest.raises(ValueError, match="finite affine transform"):
             GridMask3D(torch.zeros(1, 4, 4), affine=affine)
 
     def test_wrapping_no_copy(self) -> None:
@@ -218,7 +218,7 @@ class TestWrap:
         mask = make_grid_mask_3d()
         affine = make_grid_affine()
         affine[:3, 0] = 0.0
-        with pytest.raises(ValueError, match="invertible affine"):
+        with pytest.raises(ValueError, match="invertible affine transform"):
             wrap(mask.as_subclass(torch.Tensor), like=mask, affine=affine)
 
     def test_shares_memory(self) -> None:

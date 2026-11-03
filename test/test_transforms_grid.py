@@ -59,7 +59,7 @@ class TestResampleGrid:
     def test_rejects_singular_affine(self) -> None:
         affine = torch.eye(4)
         affine[0, 0] = 0.0
-        with pytest.raises(ValueError, match="invertible affine"):
+        with pytest.raises(ValueError, match="invertible affine transform"):
             ResampleGrid(affine=affine, size=(8, 8))
 
     def test_passthrough_point_cloud(self) -> None:
