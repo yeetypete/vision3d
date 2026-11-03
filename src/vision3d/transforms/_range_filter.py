@@ -11,7 +11,7 @@ from vision3d.ops import extract_box3d_params
 from vision3d.tensors import BoundingBoxes3D, PointCloud3D
 
 from ._transform import Transform
-from ._utils import _find_boxes, _parse_labels_getter, _resolve_label_ids
+from ._utils import _find_boxes, _parse_labels_getter, _resolve_labels
 
 
 class RangeFilter3D(Transform):
@@ -89,14 +89,14 @@ class RangeFilter3D(Transform):
         # identity, so the keep-mask applies wherever they live.
         if boxes is None:
             valid = None
-            label_ids: list[int] = []
+            labels: tuple[Tensor, ...] = ()
         else:
             valid = self._box_keep_mask(boxes)
-            label_ids = _resolve_label_ids(
+            labels = _resolve_labels(
                 self._labels_getter(inputs), flat_inputs, boxes.shape[0]
             )
 
-        params = {"valid": valid, "label_ids": label_ids}
+        params = {"valid": valid, "labels": labels}
         flat_outputs = [self.transform(inpt, params) for inpt in flat_inputs]
         return tree_unflatten(flat_outputs, spec)
 
@@ -115,7 +115,7 @@ class RangeFilter3D(Transform):
             return inpt
         if isinstance(inpt, BoundingBoxes3D):
             return BoundingBoxes3D(inpt.as_subclass(Tensor)[valid], format=inpt.format)
-        if id(inpt) in params["label_ids"]:
+        if any(inpt is label for label in params["labels"]):
             return inpt[valid]
         return inpt
 
