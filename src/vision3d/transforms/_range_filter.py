@@ -8,7 +8,7 @@ from torch import Tensor
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
 from vision3d.ops import extract_box3d_params
-from vision3d.tensors import BoundingBoxes3D, PointCloud3D
+from vision3d.tensors import BoundingBoxes3D, PointCloud3D, wrap
 
 from ._transform import Transform
 from ._utils import _find_boxes, _parse_labels_getter, _resolve_labels
@@ -114,7 +114,7 @@ class RangeFilter3D(Transform):
         if valid is None:
             return inpt
         if isinstance(inpt, BoundingBoxes3D):
-            return BoundingBoxes3D(inpt.as_subclass(Tensor)[valid], format=inpt.format)
+            return wrap(inpt[valid], like=inpt)
         if any(inpt is label for label in params["labels"]):
             return inpt[valid]
         return inpt
@@ -128,7 +128,7 @@ class RangeFilter3D(Transform):
             self.point_cloud_range[3:], dtype=pts.dtype, device=pts.device
         )
         keep = ((pts[:, :3] >= min_bound) & (pts[:, :3] < max_bound)).all(dim=-1)
-        return PointCloud3D(pts[keep])
+        return wrap(pts[keep], like=points)
 
     def _box_keep_mask(self, boxes: BoundingBoxes3D) -> Tensor:
         raw = boxes.as_subclass(Tensor)
