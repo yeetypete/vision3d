@@ -11,6 +11,7 @@ from vision3d.tensors import (
     CameraExtrinsics,
     CameraImages,
     CameraIntrinsics,
+    GridMask3D,
     PointCloud3D,
 )
 
@@ -27,8 +28,9 @@ from .functional._geometry import (
 class RandomFlip3D(_RandomApplyTransform):
     """Flip inputs along a 3D axis with probability ``p``.
 
-    Operates on :class:`~vision3d.tensors.PointCloud3D` and
-    :class:`~vision3d.tensors.BoundingBoxes3D`. Camera inputs (images,
+    Operates on :class:`~vision3d.tensors.PointCloud3D`,
+    :class:`~vision3d.tensors.BoundingBoxes3D`,
+    and :class:`~vision3d.tensors.GridMask3D`. Camera inputs (images,
     extrinsics, intrinsics) are rejected, since this transform flips only the
     3D geometry and leaves the camera side untouched. To flip a scene that
     contains cameras, use :class:`torchvision.transforms.v2.RandomHorizontalFlip`
@@ -44,7 +46,7 @@ class RandomFlip3D(_RandomApplyTransform):
         p: Probability of applying the flip. Default: ``0.5``.
     """
 
-    _transformed_types = (PointCloud3D, BoundingBoxes3D)
+    _transformed_types = (PointCloud3D, BoundingBoxes3D, GridMask3D)
 
     def __init__(self, axis: str = "x", p: float = 0.5) -> None:
         super().__init__(p=p)
@@ -86,8 +88,9 @@ class RandomTranslate3D(_RandomApplyTransform):
     """Translate inputs by a random 3D offset with probability ``p``.
 
     Operates on :class:`~vision3d.tensors.PointCloud3D`,
-    :class:`~vision3d.tensors.BoundingBoxes3D`, and
-    :class:`~vision3d.tensors.CameraExtrinsics`.
+    :class:`~vision3d.tensors.BoundingBoxes3D`,
+    :class:`~vision3d.tensors.CameraExtrinsics`,
+    and :class:`~vision3d.tensors.GridMask3D`.
 
     Args:
         translation_range: Maximum translation per axis. Either a single
@@ -96,7 +99,12 @@ class RandomTranslate3D(_RandomApplyTransform):
         p: Probability of applying the translation. Default: ``0.5``.
     """
 
-    _transformed_types = (PointCloud3D, BoundingBoxes3D, CameraExtrinsics)
+    _transformed_types = (
+        PointCloud3D,
+        BoundingBoxes3D,
+        CameraExtrinsics,
+        GridMask3D,
+    )
 
     def __init__(
         self,
@@ -143,8 +151,9 @@ class RandomRotate3D(_RandomApplyTransform):
     """Rotate inputs around an axis by a random angle with probability ``p``.
 
     Operates on :class:`~vision3d.tensors.PointCloud3D`,
-    :class:`~vision3d.tensors.BoundingBoxes3D`, and
-    :class:`~vision3d.tensors.CameraExtrinsics`.
+    :class:`~vision3d.tensors.BoundingBoxes3D`,
+    :class:`~vision3d.tensors.CameraExtrinsics`,
+    and :class:`~vision3d.tensors.GridMask3D`.
 
     Args:
         angle_range: Maximum rotation angle in radians. Sampled uniformly
@@ -153,7 +162,12 @@ class RandomRotate3D(_RandomApplyTransform):
         p: Probability of applying the rotation. Default: ``0.5``.
     """
 
-    _transformed_types = (PointCloud3D, BoundingBoxes3D, CameraExtrinsics)
+    _transformed_types = (
+        PointCloud3D,
+        BoundingBoxes3D,
+        CameraExtrinsics,
+        GridMask3D,
+    )
 
     def __init__(
         self,
@@ -192,8 +206,9 @@ class RandomScale3D(_RandomApplyTransform):
     """Scale inputs by a random uniform factor with probability ``p``.
 
     Operates on :class:`~vision3d.tensors.PointCloud3D`,
-    :class:`~vision3d.tensors.BoundingBoxes3D`, and
-    :class:`~vision3d.tensors.CameraExtrinsics`.
+    :class:`~vision3d.tensors.BoundingBoxes3D`,
+    :class:`~vision3d.tensors.CameraExtrinsics`,
+    and :class:`~vision3d.tensors.GridMask3D`.
 
     Args:
         scale_range: Scale factor range as ``(min, max)``.
@@ -201,7 +216,12 @@ class RandomScale3D(_RandomApplyTransform):
         p: Probability of applying the scaling. Default: ``0.5``.
     """
 
-    _transformed_types = (PointCloud3D, BoundingBoxes3D, CameraExtrinsics)
+    _transformed_types = (
+        PointCloud3D,
+        BoundingBoxes3D,
+        CameraExtrinsics,
+        GridMask3D,
+    )
 
     def __init__(
         self,

@@ -140,7 +140,7 @@ class BoundingBoxes3D(TVTensor):
         # Metadata is lost after __torch_function__ calls. Restore it by taking
         # the format from the first BoundingBoxes3D in the args. This is correct
         # in most cases; when it isn't (e.g. mixing formats in one operation),
-        # it's likely a mis-use we don't guard against.
+        # it's likely a misuse we don't guard against.
         flat_params, _ = tree_flatten(
             tuple(args) + (tuple(kwargs.values()) if kwargs else ())
         )

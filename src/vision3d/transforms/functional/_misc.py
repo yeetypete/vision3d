@@ -9,6 +9,7 @@ from vision3d.tensors import (
     BoundingBoxes3D,
     CameraExtrinsics,
     CameraIntrinsics,
+    GridMask3D,
     PointCloud3D,
 )
 
@@ -17,6 +18,7 @@ from vision3d.tensors import (
 @_register_kernel(_F.to_dtype, BoundingBoxes3D)
 @_register_kernel(_F.to_dtype, CameraExtrinsics)
 @_register_kernel(_F.to_dtype, CameraIntrinsics)
+@_register_kernel(_F.to_dtype, GridMask3D)
 def _to_dtype_tensor_dispatch(
     inpt: Tensor, dtype: torch.dtype, scale: bool = False
 ) -> Tensor:

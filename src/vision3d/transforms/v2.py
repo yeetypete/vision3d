@@ -23,8 +23,9 @@ on a sample containing any vision3d TVTensor
 (:class:`~vision3d.tensors.PointCloud3D`,
 :class:`~vision3d.tensors.BoundingBoxes3D`,
 :class:`~vision3d.tensors.CameraImages`,
-:class:`~vision3d.tensors.CameraExtrinsics`, or
-:class:`~vision3d.tensors.CameraIntrinsics`) raises
+:class:`~vision3d.tensors.CameraExtrinsics`,
+:class:`~vision3d.tensors.CameraIntrinsics`,
+or :class:`~vision3d.tensors.GridMask3D`) raises
 :class:`TypeError`. They still work on plain
 :class:`torchvision.tv_tensors.Image` / :class:`~torchvision.tv_tensors.Mask`
 samples.
@@ -61,6 +62,7 @@ from vision3d.tensors import (
     CameraExtrinsics,
     CameraImages,
     CameraIntrinsics,
+    GridMask3D,
     PointCloud3D,
 )
 
@@ -74,6 +76,7 @@ _3D_AWARE_TVTENSORS = (
     CameraImages,
     CameraExtrinsics,
     CameraIntrinsics,
+    GridMask3D,
 )
 
 #: Torchvision v2 transforms that vision3d refuses when a vision3d
