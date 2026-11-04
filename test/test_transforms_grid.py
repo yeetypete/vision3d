@@ -12,6 +12,7 @@ from common_utils import (
     make_point_cloud_3d,
 )
 from torchvision.transforms import v2 as tv_v2
+from torchvision.transforms.v2 import InterpolationMode
 
 from vision3d.transforms import (
     CopyPaste3D,
@@ -28,6 +29,15 @@ class TestResampleGridDispatch:
     def test_dispatches_grid(self) -> None:
         with pytest.raises(NotImplementedError, match="grids"):
             resample_grid(make_grid_mask_3d(), affine=torch.eye(4), size=(8, 8))
+
+    def test_rejects_unsupported_interpolation(self) -> None:
+        with pytest.raises(ValueError, match="only support interpolation"):
+            resample_grid(
+                make_grid_mask_3d(),
+                affine=torch.eye(4),
+                size=(8, 8),
+                interpolation=InterpolationMode.BICUBIC,
+            )
 
     def test_rejects_point_cloud(self) -> None:
         pc = make_point_cloud_3d(num_points=10)
@@ -66,6 +76,42 @@ class TestResampleGrid:
         pc = make_point_cloud_3d(num_points=10)
         out = ResampleGrid(affine=torch.eye(4), size=(8, 8))({"points": pc})
         assert out["points"] is pc
+
+    @pytest.mark.parametrize(
+        ("interpolation", "expected"),
+        [
+            (InterpolationMode.BILINEAR, InterpolationMode.BILINEAR),
+            ("bilinear", InterpolationMode.BILINEAR),
+            (0, InterpolationMode.NEAREST),
+        ],
+    )
+    def test_normalizes_interpolation(
+        self, interpolation: Any, expected: InterpolationMode
+    ) -> None:
+        transform = ResampleGrid(
+            affine=torch.eye(4), size=(8, 8), interpolation=interpolation
+        )
+        assert transform.interpolation == expected
+
+    def test_rejects_invalid_interpolation(self) -> None:
+        with pytest.raises(ValueError, match="interpolation"):
+            ResampleGrid(affine=torch.eye(4), size=(8, 8), interpolation="linear")
+
+    @pytest.mark.parametrize(
+        "interpolation",
+        [
+            InterpolationMode.NEAREST_EXACT,
+            InterpolationMode.BICUBIC,
+            InterpolationMode.BOX,
+            InterpolationMode.HAMMING,
+            InterpolationMode.LANCZOS,
+        ],
+    )
+    def test_rejects_unsupported_interpolation(
+        self, interpolation: InterpolationMode
+    ) -> None:
+        with pytest.raises(ValueError, match="only support interpolation"):
+            ResampleGrid(affine=torch.eye(4), size=(8, 8), interpolation=interpolation)
 
     def test_rejects_invalid_fill(self) -> None:
         fill: Any = "255"

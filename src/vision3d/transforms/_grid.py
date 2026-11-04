@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from typing import Any, override
 
+from torchvision.transforms.v2 import InterpolationMode
 from torchvision.transforms.v2._utils import _get_fill, _setup_fill_arg
 from torchvision.transforms.v2.functional._utils import _FillType
 
@@ -10,7 +11,7 @@ from vision3d.tensors import GridMask3D
 from vision3d.tensors._grid_mask_3d import _as_affine
 
 from ._transform import Transform
-from .functional._grid import resample_grid
+from .functional._grid import _check_grid_interpolation, resample_grid
 
 
 class ResampleGrid(Transform):
@@ -19,14 +20,19 @@ class ResampleGrid(Transform):
     3D transforms only update the ``affine`` of a
     :class:`~vision3d.tensors.GridMask3D`. Use this transform, typically as the
     last transform, to resample the cells onto the target ``affine`` and
-    ``size``. Values are resampled with nearest-neighbor interpolation. Other
-    inputs pass through unchanged.
+    ``size``. Other inputs pass through unchanged.
 
     Args:
         affine: ``[4, 4]`` invertible index-to-frame transform of the target
             grid.
         size: Spatial size of the target grid, ``(H, W)`` for a planar grid
             or ``(D, H, W)`` for a volume.
+        interpolation: Desired interpolation enum defined by
+            :class:`torchvision.transforms.v2.InterpolationMode`.
+            Accepted string values are ``"nearest"`` and ``"bilinear"``.
+            Default is ``"nearest"``.
+            The corresponding ``InterpolationMode`` enum values and Pillow integer
+            constants, e.g. ``PIL.Image.BILINEAR`` are accepted as well.
         fill: Value for target cells that fall outside the input grid. A
             tuple gives one value per channel. Fill value can also be a
             dictionary mapping data type to the fill value, e.g.
@@ -39,6 +45,7 @@ class ResampleGrid(Transform):
         self,
         affine: Any,
         size: Sequence[int],
+        interpolation: str | InterpolationMode | int = InterpolationMode.NEAREST,
         fill: _FillType | dict[type | str, _FillType] = 0,
     ) -> None:
         super().__init__()
@@ -50,6 +57,7 @@ class ResampleGrid(Transform):
             raise ValueError(msg)
         self.affine = _as_affine(affine)
         self.size = tuple(size)
+        self.interpolation = _check_grid_interpolation(interpolation)
         self.fill = fill
         self._fill = _setup_fill_arg(fill)
 
@@ -65,5 +73,6 @@ class ResampleGrid(Transform):
             inpt,
             affine=self.affine,
             size=self.size,
+            interpolation=self.interpolation,
             fill=_get_fill(self._fill, type(inpt)),
         )
