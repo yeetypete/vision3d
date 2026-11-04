@@ -43,6 +43,25 @@ class TestResampleGridDispatch:
                 interpolation=InterpolationMode.BICUBIC,
             )
 
+    @pytest.mark.parametrize("dtype", [torch.uint8, torch.int64, torch.bool])
+    def test_rejects_bilinear_non_float(self, dtype: torch.dtype) -> None:
+        with pytest.raises(ValueError, match="floating point grid"):
+            resample_grid(
+                make_grid_mask_3d(dtype=dtype, num_classes=2),
+                affine=torch.eye(4),
+                size=(8, 8),
+                interpolation=InterpolationMode.BILINEAR,
+            )
+
+    def test_accepts_bilinear_float(self) -> None:
+        with pytest.raises(NotImplementedError, match="grids"):
+            resample_grid(
+                make_grid_mask_3d(dtype=torch.float32),
+                affine=torch.eye(4),
+                size=(8, 8),
+                interpolation=InterpolationMode.BILINEAR,
+            )
+
     def test_rejects_point_cloud(self) -> None:
         pc = make_point_cloud_3d(num_points=10)
         with pytest.raises(TypeError, match="supports inputs of type"):

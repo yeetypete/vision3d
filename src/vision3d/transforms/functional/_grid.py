@@ -128,13 +128,20 @@ def resample_grid_mask_3d(
             Default is ``"nearest"``.
             The corresponding ``InterpolationMode`` enum values and Pillow integer
             constants, e.g. ``PIL.Image.BILINEAR`` are accepted as well.
+            Bilinear requires a floating point ``mask``.
         fill: Value for target cells that fall outside ``mask``, either a
             single value or one value per channel. ``None`` means 0.
 
     Raises:
+        ValueError: If ``interpolation`` is bilinear and ``mask`` is not
+            floating point.
         NotImplementedError: Always, until resampling is implemented.
     """
     interpolation = _check_grid_interpolation(interpolation)
+    if interpolation == InterpolationMode.BILINEAR and not mask.is_floating_point():
+        raise ValueError(
+            f"Bilinear interpolation requires a floating point grid, got {mask.dtype}."
+        )
     # TODO: Raise a ValueError if len(size) != mask.ndim - 1.
     msg = "resample_grid is not implemented for grids yet."
     raise NotImplementedError(msg)
