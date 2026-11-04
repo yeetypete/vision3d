@@ -98,8 +98,7 @@ class GridMask3D(_Grid):
     2. A 4D tensor is a volume (e.g. semantic occupancy).
 
     Any dtype is accepted (e.g. int64 for class indices, bool for validity
-    masks, or float for soft labels). Values are resampled with
-    nearest-neighbor interpolation.
+    masks, or float for soft labels).
 
     ``affine`` maps homogeneous cell indices to the sample's 3D frame. Its
     columns follow the spatial axis order of the data, ``(d, h, w)``, and
