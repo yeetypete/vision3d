@@ -20,7 +20,7 @@ class RangeFilter3D(Transform):
     Points are filtered by their xyz coordinates; boxes are filtered by
     their **center** (format-agnostic), and any per-box ``labels`` are
     filtered in sync. The sample must hold at most one ``BoundingBoxes3D``
-    set (a single keep-mask cannot span box sets of differing length).
+    set (a single mask cannot span box sets of differing length).
 
     **Must** be applied after spatial augmentations (rotate / scale /
     translate can push data out of the sensor range) and before the
@@ -86,12 +86,12 @@ class RangeFilter3D(Transform):
         # ``labels_getter`` when the sample carries boxes. This keeps a
         # points-only sample working under the default getter without forcing
         # ``labels_getter=None``. The label tensors are matched to their leaf by
-        # identity, so the keep-mask applies wherever they live.
+        # identity, so the mask applies wherever they live.
         if boxes is None:
             valid = None
             labels: tuple[Tensor, ...] = ()
         else:
-            valid = self._box_keep_mask(boxes)
+            valid = self._get_valid_box_mask(boxes)
             labels = _resolve_labels(
                 self._labels_getter(inputs), flat_inputs, boxes.shape[0]
             )
@@ -106,7 +106,7 @@ class RangeFilter3D(Transform):
 
         Returns:
             The point cloud filtered by coordinate, boxes/labels filtered
-            by the box keep-mask, or ``inpt`` unchanged.
+            by the box mask, or ``inpt`` unchanged.
         """
         if isinstance(inpt, PointCloud3D):
             return self._filter_points(inpt)
@@ -127,10 +127,10 @@ class RangeFilter3D(Transform):
         max_bound = torch.tensor(
             self.point_cloud_range[3:], dtype=pts.dtype, device=pts.device
         )
-        keep = ((pts[:, :3] >= min_bound) & (pts[:, :3] < max_bound)).all(dim=-1)
-        return wrap(pts[keep], like=points)
+        valid = ((pts[:, :3] >= min_bound) & (pts[:, :3] < max_bound)).all(dim=-1)
+        return wrap(pts[valid], like=points)
 
-    def _box_keep_mask(self, boxes: BoundingBoxes3D) -> Tensor:
+    def _get_valid_box_mask(self, boxes: BoundingBoxes3D) -> Tensor:
         raw = boxes.as_subclass(Tensor)
         centers, _, _ = extract_box3d_params(raw, boxes.format)
         min_bound = torch.tensor(
