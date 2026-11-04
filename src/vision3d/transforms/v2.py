@@ -113,6 +113,30 @@ _REFUSED: frozenset[str] = frozenset(
 )
 
 
+#: Torchvision v2 transforms forwarded without vision3d mixins. Conversion
+#: and user-defined transforms must not skip plain tensors, and the mixins
+#: have no effect on composition transforms.
+_UNWRAPPED: frozenset[str] = frozenset(
+    {
+        # Base class of every mirrored transform
+        "Transform",
+        # Composition
+        "Compose",
+        "RandomApply",
+        "RandomChoice",
+        "RandomOrder",
+        # Convert plain tensors
+        "ToImage",
+        "ToPILImage",
+        # User-defined function and input types
+        "Lambda",
+        # Filter labels alongside boxes
+        "SanitizeBoundingBoxes",
+        "SanitizeKeyPoints",
+    }
+)
+
+
 class _PassPureTensorsIn3DSamplesMixin(_T.Transform):
     """Mixin that passes plain tensors through unchanged in samples with vision3d TVTensors.
 
@@ -226,6 +250,7 @@ def __getattr__(name: str) -> Any:
     Transform classes are wrapped with
     :class:`_PassPureTensorsIn3DSamplesMixin`, and names in
     :data:`_REFUSED` additionally with :class:`_Refuse3DAwareMixin`.
+    Names in :data:`_UNWRAPPED` are forwarded unchanged.
     Wrapped classes are built on first access and cached so identity is
     stable across calls (so ``isinstance``, pickling, and ``issubclass``
     checks behave normally). Other names are forwarded unchanged.
@@ -246,7 +271,7 @@ def __getattr__(name: str) -> Any:
         raise AttributeError(msg)
     if (
         not (isinstance(parent, type) and issubclass(parent, _T.Transform))
-        or parent is _T.Transform
+        or name in _UNWRAPPED
     ):
         return parent
     if name not in _WRAPPED_CLASSES:

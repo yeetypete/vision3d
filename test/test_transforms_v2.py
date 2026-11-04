@@ -27,7 +27,7 @@ from vision3d.tensors import (
     PointCloud3D,
 )
 from vision3d.transforms import v2 as v3d_v2
-from vision3d.transforms.v2 import _REFUSED
+from vision3d.transforms.v2 import _REFUSED, _UNWRAPPED
 
 #: Default-arg factory for every refused transform. Drives the
 #: parametrized refusal tests below.
@@ -303,8 +303,12 @@ class TestBehaviourMatchesTorchvision:
     def test_non_transform_reexport_is_identity(self, name: str) -> None:
         assert getattr(v3d_v2, name) is getattr(tv_v2, name)
 
-    def test_transform_base_is_identity(self) -> None:
-        assert v3d_v2.Transform is tv_v2.Transform
+    @pytest.mark.parametrize("name", sorted(_UNWRAPPED))
+    def test_unwrapped_is_identity(self, name: str) -> None:
+        assert getattr(v3d_v2, name) is getattr(tv_v2, name)
+
+    def test_unwrapped_disjoint_from_refused(self) -> None:
+        assert not _UNWRAPPED & _REFUSED
 
     @pytest.mark.parametrize("name", ["Resize", *sorted(_REFUSED)])
     def test_forwarded_subclasses_mirror_base(self, name: str) -> None:
@@ -393,7 +397,6 @@ _FORWARDED_TRANSFORMS: dict[str, Callable[[], nn.Module]] = {
     "Compose": lambda: v3d_v2.Compose([v3d_v2.Resize(size=[16, 16])]),
     "RandomHorizontalFlip": lambda: v3d_v2.RandomHorizontalFlip(p=1.0),
     "Resize": lambda: v3d_v2.Resize(size=[16, 16]),
-    "ToImage": v3d_v2.ToImage,
 }
 
 
@@ -425,6 +428,17 @@ class TestPlainTensorsInImageFreeSamples:
     ) -> None:
         with pytest.raises(TypeError, match="No image"):
             make_transform()(_IMAGE_FREE_SAMPLES["points"]())
+
+    # Conversion and user-defined transforms are forwarded unwrapped, so they
+    # must act on plain tensors even when the sample holds vision3d TVTensors.
+    def test_to_image_converts_plain_tensor(self) -> None:
+        sample = {"img": torch.rand(3, 8, 8), "points": make_point_cloud_3d()}
+        assert isinstance(v3d_v2.ToImage()(sample)["img"], Image)
+
+    def test_lambda_applies_to_plain_tensor(self) -> None:
+        sample = {"img": torch.rand(3, 8, 8), "points": make_point_cloud_3d()}
+        out = v3d_v2.Lambda(torch.zeros_like, torch.Tensor)(sample)
+        assert not out["img"].any()
 
     def test_plain_tensor_matches_torchvision(self) -> None:
         # Samples without vision3d tensors behave as in torchvision. This ensures
