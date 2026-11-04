@@ -87,7 +87,8 @@ def resample_grid(
             ``(D, H, W)``.
         interpolation: Desired interpolation enum defined by
             :class:`torchvision.transforms.v2.InterpolationMode`.
-            Accepted string values are ``"nearest"`` and ``"bilinear"``.
+            Accepted string values are ``"nearest"`` and ``"bilinear"``
+            (requires torchvision 0.28 or later).
             Default is ``"nearest"``.
             The corresponding ``InterpolationMode`` enum values and Pillow integer
             constants, e.g. ``PIL.Image.BILINEAR`` are accepted as well.
@@ -122,7 +123,8 @@ def resample_grid_mask_3d(
             ``(D, H, W)``.
         interpolation: Desired interpolation enum defined by
             :class:`torchvision.transforms.v2.InterpolationMode`.
-            Accepted string values are ``"nearest"`` and ``"bilinear"``.
+            Accepted string values are ``"nearest"`` and ``"bilinear"``
+            (requires torchvision 0.28 or later).
             Default is ``"nearest"``.
             The corresponding ``InterpolationMode`` enum values and Pillow integer
             constants, e.g. ``PIL.Image.BILINEAR`` are accepted as well.

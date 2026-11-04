@@ -5,12 +5,14 @@ from typing import Any
 
 import pytest
 import torch
+import torchvision
 from common_utils import (
     make_fusion_sample,
     make_grid_mask_3d,
     make_lidar_sample,
     make_point_cloud_3d,
 )
+from packaging.version import Version
 from torchvision.transforms import v2 as tv_v2
 from torchvision.transforms.v2 import InterpolationMode
 
@@ -23,6 +25,8 @@ from vision3d.transforms import (
     ResampleGrid,
 )
 from vision3d.transforms.functional import resample_grid
+
+_TV_ACCEPTS_INTERPOLATION_STRINGS = Version(torchvision.__version__) >= Version("0.28")
 
 
 class TestResampleGridDispatch:
@@ -81,7 +85,14 @@ class TestResampleGrid:
         ("interpolation", "expected"),
         [
             (InterpolationMode.BILINEAR, InterpolationMode.BILINEAR),
-            ("bilinear", InterpolationMode.BILINEAR),
+            pytest.param(
+                "bilinear",
+                InterpolationMode.BILINEAR,
+                marks=pytest.mark.skipif(
+                    not _TV_ACCEPTS_INTERPOLATION_STRINGS,
+                    reason="requires torchvision>=0.28",
+                ),
+            ),
             (0, InterpolationMode.NEAREST),
         ],
     )
