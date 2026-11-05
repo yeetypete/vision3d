@@ -140,8 +140,12 @@ except TypeError as e:
 # These two transforms appear in the showcase below. The remaining
 # ``RandomFlip3D`` world **X** flip has no image-space equivalent and stays
 # lidar-only.
+#
+# Import torchvision transforms through :mod:`vision3d.transforms.v2`. This
+# guarantees that transforms which would break the 3D geometry of a scene
+# raise an error instead.
 
-from torchvision.transforms import v2
+from vision3d.transforms import v2
 
 hflip_inputs, hflip_targets = v2.RandomHorizontalFlip(p=1.0)(inputs, targets)
 print(f"image-flipped boxes shape: {tuple(hflip_targets['boxes'].shape)}")
@@ -152,12 +156,11 @@ print(f"image-flipped boxes shape: {tuple(hflip_targets['boxes'].shape)}")
 # vision3d transforms are designed to be chained together to build
 # advanced data-augmentation pipelines to be used during training.
 # The standard :class:`torchvision.transforms.v2.Compose` can run 3D
-# transforms alongside any tensor-aware torchvision image transform.
+# transforms alongside any tensor-aware torchvision image transform
+# imported through :mod:`vision3d.transforms.v2`.
 # torchvision image transforms see only the
 # :class:`~vision3d.tensors.CameraImages` tensor and leave 3D geometry
 # untouched, so mixing them is safe.
-
-from torchvision.transforms import v2
 
 from vision3d.transforms import (
     PointJitter,
