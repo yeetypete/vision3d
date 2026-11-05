@@ -512,6 +512,19 @@ class TestCameraExtract:
         assert entry.camera_crops is not None
         assert len(entry.camera_crops) == 3
 
+    def test_database_does_not_pin_source_tensors(self) -> None:
+        inputs, targets = _make_fusion_batch(batch_size=1, num_boxes=1)
+        cp = CopyPaste3D(target_counts={CAR: 10}, min_points=1)
+        cp(inputs, targets)
+        entry = cp._database[CAR][0]
+        assert entry.camera_crops is not None
+        crop_data = entry.camera_crops[0]
+        assert crop_data is not None
+        crop = crop_data.crop
+        assert crop.untyped_storage().nbytes() == crop.numel() * crop.element_size()
+        box = entry.box
+        assert box.untyped_storage().nbytes() == box.numel() * box.element_size()
+
 
 # Camera paste
 class TestCameraPaste:
