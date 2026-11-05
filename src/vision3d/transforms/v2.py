@@ -58,6 +58,7 @@ World X-flip has no torchvision equivalent and stays in
 
 from typing import TYPE_CHECKING, Any, override
 
+import torch
 import torchvision.transforms.v2 as _T
 from torch.utils._pytree import tree_flatten
 from torchvision.transforms.v2 import has_any
@@ -137,6 +138,20 @@ _UNWRAPPED: frozenset[str] = frozenset(
 )
 
 
+def _targets_pure_tensors(transform: _T.Transform) -> bool:
+    """Check whether a transform explicitly targets plain tensors.
+
+    Returns:
+        ``True`` for a :class:`ToDtype` whose ``dtype`` dict has a
+        ``torch.Tensor`` key, otherwise ``False``.
+    """
+    return (
+        isinstance(transform, _T.ToDtype)
+        and isinstance(transform.dtype, dict)
+        and torch.Tensor in transform.dtype
+    )
+
+
 class _PassPureTensorsIn3DSamplesMixin(_T.Transform):
     """Mixin that passes plain tensors through unchanged in samples with vision3d TVTensors.
 
@@ -148,11 +163,21 @@ class _PassPureTensorsIn3DSamplesMixin(_T.Transform):
     would then be reordered, corrupted, or cause a crash. We avoid this with
     this mixin. See
     https://github.com/pytorch/vision/blob/v0.29.1/torchvision/transforms/v2/_transform.py#L75-L105
+
+    A :class:`ToDtype` with a ``torch.Tensor`` key in its ``dtype`` dict
+    converts every plain tensor, even when the sample holds an image.
+    torchvision converts only the first plain tensor, and none when an image
+    is present.
     """
 
     @override
     def _needs_transform_list(self, flat_inputs: list[Any]) -> list[bool]:
-        """Skip plain tensors when the sample holds a vision3d TVTensor.
+        """Skip plain tensors in 3D samples unless the transform targets them.
+
+        Plain tensors are only skipped if the sample contains a vision3d
+        TVTensor. Samples containing only torchvision TVTensors are handled
+        exactly as in torchvision. See
+        https://github.com/pytorch/vision/blob/v0.29.1/torchvision/transforms/v2/_transform.py#L75-L105
 
         Returns:
             List of bools, one per element of ``flat_inputs``.
@@ -160,8 +185,9 @@ class _PassPureTensorsIn3DSamplesMixin(_T.Transform):
         needs = super()._needs_transform_list(flat_inputs)
         if not has_any(flat_inputs, *_3D_AWARE_TVTENSORS):
             return needs
+        targets_pure_tensors = _targets_pure_tensors(self)
         return [
-            need and not is_pure_tensor(inpt)
+            targets_pure_tensors if is_pure_tensor(inpt) else need
             for need, inpt in zip(needs, flat_inputs, strict=True)
         ]
 

@@ -440,6 +440,26 @@ class TestPlainTensorsInImageFreeSamples:
         out = v3d_v2.Lambda(torch.zeros_like, torch.Tensor)(sample)
         assert not out["img"].any()
 
+    def test_to_dtype_skips_plain_tensors(self) -> None:
+        sample = _IMAGE_FREE_SAMPLES["points"]()
+        out = v3d_v2.ToDtype(torch.float32, scale=True)(sample)
+        assert out["labels"] is sample["labels"]
+
+    @pytest.mark.parametrize("sample_name", sorted(_IMAGE_FREE_SAMPLES))
+    def test_to_dtype_tensor_key_converts_all_plain_tensors(
+        self, sample_name: str
+    ) -> None:
+        sample = _IMAGE_FREE_SAMPLES[sample_name]()
+        out = v3d_v2.ToDtype({torch.Tensor: torch.float64, "others": None})(sample)
+        for key in _PLAIN_KEYS:
+            assert out[key].dtype == torch.float64
+
+    def test_to_dtype_tensor_key_converts_plain_tensors_with_image(self) -> None:
+        sample = {**make_fusion_sample(), "labels": torch.tensor([0, 1, 2])}
+        out = v3d_v2.ToDtype({torch.Tensor: torch.float64, "others": None})(sample)
+        assert out["labels"].dtype == torch.float64
+        assert out["images"] is sample["images"]
+
     def test_plain_tensor_matches_torchvision(self) -> None:
         # Samples without vision3d tensors behave as in torchvision. This ensures
         # the vision3d.transforms.v2 mirror is a drop-in replacement for
