@@ -8,10 +8,10 @@ from torch import Tensor
 from torch.utils._pytree import tree_flatten, tree_unflatten
 
 from vision3d.ops import extract_box3d_params
-from vision3d.tensors import BoundingBoxes3D, PointCloud3D
+from vision3d.tensors import BoundingBoxes3D, PointCloud3D, wrap
 
 from ._transform import Transform
-from ._utils import _find_boxes, _parse_labels_getter, _resolve_label_ids
+from ._utils import _find_boxes, _parse_labels_getter, _resolve_labels
 
 
 class RangeFilter3D(Transform):
@@ -20,7 +20,7 @@ class RangeFilter3D(Transform):
     Points are filtered by their xyz coordinates; boxes are filtered by
     their **center** (format-agnostic), and any per-box ``labels`` are
     filtered in sync. The sample must hold at most one ``BoundingBoxes3D``
-    set (a single keep-mask cannot span box sets of differing length).
+    set (a single mask cannot span box sets of differing length).
 
     **Must** be applied after spatial augmentations (rotate / scale /
     translate can push data out of the sensor range) and before the
@@ -71,13 +71,9 @@ class RangeFilter3D(Transform):
                 sample (e.g. a copy, view, or nested tensor). If a returned
                 label tensor's length does not match the number of boxes.
         """
-        # Unlike most transforms, forward is hand-rolled rather than routed
-        # through the base per-leaf ``transform()`` loop. Points and boxes have
-        # distinguishing tensor types and would dispatch fine, but labels are
-        # plain tensors with no distinguishing type, so they can only be located
-        # via ``labels_getter`` against the nested structure -- which is gone
-        # once the tree is flattened for the base loop. The base hooks
-        # (check_inputs, make_params) do not fire here.
+        # Overrides the base forward because ``labels_getter`` needs the nested
+        # sample, which the base forward flattens before calling any hook. As a
+        # result, ``check_inputs`` and ``make_params`` are not called.
         if not inputs:
             msg = "RangeFilter3D.forward requires at least one input sample"
             raise ValueError(msg)
@@ -90,40 +86,37 @@ class RangeFilter3D(Transform):
         # ``labels_getter`` when the sample carries boxes. This keeps a
         # points-only sample working under the default getter without forcing
         # ``labels_getter=None``. The label tensors are matched to their leaf by
-        # identity, so the keep-mask applies wherever they live.
+        # identity, so the mask applies wherever they live.
         if boxes is None:
-            box_keep = None
-            label_ids: list[int] = []
+            valid = None
+            labels: tuple[Tensor, ...] = ()
         else:
-            box_keep = self._box_keep_mask(boxes)
-            label_ids = _resolve_label_ids(
+            valid = self._get_valid_box_mask(boxes)
+            labels = _resolve_labels(
                 self._labels_getter(inputs), flat_inputs, boxes.shape[0]
             )
 
-        flat_outputs = [
-            self._filter_leaf(inpt, box_keep, label_ids) for inpt in flat_inputs
-        ]
+        params = {"valid": valid, "labels": labels}
+        flat_outputs = [self.transform(inpt, params) for inpt in flat_inputs]
         return tree_unflatten(flat_outputs, spec)
 
-    def _filter_leaf(
-        self, inpt: Any, box_keep: Tensor | None, label_ids: list[int]
-    ) -> Any:
+    @override
+    def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
         """Filter a single flattened leaf according to its type.
 
         Returns:
             The point cloud filtered by coordinate, boxes/labels filtered
-            by the box keep-mask, or ``inpt`` unchanged.
+            by the box mask, or ``inpt`` unchanged.
         """
         if isinstance(inpt, PointCloud3D):
             return self._filter_points(inpt)
-        if box_keep is None:
+        valid = params["valid"]
+        if valid is None:
             return inpt
         if isinstance(inpt, BoundingBoxes3D):
-            return BoundingBoxes3D(
-                inpt.as_subclass(Tensor)[box_keep], format=inpt.format
-            )
-        if id(inpt) in label_ids:
-            return inpt[box_keep]
+            return wrap(inpt[valid], like=inpt)
+        if any(inpt is label for label in params["labels"]):
+            return inpt[valid]
         return inpt
 
     def _filter_points(self, points: PointCloud3D) -> PointCloud3D:
@@ -134,10 +127,10 @@ class RangeFilter3D(Transform):
         max_bound = torch.tensor(
             self.point_cloud_range[3:], dtype=pts.dtype, device=pts.device
         )
-        keep = ((pts[:, :3] >= min_bound) & (pts[:, :3] < max_bound)).all(dim=-1)
-        return PointCloud3D(pts[keep])
+        valid = ((pts[:, :3] >= min_bound) & (pts[:, :3] < max_bound)).all(dim=-1)
+        return wrap(pts[valid], like=points)
 
-    def _box_keep_mask(self, boxes: BoundingBoxes3D) -> Tensor:
+    def _get_valid_box_mask(self, boxes: BoundingBoxes3D) -> Tensor:
         raw = boxes.as_subclass(Tensor)
         centers, _, _ = extract_box3d_params(raw, boxes.format)
         min_bound = torch.tensor(
