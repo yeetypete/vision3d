@@ -14,20 +14,24 @@ such element on the page and instantiates ``@rerun-io/web-viewer`` against
 it.
 """
 
+import zlib
 from collections.abc import Callable
+from pathlib import Path
 from typing import ClassVar, override
 
 from docutils import nodes
-from docutils.parsers.rst import Directive, directives
+from docutils.parsers.rst import directives
 from sphinx.application import Sphinx
+from sphinx.util.docutils import SphinxDirective
 from sphinx.util.typing import ExtensionMetadata
 
 
-class RerunEmbedDirective(Directive):
+class RerunEmbedDirective(SphinxDirective):
     """Embed an interactive Rerun web viewer.
 
     Args:
-        rrd: Basename of the ``.rrd`` file under ``docs/source/_static/``.
+        rrd: Basename of the ``.rrd`` file in one of the ``html_static_path``
+            directories.
 
     Options:
         height: CSS height for the viewer container. Defaults to ``600px``.
@@ -60,9 +64,12 @@ class RerunEmbedDirective(Directive):
 
         # Compute the relative path from this page to ``_static/`` so the
         # embed works regardless of deploy subpath.
-        docname = self.state.document.settings.env.docname
-        depth = docname.count("/")
+        depth = self.env.docname.count("/")
         rel_to_static = "../" * depth + "_static/" + rrd_name
+        if rrd := self._find_static(rrd_name):
+            # Rebuild this page when the recording changes.
+            self.env.note_dependency(rrd)
+            rel_to_static += f"?v={zlib.crc32(rrd.read_bytes()):08x}"
 
         html = (
             f'<div class="rerun-embed"'
@@ -71,6 +78,20 @@ class RerunEmbedDirective(Directive):
             f' style="width:{width};height:{height};"></div>'
         )
         return [nodes.raw("", html, format="html")]
+
+    def _find_static(self, name: str) -> Path | None:
+        """Locate ``name`` in the configured static directories.
+
+        Returns:
+            The last matching file, or ``None`` if it does not exist, e.g.
+            before the gallery has generated it.
+        """
+        # Sphinx copies later static directories over earlier ones.
+        for static_dir in reversed(self.config.html_static_path):
+            path = Path(self.env.app.confdir, static_dir, name)
+            if path.is_file():
+                return path
+        return None
 
 
 def setup(app: Sphinx) -> ExtensionMetadata:
