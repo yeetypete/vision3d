@@ -655,7 +655,7 @@ class CopyPaste3D(Transform):
             label = int(labels[j].item())
             entry = ObjectEntry(
                 points=obj_points.detach().cpu() if obj_points is not None else None,
-                box=boxes[j].detach().cpu(),
+                box=boxes[j].detach().to("cpu", copy=True),
                 format=fmt,
                 label=label,
                 camera_crops=camera_crops_map.get(j),
@@ -710,7 +710,7 @@ class CopyPaste3D(Transform):
                 mask, (x_min, y_min, x_max, y_max), _depth = hull_result
                 crop = images[cam_idx, :, y_min : y_max + 1, x_min : x_max + 1]
                 result[j][cam_idx] = CameraCrop(
-                    crop=crop.detach().cpu(),
+                    crop=crop.detach().to("cpu", copy=True),
                     mask=mask.detach().cpu(),
                     bbox=(x_min, y_min, x_max, y_max),
                 )
