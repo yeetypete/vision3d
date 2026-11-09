@@ -88,7 +88,7 @@ class RerunEmbedDirective(SphinxDirective):
         """
         # Sphinx copies later static directories over earlier ones.
         for static_dir in reversed(self.config.html_static_path):
-            path = Path(self.env.app.confdir, static_dir, name)
+            path = Path(self.env.srcdir, static_dir, name)
             if path.is_file():
                 return path
         return None
