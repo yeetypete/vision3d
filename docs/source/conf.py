@@ -42,8 +42,6 @@ sphinx_gallery_conf: dict[str, object] = {
     "show_signature": False,
     "image_scrapers": ("rerun_scraper",),
     "reset_modules": ("rerun",),
-    # Link vision3d API in example code to vision3d documentation.
-    "reference_url": {"vision3d": None},
 }
 
 autodoc_default_options = {
