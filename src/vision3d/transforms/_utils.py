@@ -36,10 +36,10 @@ def _find_boxes(flat_inputs: list[Any]) -> BoundingBoxes3D | None:
     return boxes[0] if boxes else None
 
 
-def _resolve_label_ids(
+def _resolve_labels(
     labels: Any, flat_inputs: list[Any], n_boxes: int | None
-) -> list[int]:
-    """Validate a ``labels_getter`` result and return the label leaves' ids.
+) -> tuple[Tensor, ...]:
+    """Validate a ``labels_getter`` result and return the label tensors.
 
     Labels are matched to their sample leaf by identity, so a caller can locate
     each label tensor among the flattened leaves regardless of where it lives.
@@ -55,8 +55,8 @@ def _resolve_label_ids(
             carries no boxes (in which case per-box length is not checked).
 
     Returns:
-        The ``id()`` values of the label tensors, in the order the getter
-        returned them, or an empty list when ``labels`` is ``None``.
+        The label tensors, in the order the getter returned them, or an empty
+        tuple when ``labels`` is ``None``.
 
     Raises:
         ValueError: If ``labels`` is not a tensor, tuple/list of tensors, or
@@ -64,7 +64,7 @@ def _resolve_label_ids(
             returned tensor's length does not match ``n_boxes``.
     """
     if labels is None:
-        return []
+        return ()
     if isinstance(labels, Tensor):
         labels = (labels,)
     elif isinstance(labels, (tuple, list)) and all(
@@ -93,7 +93,7 @@ def _resolve_label_ids(
                 f"sample has {n_boxes} boxes; labels must be per-box"
             )
             raise ValueError(msg)
-    return [id(label) for label in labels]
+    return labels
 
 
 def _find_label_key(mapping: Mapping[Any, Any]) -> str | None:
