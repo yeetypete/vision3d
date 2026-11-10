@@ -7,8 +7,10 @@ split is available on disk.They may be pointed at a custom location with the
 ``NUSCENES_MINI_ROOT`` environment variable.
 """
 
+import json
 import os
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -34,8 +36,10 @@ from vision3d.datasets.nuscenes import (
     _VAL,
     _get_split_scenes,
     _NuScenesDB,
+    _NuScenesMap,
     _quaternion_to_rotation_matrix,
 )
+from vision3d.tensors import GridMask3D
 
 # Datasets return CPU tensors by convention.
 pytestmark = pytest.mark.skip_device("cuda")
@@ -162,6 +166,7 @@ def test_split_all_is_every_scene(
         "sensor",
         "calibrated_sensor",
         "ego_pose",
+        "log",
         "scene",
         "sample",
         "sample_data",
@@ -174,8 +179,11 @@ def test_db_tables_match(
     """Tables we load are identical lists of records to the devkit's."""
     ours = getattr(our_db, table)
     theirs = getattr(devkit_db, table)
+    # The devkit links each log to its semantic prior map, which we don't load.
+    skipped = {"map_token"} if table == "log" else set()
     assert len(ours) == len(theirs)
     for rec, ref in zip(ours, theirs, strict=True):
+        ref = {k: v for k, v in ref.items() if k not in skipped}
         assert rec == ref, f"{table}[{rec['token']}]: {rec!r} != {ref!r}"
 
 
@@ -387,3 +395,266 @@ def test_nuscenes3d_sweeps_scene_start(
     torch.testing.assert_close(
         _drop_ring(points), _devkit_multisweep(devkit_db, token, 10), atol=1e-3, rtol=0
     )
+
+
+# Map expansion.
+
+
+def _write_map(path: Path) -> Path:
+    """Write a tiny map expansion with one location's worth of layers.
+
+    The drivable area is a 10x10 square with a 6x6 hole, and a second polygon
+    fills the center of the hole. A road divider runs along ``y = 15``.
+
+    Returns:
+        ``path``.
+    """
+    nodes = {
+        "outer": [(0, 0), (10, 0), (10, 10), (0, 10)],
+        "hole": [(2, 2), (8, 2), (8, 8), (2, 8)],
+        "island": [(4, 4), (6, 4), (6, 6), (4, 6)],
+        "line": [(0, 15), (10, 15)],
+    }
+    node_records: list[dict[str, Any]] = []
+    tokens: dict[str, list[str]] = {}
+    for name, coords in nodes.items():
+        tokens[name] = [f"{name}{i}" for i in range(len(coords))]
+        node_records += [
+            {"token": t, "x": float(x), "y": float(y)}
+            for t, (x, y) in zip(tokens[name], coords, strict=True)
+        ]
+    obj: dict[str, Any] = {
+        "version": "1.3",
+        "node": node_records,
+        "polygon": [
+            {
+                "token": "p_outer",
+                "exterior_node_tokens": tokens["outer"],
+                "holes": [{"node_tokens": tokens["hole"]}],
+            },
+            {
+                "token": "p_island",
+                "exterior_node_tokens": tokens["island"],
+                "holes": [],
+            },
+        ],
+        "line": [{"token": "l0", "node_tokens": tokens["line"]}],
+        # The island comes first so that the hole is drawn after it.
+        "drivable_area": [{"token": "d0", "polygon_tokens": ["p_island", "p_outer"]}],
+        "road_divider": [{"token": "r0", "line_token": "l0"}],
+    }
+    path.write_text(json.dumps(obj))
+    return path
+
+
+# Global (x, y) maps directly to (column, row).
+_IDENTITY_CELLS = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+_EVERYWHERE = np.array([-1e9, -1e9, 1e9, 1e9])
+
+
+def test_map_rasterizes_polygons_and_lines(tmp_path: Path) -> None:
+    layers = ["drivable_area", "road_divider"]
+    nusc_map = _NuScenesMap(_write_map(tmp_path / "map.json"), layers)
+    area, divider = (
+        nusc_map.rasterize(name, _IDENTITY_CELLS, (20, 20), _EVERYWHERE)
+        for name in layers
+    )
+    # Masks are indexed [row, column] = [y, x].
+    assert area[1, 1]  # Ring between exterior and hole.
+    assert not area[3, 3]  # Inside the hole.
+    assert area[5, 5]  # Island inside the hole survives the hole.
+    assert not area[12, 5]  # Outside the polygon.
+    # A 3-cell stroke covers one row on each side of the line.
+    assert divider[14:17, 0:11].all()
+    assert not divider[12, 5]
+    assert not divider[18, 5]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"map_size": (100.0, 100.0), "map_resolution": 0.0}, "map_resolution"),
+        ({"map_size": (0.1, 100.0)}, "map_size"),
+    ],
+)
+def test_map_args_are_validated(
+    tmp_path: Path, kwargs: dict[str, Any], match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        NuScenes3D(tmp_path, **kwargs)
+
+
+def test_map_missing_expansion_raises(mini_root: Path, tmp_path: Path) -> None:
+    (tmp_path / "v1.0-mini").symlink_to(mini_root / "v1.0-mini")
+    with pytest.raises(FileNotFoundError, match="map expansion"):
+        NuScenes3D(tmp_path, map_size=(100.0, 100.0))
+    # Without map_size the expansion is not needed.
+    NuScenes3D(tmp_path)
+
+
+@pytest.fixture(scope="module")
+def map_dataset(mini_root: Path) -> NuScenes3D:
+    if not (mini_root / "maps" / "expansion").is_dir():
+        pytest.skip(
+            "nuScenes map expansion not found. Extract it into "
+            f"{str(mini_root / 'maps')!r}."
+        )
+    return NuScenes3D(
+        mini_root, version="v1.0-mini", split="all", map_size=(100.0, 100.0)
+    )
+
+
+@pytest.fixture(scope="module")
+def devkit_maps(mini_root: Path, map_dataset: NuScenes3D) -> dict[str, Any]:
+    from nuscenes.map_expansion.map_api import NuScenesMap
+
+    return {loc: NuScenesMap(str(mini_root), loc) for loc in map_dataset._maps}
+
+
+@pytest.fixture
+def _devkit_lines_shapely2(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ``mask_for_lines`` iterates a MultiLineString directly, which shapely 2
+    # removed. Iterate its parts instead.
+    from nuscenes.map_expansion.map_api import NuScenesMapExplorer
+
+    draw = NuScenesMapExplorer.mask_for_lines
+
+    def mask_for_lines(lines: Any, mask: np.ndarray) -> np.ndarray:
+        for line in getattr(lines, "geoms", [lines]):
+            mask = draw(line, mask)
+        return mask
+
+    monkeypatch.setattr(
+        NuScenesMapExplorer, "mask_for_lines", staticmethod(mask_for_lines)
+    )
+
+
+@pytest.fixture
+def _devkit_keeps_invalid_polygons(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The devkit skips polygons that shapely considers invalid, which we draw.
+    # Repairing them lets the devkit draw them too.
+    from nuscenes.map_expansion.map_api import NuScenesMap
+
+    extract = NuScenesMap.extract_polygon
+
+    def extract_polygon(self: NuScenesMap, polygon_token: str) -> Any:
+        polygon = extract(self, polygon_token)
+        return polygon if polygon.is_valid else polygon.buffer(0)
+
+    monkeypatch.setattr(NuScenesMap, "extract_polygon", extract_polygon)
+
+
+def _lidar_to_global(nusc: devkit_NuScenes, sample_token: str) -> np.ndarray:
+    sample = nusc.get("sample", sample_token)
+    lidar_data = nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
+    pose = nusc.get("ego_pose", lidar_data["ego_pose_token"])
+    calib = nusc.get("calibrated_sensor", lidar_data["calibrated_sensor_token"])
+    return (
+        (
+            _devkit_make_transform(pose["translation"], pose["rotation"])
+            @ _devkit_make_transform(calib["translation"], calib["rotation"])
+        )
+        .double()
+        .numpy()
+    )
+
+
+def _location(nusc: devkit_NuScenes, sample_token: str) -> str:
+    scene = nusc.get("scene", nusc.get("sample", sample_token)["scene_token"])
+    return nusc.get("log", scene["log_token"])["location"]
+
+
+def _devkit_map_mask(
+    nusc_map: Any, lidar_to_global: np.ndarray, shift: float, layers: list[str]
+) -> np.ndarray:
+    # A 100 m patch at 0.5 m along the lidar heading, as BEVFusion requests it,
+    # with the center moved by ``shift`` meters along both patch axes.
+    yaw = np.arctan2(lidar_to_global[1, 0], lidar_to_global[0, 0])
+    cos, sin = np.cos(yaw), np.sin(yaw)
+    x, y = lidar_to_global[:2, 3] + np.array([[cos, -sin], [sin, cos]]) @ [shift, shift]
+    mask = nusc_map.get_map_mask(
+        (x, y, 100.0, 100.0), np.degrees(yaw), layers, (200, 200)
+    )
+    # The devkit puts rows along y. Ours run along x, as in BEVFusion.
+    return mask.transpose(0, 2, 1).astype(bool)
+
+
+def _iou(a: np.ndarray, b: np.ndarray) -> float:
+    union = (a | b).sum()
+    return 1.0 if union == 0 else float((a & b).sum() / union)
+
+
+@pytest.mark.usefixtures("_devkit_lines_shapely2", "_devkit_keeps_invalid_polygons")
+def test_map_matches_devkit(
+    map_dataset: NuScenes3D, devkit_db: devkit_NuScenes, devkit_maps: dict[str, Any]
+) -> None:
+    """Map channels match ``NuScenesMap.get_map_mask`` as BEVFusion calls it."""
+    layers = map_dataset.map_layers
+    line_layers = [name for name in layers if name in ("road_divider", "lane_divider")]
+    polygon_layers = [name for name in layers if name not in line_layers]
+    ious: dict[str, list[float]] = {name: [] for name in layers}
+    for index in range(0, len(map_dataset), 40):
+        token = map_dataset._sample_tokens[index]
+        grid = map_dataset[index][1]["map"]
+        assert isinstance(grid, GridMask3D)
+        assert grid.shape == (len(layers), 200, 200)
+        assert grid.dtype == torch.bool
+        grid = grid.numpy()
+        lidar_to_global = _lidar_to_global(devkit_db, token)
+        nusc_map = devkit_maps[_location(devkit_db, token)]
+
+        # The devkit rounds polygon vertices to integer pixels, which are half
+        # a cell off our cell centers, so its patch is shifted by half a cell.
+        # It truncates line vertices instead, which cancels that offset.
+        refs = dict(
+            zip(
+                polygon_layers,
+                _devkit_map_mask(nusc_map, lidar_to_global, 0.25, polygon_layers),
+                strict=True,
+            )
+        )
+        refs |= zip(
+            line_layers,
+            _devkit_map_mask(nusc_map, lidar_to_global, 0.0, line_layers),
+            strict=True,
+        )
+        for channel, name in enumerate(layers):
+            ious[name].append(_iou(grid[channel], refs[name]))
+    # Polygons differ only along edges, where PIL and cv2 fill differently.
+    # Lines are a few cells wide, so the stroke shapes of PIL and cv2 weigh
+    # more in their IoU.
+    for name, values in ious.items():
+        mean, low = (0.8, 0.6) if name in line_layers else (0.9, 0.85)
+        assert np.mean(values) > mean, (name, values)
+        assert np.min(values) > low, (name, values)
+
+
+def test_map_affine_places_cells_on_map(
+    map_dataset: NuScenes3D, devkit_db: devkit_NuScenes, devkit_maps: dict[str, Any]
+) -> None:
+    """Cells mapped through the affine land on the map geometry they label."""
+    channel = map_dataset.map_layers.index("drivable_area")
+    rng = np.random.default_rng(0)
+    for index in (0, len(map_dataset) // 2, len(map_dataset) - 1):
+        token = map_dataset._sample_tokens[index]
+        grid = map_dataset[index][1]["map"]
+        lidar_to_global = _lidar_to_global(devkit_db, token)
+        d, h, w = np.meshgrid(
+            [0.0], np.arange(grid.shape[1]), np.arange(grid.shape[2]), indexing="ij"
+        )
+        cells = np.stack([d.ravel(), h.ravel(), w.ravel(), np.ones(d.size)])
+        centers = lidar_to_global @ grid.affine.numpy() @ cells
+        # Cells lie in the global ground plane.
+        np.testing.assert_allclose(centers[2], 0.0, atol=1e-4)
+
+        nusc_map = devkit_maps[_location(devkit_db, token)]
+        ours = grid[channel].numpy().ravel()
+        picked = rng.choice(ours.size, size=300, replace=False)
+        inside = np.array(
+            [
+                bool(nusc_map.record_on_point(*centers[:2, i], "drivable_area"))
+                for i in picked
+            ]
+        )
+        # Disagreement is limited to cells on polygon edges.
+        assert np.mean(ours[picked] == inside) > 0.95
