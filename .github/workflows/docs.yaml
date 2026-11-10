@@ -38,7 +38,9 @@ jobs:
           path: |
             ~/.cache/vision3d/nuscenes-mini
             !~/.cache/vision3d/nuscenes-mini/v1.0-mini.tgz
-          key: nuscenes-mini-v1.0-extracted
+            !~/.cache/vision3d/nuscenes-mini/maps/nuScenes-map-expansion-v1.3.zip
+            !~/.cache/vision3d/nuscenes-mini/maps/basemap
+          key: nuscenes-mini-v1.0-map-v1.3-extracted
       - name: Cache KITTI mini
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

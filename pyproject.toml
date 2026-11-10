@@ -23,7 +23,7 @@ Repository = "https://github.com/yeetypete/vision3d"
 
 [project.optional-dependencies]
 viz = [
-  "rerun-sdk>=0.31.1",
+  "rerun-sdk>=0.34.0",
 ]
 
 [dependency-groups]

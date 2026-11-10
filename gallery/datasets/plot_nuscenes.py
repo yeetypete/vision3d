@@ -16,7 +16,9 @@ visualizing a frame with :func:`vision3d.viz.log_sample`.
 # :class:`~vision3d.datasets.NuScenes3D` yields sample frames describing
 # the 3D scene. Each sample carries lidar points, all six camera images,
 # their intrinsics and extrinsics, and 3D bounding-box annotations of the
-# objects in the scene.
+# objects in the scene. With ``map_size`` set, it also carries a top-down map
+# of the area around the vehicle, rasterized from the
+# `nuScenes map expansion <https://www.nuscenes.org/download>`_.
 
 from pathlib import Path
 
@@ -24,7 +26,14 @@ from vision3d.datasets import NuScenes3D
 
 NUSCENES_ROOT = Path("~/.cache/vision3d/nuscenes-mini").expanduser()
 
-dataset = NuScenes3D(NUSCENES_ROOT, version="v1.0-mini", split="train", download=True)
+dataset = NuScenes3D(
+    NUSCENES_ROOT,
+    version="v1.0-mini",
+    split="train",
+    # A 100 m x 100 m map patch around the lidar, at 0.5 m per cell by default.
+    map_size=(100.0, 100.0),
+    download=True,
+)
 print(f"len(dataset) = {len(dataset)}")
 print(f"classes ({len(dataset.classes)}): {dataset.classes}")
 
@@ -40,6 +49,11 @@ print(f"classes ({len(dataset.classes)}): {dataset.classes}")
 # :class:`~vision3d.tensors.BoundingBoxes3D`, ...) so
 # :mod:`vision3d.transforms` can dispatch to the right operation per
 # input.
+#
+# The map is a :class:`~vision3d.tensors.GridMask3D` with one boolean channel
+# per nuScenes map layer in ``NuScenes3D.map_layers``. Its ``affine`` places
+# the cells in the lidar frame, so the map stays aligned with the points and
+# boxes.
 
 inputs, targets = dataset[0]
 
@@ -70,6 +84,11 @@ print(
 print(
     f"  labels: type={type(targets['labels']).__name__} "
     f"shape={tuple(targets['labels'].shape)} dtype={targets['labels'].dtype}"
+)
+print(
+    f"  map: type={type(targets['map']).__name__} "
+    f"shape={tuple(targets['map'].shape)} dtype={targets['map'].dtype} "
+    f"channels={list(dataset.map_layers)}"
 )
 
 # %%
@@ -150,8 +169,9 @@ for i, (inp, tgt) in enumerate(zip(batch_inputs, batch_targets)):
 # :func:`vision3d.viz.log_sample` logs a
 # :class:`~vision3d.datasets.SampleInputs` /
 # :class:`~vision3d.datasets.SampleTargets` pair to `Rerun
-# <https://rerun.io/>`_ for interactive visualization. See the
-# visualization examples for overlaying detector predictions on the
+# <https://rerun.io/>`_ for interactive visualization. The map is logged as
+# translucent voxels per class through :func:`vision3d.viz.log_grid_mask`. See
+# the visualization examples for overlaying detector predictions on the
 # ground truth.
 
 import rerun as rr
@@ -171,4 +191,13 @@ rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 for frame_idx in range(10):
     f_inputs, f_targets = dataset[frame_idx]
     rr.set_time("frame", sequence=frame_idx)
-    log_sample(f_inputs, f_targets, label_to_id=dataset.class_to_idx, jpeg_quality=75)
+    log_sample(
+        f_inputs,
+        f_targets,
+        label_to_id=dataset.class_to_idx,
+        jpeg_quality=75,
+        # Names and colors the map channels as the nuScenes devkit does, e.g.
+        # world/gt/map/walkway in red.
+        map_channel_names=dataset.map_layers,
+        map_colors=dataset.map_colors,
+    )
