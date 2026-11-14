@@ -18,9 +18,7 @@ from ._geometry import flip_3d, rotate_3d, scale_3d, translate_3d
 from ._registry import _get_kernel, register_kernel
 
 _SUPPORTED_INTERPOLATIONS = (InterpolationMode.NEAREST, InterpolationMode.BILINEAR)
-# In cells. Far above the float64 rounding error of the computed indices, far
-# below anything that matters for where a cell center is.
-_BOUNDARY_TOLERANCE = 1e-6
+_BOUNDARY_TOLERANCE = 1e-6  # in cells
 
 
 def _check_grid_interpolation(
@@ -121,16 +119,11 @@ def resample_grid_mask_3d(
 ) -> Tensor:
     """Resample a label grid into a target layout.
 
-    Each target cell takes the value of ``mask`` at the target cell's center.
-    Nearest-neighbor interpolation picks the input cell that contains the
-    center. A center on the boundary between two cells picks the upper one,
-    i.e. the one with the higher index. Bilinear interpolation blends the
-    nearest input cell centers (trilinear for volumes). Near the edge of
-    ``mask`` it uses the edge cells instead of blending in ``fill``.
-
-    Target cells whose center falls outside ``mask`` get ``fill``. For a
-    planar grid, this includes centers above or below its single layer of
-    cells.
+    Each target cell takes the value of ``mask`` at its center. Nearest picks
+    the input cell containing the center, with ties going to the higher index.
+    Bilinear interpolates between input cell centers and clamps at the edges
+    of ``mask``. Target cells whose center falls outside ``mask`` get
+    ``fill``. For a planar grid, the single layer is one cell thick.
 
     Args:
         mask: Grid data ``[C, H, W]`` or ``[C, D, H, W]``.
@@ -154,10 +147,8 @@ def resample_grid_mask_3d(
 
     Raises:
         ValueError: If ``interpolation`` is bilinear and ``mask`` is not
-            floating point, if ``mask`` is neither ``[C, H, W]`` nor
-            ``[C, D, H, W]``, if ``size`` does not match the number of
-            spatial dimensions of ``mask``, or if ``fill`` has neither one
-            value nor one value per channel.
+            floating point, or if the shapes of ``mask``, ``size`` and
+            ``fill`` don't match.
     """
     interpolation = _check_grid_interpolation(interpolation)
     if interpolation == InterpolationMode.BILINEAR and not mask.is_floating_point():
@@ -182,16 +173,13 @@ def resample_grid_mask_3d(
 
     index = _input_index(input_affine, affine, size, device=mask.device)
     num_cells = torch.tensor(mask.shape[1:], device=mask.device).view(3, 1, 1, 1)
-    # Cell k covers indices [k - 0.5, k + 0.5). A center on a boundary often
-    # comes out a tiny bit off it, since cell sizes like 0.4 m aren't exact in
-    # binary. Move the boundaries down by a tolerance, so such a center always
-    # reads the upper cell instead of the side rounding happened to pick.
+    # Cell k covers [k - 0.5, k + 0.5). The tolerance makes centers that land
+    # on a boundary up to float error go to the upper cell.
     edge = 0.5 + _BOUNDARY_TOLERANCE
     inside = ((index >= -edge) & (index < num_cells - edge)).all(dim=0)
 
     if interpolation == InterpolationMode.NEAREST:
-        # Round in place to save memory, since index isn't needed afterwards.
-        # Outside cells get fill below, so only keep their indices in range.
+        # Clamp only to keep indexing valid; outside cells get fill below.
         cell = index.add_(edge).floor_().clamp_(min=0).clamp_(max=num_cells - 1)
         cell = cell.long()
         output = mask[:, cell[0], cell[1], cell[2]]
@@ -215,9 +203,8 @@ def _fill_values(fill: _FillTypeJIT, mask: Tensor) -> Tensor:
         )
     values = torch.tensor(fill, dtype=torch.float64, device=mask.device)
     if not mask.is_floating_point():
-        # Round like torchvision instead of truncating. Going through int64
-        # keeps the cast defined for values out of range, so -1 becomes 255
-        # for uint8 whether it was given as an int or a float.
+        # Round like torchvision. Going through int64 wraps out-of-range
+        # values, e.g. -1 becomes 255 for uint8.
         values = values.round().long()
     return values.to(mask.dtype).view(-1, 1, 1, 1)
 
@@ -229,15 +216,12 @@ def _input_index(
     *,
     device: torch.device,
 ) -> Tensor:
-    # Map each target cell index into the frame with the target affine, then
-    # back into the input grid with the inverse input affine. Use float64 so
-    # the rounding error stays well below the boundary tolerance, also for
-    # indices in the thousands.
+    # Target index -> frame -> input index, in float64 to stay well within
+    # _BOUNDARY_TOLERANCE.
     transform = torch.linalg.solve(_as_affine(input_affine), _as_affine(affine))
     transform = transform[:3].to(device)
-    # transform @ [d, h, w, 1] is the last column plus each other column times
-    # its index. Add the columns one axis at a time, so the full grid of
-    # target indices is never built.
+    # Equivalent to transform @ [d, h, w, 1] over all target indices, without
+    # building the index grid.
     index = transform[:, 3].view(3, 1, 1, 1).repeat(1, *size)
     for axis, n in enumerate(size):
         steps = torch.arange(n, dtype=torch.float64, device=device)
@@ -248,23 +232,17 @@ def _input_index(
 
 
 def _sample_bilinear(mask: Tensor, index: Tensor) -> Tensor:
-    # grid_sample takes coordinates in [-1, 1] ordered (w, h, d). With
-    # align_corners=False, -1 and 1 are the outer edges of the edge cells, so
-    # index i maps to (2 * i + 1) / n - 1. This also works for a single layer,
-    # where align_corners=True would divide by zero.
+    # grid_sample takes (w, h, d) in [-1, 1]. align_corners=False also works
+    # for a single layer, where align_corners=True would divide by zero.
     num_cells = torch.tensor(mask.shape[1:], device=index.device).view(3, 1, 1, 1)
     grid = ((2 * index + 1) / num_cells - 1).flip(0).permute(1, 2, 3, 0)
-    # grid_sample needs the grid in the dtype of the input. Half precision
-    # coordinates can't address single cells in large grids, so sample in at
-    # least float32.
+    # float16 coordinates are too coarse for large grids.
     dtype = torch.promote_types(mask.dtype, torch.float32)
     output = grid_sample(
         mask.unsqueeze(0).to(dtype),
         grid.unsqueeze(0).to(dtype),
         mode="bilinear",
-        # Clamp to the edge cells instead of blending in zeros. Cells outside
-        # the grid get fill afterwards.
-        padding_mode="border",
+        padding_mode="border",  # don't fade to 0 near the edge
         align_corners=False,
     )
     return output.squeeze(0).to(mask.dtype)
