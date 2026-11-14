@@ -2,7 +2,9 @@
 
 from collections.abc import Sequence
 
+import torch
 from torch import Tensor
+from torch.nn.functional import grid_sample
 from torchvision.transforms.v2 import InterpolationMode
 from torchvision.transforms.v2 import functional as _F
 from torchvision.transforms.v2.functional import register_kernel as _register_kernel
@@ -10,11 +12,13 @@ from torchvision.transforms.v2.functional._geometry import _check_interpolation
 from torchvision.transforms.v2.functional._utils import _FillTypeJIT
 
 from vision3d.tensors import GridMask3D, wrap
+from vision3d.tensors._grid_mask_3d import _as_affine
 
 from ._geometry import flip_3d, rotate_3d, scale_3d, translate_3d
 from ._registry import _get_kernel, register_kernel
 
 _SUPPORTED_INTERPOLATIONS = (InterpolationMode.NEAREST, InterpolationMode.BILINEAR)
+_BOUNDARY_TOLERANCE = 1e-6  # in cells
 
 
 def _check_grid_interpolation(
@@ -30,7 +34,7 @@ def _check_grid_interpolation(
     return interpolation
 
 
-# TODO: Add implementations for the grid kernels and resample_grid_mask_3d.
+# TODO: Add implementations for the grid kernels.
 def _not_implemented(operation: str) -> NotImplementedError:
     return NotImplementedError(f"{operation} is not implemented for grids yet.")
 
@@ -115,6 +119,12 @@ def resample_grid_mask_3d(
 ) -> Tensor:
     """Resample a label grid into a target layout.
 
+    Each target cell takes the value of ``mask`` at its center. Nearest picks
+    the input cell containing the center, with ties going to the higher index.
+    Bilinear interpolates between input cell centers and clamps at the edges
+    of ``mask``. Target cells whose center falls outside ``mask`` get
+    ``fill``. For a planar grid, the single layer is one cell thick.
+
     Args:
         mask: Grid data ``[C, H, W]`` or ``[C, D, H, W]``.
         input_affine: ``[4, 4]`` index-to-frame transform of ``mask``.
@@ -132,19 +142,110 @@ def resample_grid_mask_3d(
         fill: Value for target cells that fall outside ``mask``, either a
             single value or one value per channel. ``None`` means 0.
 
+    Returns:
+        Resampled grid ``[C, *size]`` with the dtype and device of ``mask``.
+
     Raises:
         ValueError: If ``interpolation`` is bilinear and ``mask`` is not
-            floating point.
-        NotImplementedError: Always, until resampling is implemented.
+            floating point, or if the shapes of ``mask``, ``size`` and
+            ``fill`` don't match.
     """
     interpolation = _check_grid_interpolation(interpolation)
     if interpolation == InterpolationMode.BILINEAR and not mask.is_floating_point():
         raise ValueError(
             f"Bilinear interpolation requires a floating point grid, got {mask.dtype}."
         )
-    # TODO: Raise a ValueError if len(size) != mask.ndim - 1.
-    msg = "resample_grid is not implemented for grids yet."
-    raise NotImplementedError(msg)
+    if mask.ndim not in (3, 4):
+        raise ValueError(
+            f"Expected a grid [C, H, W] or [C, D, H, W], got shape {tuple(mask.shape)}."
+        )
+    if len(size) != mask.ndim - 1:
+        raise ValueError(
+            f"Expected size with {mask.ndim - 1} elements for a grid of shape "
+            f"{tuple(mask.shape)}, got {tuple(size)}."
+        )
+    fill_values = _fill_values(fill, mask)
+
+    planar = mask.ndim == 3
+    if planar:
+        mask = mask.unsqueeze(1)
+        size = (1, *size)
+
+    index = _input_index(input_affine, affine, size, device=mask.device)
+    num_cells = torch.tensor(mask.shape[1:], device=mask.device).view(3, 1, 1, 1)
+    # Cell k covers [k - 0.5, k + 0.5). The tolerance makes centers that land
+    # on a boundary up to float error go to the upper cell.
+    edge = 0.5 + _BOUNDARY_TOLERANCE
+    inside = ((index >= -edge) & (index < num_cells - edge)).all(dim=0)
+
+    if interpolation == InterpolationMode.NEAREST:
+        # Clamp only to keep indexing valid; outside cells get fill below.
+        cell = index.add_(edge).floor_().clamp_(min=0).clamp_(max=num_cells - 1)
+        cell = cell.long()
+        output = mask[:, cell[0], cell[1], cell[2]]
+    else:
+        output = _sample_bilinear(mask, index)
+
+    output = torch.where(inside, output, fill_values)
+    return output.squeeze(1) if planar else output
+
+
+def _fill_values(fill: _FillTypeJIT, mask: Tensor) -> Tensor:
+    if fill is None:
+        fill = [0.0]
+    elif not isinstance(fill, (list, tuple)):
+        fill = [fill]
+    num_channels = mask.shape[0]
+    if len(fill) not in (1, num_channels):
+        raise ValueError(
+            f"Expected fill with 1 or {num_channels} values for a grid with "
+            f"{num_channels} channels, got {len(fill)}."
+        )
+    values = torch.tensor(fill, dtype=torch.float64, device=mask.device)
+    if not mask.is_floating_point():
+        # Round like torchvision. Going through int64 wraps out-of-range
+        # values, e.g. -1 becomes 255 for uint8.
+        values = values.round().long()
+    return values.to(mask.dtype).view(-1, 1, 1, 1)
+
+
+def _input_index(
+    input_affine: Tensor,
+    affine: Tensor,
+    size: Sequence[int],
+    *,
+    device: torch.device,
+) -> Tensor:
+    # Target index -> frame -> input index, in float64 to stay well within
+    # _BOUNDARY_TOLERANCE.
+    transform = torch.linalg.solve(_as_affine(input_affine), _as_affine(affine))
+    transform = transform[:3].to(device)
+    # Equivalent to transform @ [d, h, w, 1] over all target indices, without
+    # building the index grid.
+    index = transform[:, 3].view(3, 1, 1, 1).repeat(1, *size)
+    for axis, n in enumerate(size):
+        steps = torch.arange(n, dtype=torch.float64, device=device)
+        shape = [1, 1, 1]
+        shape[axis] = n
+        index += transform[:, axis].view(3, 1, 1, 1) * steps.view(shape)
+    return index
+
+
+def _sample_bilinear(mask: Tensor, index: Tensor) -> Tensor:
+    # grid_sample takes (w, h, d) in [-1, 1]. align_corners=False also works
+    # for a single layer, where align_corners=True would divide by zero.
+    num_cells = torch.tensor(mask.shape[1:], device=index.device).view(3, 1, 1, 1)
+    grid = ((2 * index + 1) / num_cells - 1).flip(0).permute(1, 2, 3, 0)
+    # float16 coordinates are too coarse for large grids.
+    dtype = torch.promote_types(mask.dtype, torch.float32)
+    output = grid_sample(
+        mask.unsqueeze(0).to(dtype),
+        grid.unsqueeze(0).to(dtype),
+        mode="bilinear",
+        padding_mode="border",  # don't fade to 0 near the edge
+        align_corners=False,
+    )
+    return output.squeeze(0).to(mask.dtype)
 
 
 @register_kernel(resample_grid, GridMask3D, tv_tensor_wrapper=False)
