@@ -149,8 +149,7 @@ class TestResampleGridMask3D:
         dtype: torch.dtype,
         interpolation: InterpolationMode,
     ) -> None:
-        # Moving the target grid by k cells along an axis makes target cell i
-        # read input cell i + k. Cells that read past the edge get fill.
+        # Target cell i reads input cell i + cells.
         mask = make_grid_mask_3d(channels=2, spatial_shape=(4, 6, 7), dtype=dtype)
         offset = [0.0, 0.0, 0.0]
         offset[axis] = cells
@@ -176,8 +175,6 @@ class TestResampleGridMask3D:
         torch.testing.assert_close(out, expected)
 
     def test_rotate_quarter_turn(self) -> None:
-        # Target index (d, h, w) reads input index (d, w, 3 - h), which is
-        # what torch.rot90 does over (h, w).
         mask = make_grid_mask_3d(spatial_shape=(2, 4, 4))
         quarter_turn = mask.affine.new_tensor(
             [[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 3], [0, 0, 0, 1]]
@@ -188,12 +185,9 @@ class TestResampleGridMask3D:
         )
 
     def test_rotate_eighth_turn(self) -> None:
-        # Rotating a 3x3 grid by 45 degrees about its center cell moves each
-        # outer cell one step around the ring. For example, target (0, 0)
-        # reads input index (1, -0.41), which is still inside cell (1, 0).
+        # 45 degrees about the center cell moves the outer ring by one step.
         mask = GridMask3D(torch.arange(9).view(1, 3, 3), affine=make_grid_affine())
         c = math.cos(math.pi / 4)
-        # Input (h, w) = R @ (target (h, w) - 1) + 1, where R rotates by 45°.
         rotate = mask.affine.new_tensor(
             [[1, 0, 0, 0], [0, c, -c, 1], [0, c, c, 1 - 2 * c], [0, 0, 0, 1]]
         )
@@ -202,7 +196,6 @@ class TestResampleGridMask3D:
 
     @pytest.mark.parametrize("axis", [0, 1, 2])
     def test_reflect_matches_flip(self, axis: int) -> None:
-        # Reversing an axis makes target cell i read input cell n - 1 - i.
         mask = make_grid_mask_3d(spatial_shape=(4, 6, 7))
         n = mask.shape[axis + 1]
         reflect = torch.eye(4, dtype=torch.float64, device=mask.affine.device)
@@ -211,9 +204,7 @@ class TestResampleGridMask3D:
         torch.testing.assert_close(out, mask.as_subclass(Tensor).flip(axis + 1))
 
     def test_upsample_repeats_cells(self) -> None:
-        # Half-size target cells whose first center is a quarter of an input
-        # cell before the first input center: each input cell covers two
-        # target cells per axis.
+        # Half-size cells with the same outer edges as the input.
         mask = make_grid_mask_3d(spatial_shape=(3, 4, 5))
         half = torch.diag(mask.affine.new_tensor([0.5, 0.5, 0.5, 1.0]))
         affine = _shift(mask.affine @ half, -0.5, -0.5, -0.5)
@@ -223,8 +214,7 @@ class TestResampleGridMask3D:
         torch.testing.assert_close(out, expected.repeat_interleave(2, 3))
 
     def test_nearest_cells_are_half_open(self) -> None:
-        # Cell k covers [k - 0.5, k + 0.5). A center on the boundary between
-        # two cells reads the upper one, and the last boundary is outside.
+        # Cell k covers [k - 0.5, k + 0.5).
         mask = GridMask3D(torch.arange(4).view(1, 1, 4), affine=make_grid_affine())
         out = _resample(mask, _shift(mask.affine, w=0.5), (1, 4), fill=255)
         assert out.flatten().tolist() == [1, 2, 3, 255]
@@ -234,9 +224,8 @@ class TestResampleGridMask3D:
     @pytest.mark.parametrize("axis", [0, 1, 2])
     @pytest.mark.parametrize("cell_size", [0.4, 0.3, 0.15])
     def test_nearest_ties_read_upper_cell(self, axis: int, cell_size: float) -> None:
-        # Downsampling 2x with aligned edges puts every target center on the
-        # boundary between input cells 2j and 2j + 1. Such cell sizes aren't
-        # exact in binary, so rounding must not decide which one is read.
+        # 2x downsampling puts every target center on an input cell boundary.
+        # These cell sizes aren't exact in binary.
         n = 200
         shape = [2, 2, 2]
         shape[axis] = n
@@ -268,7 +257,6 @@ class TestResampleGridMask3D:
         assert out.flatten().tolist() == [0.5, 1.5, 2.5, 255.0]
 
     def test_bilinear_trilinear_volume(self) -> None:
-        # The first target center sits between all 8 cells of a 2x2x2 volume.
         mask = make_grid_mask_3d(spatial_shape=(2, 2, 2), dtype=torch.float64)
         out = _resample(
             mask,
@@ -281,8 +269,7 @@ class TestResampleGridMask3D:
         )
 
     def test_bilinear_does_not_blend_fill(self) -> None:
-        # Target cell 0 lies inside input cell 0 but before its center. It
-        # takes the value of cell 0 instead of mixing in fill.
+        # Target cell 0 is inside input cell 0 but before its center.
         mask = GridMask3D(torch.arange(4.0).view(1, 1, 4), affine=make_grid_affine())
         out = _resample(
             mask,
@@ -310,9 +297,7 @@ class TestResampleGridMask3D:
         dtype: torch.dtype,
         interpolation: InterpolationMode,
     ) -> None:
-        # A planar grid is a single layer of cells, so target centers more
-        # than half a cell above or below it are outside. Centers inside the
-        # layer take its value as is, also with bilinear.
+        # The layer is one cell thick.
         mask = make_grid_mask_3d(spatial_shape=(6, 7), dtype=dtype)
         out = _resample(
             mask,
@@ -335,10 +320,8 @@ class TestResampleGridMask3D:
     def test_oblique_affine_matches_reference(
         self, spatial_shape: tuple[int, ...], axis: tuple[float, float, float]
     ) -> None:
-        # Rotate about an oblique axis, shear, scale each axis differently, and
-        # reflect w. Compare with looking up each target center on its own.
+        # Rotate, shear, scale and reflect, then compare with a per-cell lookup.
         mask = make_grid_mask_3d(channels=2, spatial_shape=spatial_shape)
-        # Affines live on the CPU.
         x, y, z = torch.nn.functional.normalize(torch.tensor(axis), dim=0).tolist()
         cross = torch.tensor(
             [[0, -z, y], [z, 0, -x], [-y, x, 0]], dtype=torch.float64, device="cpu"
@@ -349,7 +332,7 @@ class TestResampleGridMask3D:
         scale = torch.diag(cross.new_tensor([0.8, 1.1, -1.3]))
         index_map = torch.eye(4, dtype=torch.float64, device="cpu")
         index_map[:3, :3] = rotation @ shear @ scale
-        # Keep the centers of both grids together, so most cells are inside.
+        # Keep the grid centers aligned so most cells stay inside.
         center = (cross.new_tensor((1, *spatial_shape)[-3:]) - 1) / 2
         index_map[:3, 3] = center - index_map[:3, :3] @ center
         out = _resample(mask, mask.affine @ index_map, spatial_shape, fill=-1)
@@ -378,8 +361,7 @@ class TestResampleGridMask3D:
     def test_fill_is_rounded_for_integer_grids(
         self, dtype: torch.dtype, fill: Any, expected: Any
     ) -> None:
-        # ResampleGrid passes per-channel fills as floats, so a float and an
-        # int fill must end up as the same value.
+        # ResampleGrid passes per-channel fills as floats.
         mask = GridMask3D(torch.zeros(1, 1, 4, dtype=dtype), affine=make_grid_affine())
         out = _resample(mask, _shift(mask.affine, w=100), (1, 4), fill=fill)
         assert out.flatten().tolist() == [expected] * 4
