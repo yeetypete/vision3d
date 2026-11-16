@@ -1556,8 +1556,11 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     # categories are skipped when loading annotations.
     category_map: ClassVar[dict[str, str]] = _CATEGORY_TO_DETECTION
 
-    data_url: ClassVar[str] = "https://www.nuscenes.org/data/"
+    data_url: ClassVar[str] = (
+        "https://motional-nuscenes.s3.ap-northeast-1.amazonaws.com/public/v1.0/"
+    )
     mini_archive: ClassVar[str] = "v1.0-mini.tgz"
+    mini_archive_md5: ClassVar[str] = "dc2267f6e62b221efb9575929028603b"
 
     def __init__(
         self,
@@ -1636,6 +1639,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             url=f"{self.data_url}{self.mini_archive}",
             download_root=str(self.root),
             filename=self.mini_archive,
+            md5=self.mini_archive_md5,
         )
 
     @override
