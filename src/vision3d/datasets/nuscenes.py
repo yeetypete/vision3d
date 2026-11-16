@@ -3,9 +3,19 @@
 import json
 import os
 import sys
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Literal, TypedDict, overload, override
+from typing import (
+    Any,
+    ClassVar,
+    Literal,
+    NamedTuple,
+    Self,
+    TypedDict,
+    overload,
+    override,
+)
 
 if sys.version_info >= (3, 13):
     from typing import ReadOnly
@@ -14,6 +24,7 @@ else:
 
 import numpy as np
 import torch
+from PIL import Image, ImageDraw
 from torch import Tensor
 from torch.utils.data import Dataset
 from torchcodec.decoders import decode_image
@@ -81,6 +92,27 @@ _TABLE_NAMES = (
     "sample_data",
     "sample_annotation",
 )
+
+# Map expansion layers that can be rasterized. Mirrors
+# ``NuScenesMap.non_geometric_polygon_layers`` and the line layers of
+# ``NuScenesMap.non_geometric_line_layers``.
+# ``traffic_light`` is left out because the nuscenes-devkit does not
+# render a mask for it.
+_MAP_POLYGON_LAYERS = (
+    "drivable_area",
+    "road_segment",
+    "road_block",
+    "lane",
+    "ped_crossing",
+    "walkway",
+    "stop_line",
+    "carpark_area",
+)
+_MAP_LINE_LAYERS = ("road_divider", "lane_divider")
+
+# Width in cells of rasterized line layers. The nuscenes-devkit uses
+# ``cv2.polylines`` with a thickness of 2 to draw lines 3 cells wide.
+_MAP_LINE_WIDTH = 3
 
 
 # Hard-coded scene splits from ``nuscenes.utils.splits``.
@@ -1313,6 +1345,168 @@ class _NuScenesDB:
         return getattr(self, table_name)[self._token2ind[table_name][token]]
 
 
+class _MapGeometry(NamedTuple):
+    """One polygon or line of a map expansion layer.
+
+    Attributes:
+        points: ``[N, 2]`` global ``(x, y)`` vertices of a polygon's outline
+            or of a line.
+        holes: ``[M, 2]`` vertices of each hole of a polygon. Lines have
+            none.
+    """
+
+    points: np.ndarray
+    holes: list[np.ndarray]
+
+
+class _MapNodes:
+    """Global ``(x, y)`` coordinates of map expansion ``node`` records.
+
+    Indexing with a list of node tokens returns their ``[N, 2]`` coordinates
+    in the same order.
+    """
+
+    def __init__(self, records: list[dict[str, Any]]) -> None:
+        self._index = {record["token"]: i for i, record in enumerate(records)}
+        self._xy = np.array(
+            [(record["x"], record["y"]) for record in records], dtype=np.float64
+        ).reshape(-1, 2)
+
+    def __getitem__(self, tokens: list[str]) -> np.ndarray:
+        return self._xy[[self._index[t] for t in tokens]]
+
+
+@dataclass(frozen=True)
+class _MapLayer:
+    """Geometries of one map expansion layer.
+
+    Attributes:
+        geoms: The layer's polygons or lines.
+        bounds: ``[N, 4]`` global ``(x_min, y_min, x_max, y_max)`` of each
+            geometry.
+        polygonal: Whether ``geoms`` are polygons rather than lines.
+    """
+
+    geoms: list[_MapGeometry]
+    bounds: np.ndarray
+    polygonal: bool
+
+    @classmethod
+    def from_geoms(cls, geoms: list[_MapGeometry], polygonal: bool) -> Self:
+        """Create a layer from its geometries.
+
+        Returns:
+            The layer with the bounding box of each geometry.
+        """
+        bounds = [(*g.points.min(axis=0), *g.points.max(axis=0)) for g in geoms]
+        return cls(geoms, np.array(bounds, dtype=np.float64).reshape(-1, 4), polygonal)
+
+    def in_patch(self, patch: np.ndarray) -> list[_MapGeometry]:
+        """Select the geometries whose bounding box overlaps a patch.
+
+        Args:
+            patch: Global ``(x_min, y_min, x_max, y_max)`` of the patch.
+
+        Returns:
+            The overlapping geometries.
+        """
+        bounds = self.bounds
+        overlapping = np.flatnonzero(
+            (bounds[:, 0] <= patch[2])
+            & (bounds[:, 2] >= patch[0])
+            & (bounds[:, 1] <= patch[3])
+            & (bounds[:, 3] >= patch[1])
+        )
+        return [self.geoms[i] for i in overlapping]
+
+
+class _NuScenesMap:
+    """Rasterizer for one map location of the nuScenes map expansion.
+
+    Loads one ``maps/expansion/<location>.json`` file, e.g.
+    ``boston-seaport.json``, which covers every scene recorded at that
+    location. :meth:`rasterize` draws one layer into a grid placed anywhere
+    on the map. :class:`NuScenes3D` calls it for every sample with the patch
+    around the sample's lidar. This is a reimplementation of
+    ``nuscenes.map_expansion.map_api.NuScenesMap.get_map_mask`` without
+    opencv or shapely.
+    """
+
+    def __init__(self, path: Path, layer_names: Iterable[str]) -> None:
+        with path.open() as f:
+            expansion = json.load(f)
+        version = expansion.get("version")
+        if version is None or version < "1.3":
+            msg = (
+                f"nuScenes map expansion at {str(path)!r} has version "
+                f"{version}. Version 1.3 or newer is required."
+            )
+            raise ValueError(msg)
+
+        nodes = _MapNodes(expansion["node"])
+        polygons = {rec["token"]: rec for rec in expansion["polygon"]}
+        lines = {rec["token"]: rec for rec in expansion["line"]}
+
+        self._layers: dict[str, _MapLayer] = {}
+        for name in layer_names:
+            geoms: list[_MapGeometry] = []
+            for record in expansion[name]:
+                geoms += _record_geometries(record, polygons, lines, nodes)
+            self._layers[name] = _MapLayer.from_geoms(
+                geoms, name in _MAP_POLYGON_LAYERS
+            )
+
+    def rasterize(
+        self,
+        name: str,
+        global_to_cell: np.ndarray,
+        size: tuple[int, int],
+        bounds: np.ndarray,
+    ) -> np.ndarray:
+        """Rasterize one layer into a grid.
+
+        Vertices are rounded to the nearest cell center before drawing. A
+        line covers a stroke ``_MAP_LINE_WIDTH`` cells wide.
+
+        Args:
+            name: Layer name.
+            global_to_cell: ``[2, 3]`` affine transform from global ``(x, y)``
+                to cell coordinates ``(column, row)``, where integers are cell
+                centers.
+            size: Grid size ``(H, W)``.
+            bounds: Global ``(x_min, y_min, x_max, y_max)`` that encloses the
+                grid. Geometries outside it are skipped.
+
+        Returns:
+            ``[H, W]`` boolean mask.
+        """
+        height, width = size
+        layer = self._layers[name]
+        image = Image.new("L", (width, height))
+        draw = ImageDraw.Draw(image)
+        for geom in layer.in_patch(bounds):
+            if not layer.polygonal:
+                draw.line(
+                    _to_cells(geom.points, global_to_cell),
+                    fill=1,
+                    width=_MAP_LINE_WIDTH,
+                )
+                continue
+            # Note: the nuscenes-devkit incorrectly draws all polygons on one
+            # canvas, where a hole also erases any polygon drawn earlier inside
+            # it, e.g. drivable area islands. See
+            # https://github.com/nutonomy/nuscenes-devkit/blob/b40adc467b919192899405d9b77871afee8efa07/python-sdk/nuscenes/map_expansion/map_api.py#L1879-L1890
+            # We draw each polygon on its own canvas so its holes cannot erase
+            # other polygons.
+            canvas = Image.new("L", (width, height))
+            canvas_draw = ImageDraw.Draw(canvas)
+            canvas_draw.polygon(_to_cells(geom.points, global_to_cell), fill=255)
+            for hole in geom.holes:
+                canvas_draw.polygon(_to_cells(hole, global_to_cell), fill=0)
+            image.paste(1, mask=canvas)
+        return np.asarray(image, dtype=bool)
+
+
 class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     """`nuScenes <https://www.nuscenes.org/>`_ 3D object detection dataset.
 
@@ -1747,3 +1941,58 @@ def _quaternion_to_yaw(
     # Box's local +X axis expressed in the lidar frame.
     forward_lidar = global_to_lidar_rot @ rot.numpy() @ np.array([1.0, 0.0, 0.0])
     return float(np.arctan2(forward_lidar[1], forward_lidar[0]))
+
+
+def _record_geometries(
+    record: dict[str, Any],
+    polygons: dict[str, dict[str, Any]],
+    lines: dict[str, dict[str, Any]],
+    nodes: _MapNodes,
+) -> list[_MapGeometry]:
+    """Build the geometries of one map expansion layer record.
+
+    Returns:
+        The record's polygons or line, skipping any without vertices.
+    """
+    if "line_token" in record:
+        tokens = lines[record["line_token"]]["node_tokens"]
+        geoms = [_MapGeometry(nodes[tokens], holes=[])]
+    else:
+        polygon_tokens = (
+            record["polygon_tokens"]
+            if "polygon_tokens" in record
+            else [record["polygon_token"]]
+        )
+        geoms = [_polygon_geometry(polygons[t], nodes) for t in polygon_tokens]
+    return [geom for geom in geoms if len(geom.points)]
+
+
+def _polygon_geometry(record: dict[str, Any], nodes: _MapNodes) -> _MapGeometry:
+    """Build the geometry of a map expansion ``polygon`` record.
+
+    Note:
+        Unlike the devkit, polygons that shapely considers invalid are kept.
+        They are mostly roads whose outline touches itself.
+
+    Returns:
+        The polygon's outline and its non-empty holes.
+    """
+    holes = [
+        nodes[hole["node_tokens"]] for hole in record["holes"] if hole["node_tokens"]
+    ]
+    return _MapGeometry(nodes[record["exterior_node_tokens"]], holes)
+
+
+def _to_cells(points: np.ndarray, global_to_cell: np.ndarray) -> list[int]:
+    """Map global ``(x, y)`` vertices to flat integer cell coordinates for PIL.
+
+    Returns:
+        ``[column0, row0, column1, row1, ...]`` rounded to the nearest cell
+        center.
+    """
+    # Note: the nuscenes-devkit incorrectly truncates line vertices, which
+    # shifts its lines half a cell off its polygons. See
+    # https://github.com/nutonomy/nuscenes-devkit/blob/b40adc467b919192899405d9b77871afee8efa07/python-sdk/nuscenes/map_expansion/map_api.py#L1839-L1843
+    # We round to keep lines aligned with polygons.
+    cells = points @ global_to_cell[:, :2].T + global_to_cell[:, 2]
+    return np.rint(cells).astype(np.int64).ravel().tolist()

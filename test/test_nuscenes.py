@@ -7,6 +7,7 @@ split is available on disk.They may be pointed at a custom location with the
 ``NUSCENES_MINI_ROOT`` environment variable.
 """
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ from vision3d.datasets.nuscenes import (
     _VAL,
     _get_split_scenes,
     _NuScenesDB,
+    _NuScenesMap,
 )
 
 # Datasets return CPU tensors by convention.
@@ -367,3 +369,80 @@ def test_nuscenes3d_sweeps_scene_start(
     torch.testing.assert_close(
         _drop_ring(points), _devkit_multisweep(devkit_db, token, 10), atol=1e-3, rtol=0
     )
+
+
+def _write_map(path: Path) -> Path:
+    """Write a tiny map expansion with one location's worth of layers.
+
+    The drivable area is a 10x10 square with a 6x6 hole, and a second polygon
+    fills the center of the hole. A road divider runs along ``y = 15``.
+
+    Returns:
+        ``path``.
+    """
+    nodes = {
+        "outer": [(0, 0), (10, 0), (10, 10), (0, 10)],
+        "hole": [(2, 2), (8, 2), (8, 8), (2, 8)],
+        "island": [(4, 4), (6, 4), (6, 6), (4, 6)],
+        "line": [(0, 15), (10, 15)],
+    }
+    node_records: list[dict[str, Any]] = []
+    tokens: dict[str, list[str]] = {}
+    for name, coords in nodes.items():
+        tokens[name] = [f"{name}{i}" for i in range(len(coords))]
+        node_records += [
+            {"token": t, "x": float(x), "y": float(y)}
+            for t, (x, y) in zip(tokens[name], coords, strict=True)
+        ]
+    expansion: dict[str, Any] = {
+        "version": "1.3",
+        "node": node_records,
+        "polygon": [
+            {
+                "token": "p_outer",
+                "exterior_node_tokens": tokens["outer"],
+                "holes": [{"node_tokens": tokens["hole"]}],
+            },
+            {
+                "token": "p_island",
+                "exterior_node_tokens": tokens["island"],
+                "holes": [],
+            },
+        ],
+        "line": [{"token": "l0", "node_tokens": tokens["line"]}],
+        # List the island first on purpose so we test that the outer polygon's
+        # hole cannot erase it.
+        "drivable_area": [{"token": "d0", "polygon_tokens": ["p_island", "p_outer"]}],
+        "road_divider": [{"token": "r0", "line_token": "l0"}],
+    }
+    path.write_text(json.dumps(expansion))
+    return path
+
+
+_IDENTITY_CELLS = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+_PATCH = np.array([-0.5, -0.5, 19.5, 19.5])
+
+
+def test_map_rasterizes_polygons_and_lines(tmp_path: Path) -> None:
+    layers = ["drivable_area", "road_divider"]
+    nusc_map = _NuScenesMap(_write_map(tmp_path / "map.json"), layers)
+    area, divider = (
+        nusc_map.rasterize(name, _IDENTITY_CELLS, (20, 20), _PATCH) for name in layers
+    )
+    # Masks are indexed [row, column] = [y, x].
+    assert area[1, 1]  # Ring between exterior and hole.
+    assert not area[3, 3]  # Inside the hole.
+    assert area[5, 5]  # Island inside the hole survives the hole.
+    assert not area[12, 5]  # Outside the polygon.
+    # A 3-cell stroke covers one row on each side of the line.
+    assert divider[14:17, 0:11].all()
+    assert not divider[12, 5]
+    assert not divider[18, 5]
+
+
+def test_map_rejects_old_expansion(tmp_path: Path) -> None:
+    path = _write_map(tmp_path / "map.json")
+    expansion = json.loads(path.read_text())
+    path.write_text(json.dumps(expansion | {"version": "1.2"}))
+    with pytest.raises(ValueError, match="or newer is required"):
+        _NuScenesMap(path, ["drivable_area"])
