@@ -162,6 +162,7 @@ def test_split_all_is_every_scene(
         "sensor",
         "calibrated_sensor",
         "ego_pose",
+        "log",
         "scene",
         "sample",
         "sample_data",
@@ -176,6 +177,9 @@ def test_db_tables_match(
     theirs = getattr(devkit_db, table)
     assert len(ours) == len(theirs)
     for rec, ref in zip(ours, theirs, strict=True):
+        # ``map_token`` is a legacy map format. We use the vector maps in
+        # ``maps/expansion`` instead.
+        ref = {k: v for k, v in ref.items() if k != "map_token"}
         assert rec == ref, f"{table}[{rec['token']}]: {rec!r} != {ref!r}"
 
 
