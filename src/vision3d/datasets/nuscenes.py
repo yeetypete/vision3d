@@ -68,13 +68,14 @@ _CATEGORY_TO_DETECTION = {
 }
 
 # Subset of ``nuscenes.NuScenes.table_names`` from nuscenes-devkit
-# required for 3D object detection tasks.
+# required for 3D tasks.
 _TABLE_NAMES = (
     "category",
     "instance",
     "sensor",
     "calibrated_sensor",
     "ego_pose",
+    "log",
     "scene",
     "sample",
     "sample_data",
@@ -1149,6 +1150,14 @@ class _EgoPose(TypedDict):
     translation: ReadOnly[list[float]]
 
 
+class _Log(TypedDict):
+    token: ReadOnly[str]
+    logfile: ReadOnly[str]
+    vehicle: ReadOnly[str]
+    date_captured: ReadOnly[str]
+    location: ReadOnly[str]
+
+
 class _Scene(TypedDict):
     token: ReadOnly[str]
     log_token: ReadOnly[str]
@@ -1242,6 +1251,7 @@ class _NuScenesDB:
         self.sensor: list[_Sensor] = _load("sensor")
         self.calibrated_sensor: list[_CalibratedSensor] = _load("calibrated_sensor")
         self.ego_pose: list[_EgoPose] = _load("ego_pose")
+        self.log: list[_Log] = _load("log")
         self.scene: list[_Scene] = _load("scene")
         self.sample: list[_Sample] = _load("sample")
         self.sample_data: list[_SampleData] = _load("sample_data")
@@ -1286,6 +1296,8 @@ class _NuScenesDB:
     ) -> _CalibratedSensor: ...
     @overload
     def get(self, table_name: Literal["ego_pose"], token: str) -> _EgoPose: ...
+    @overload
+    def get(self, table_name: Literal["log"], token: str) -> _Log: ...
     @overload
     def get(self, table_name: Literal["scene"], token: str) -> _Scene: ...
     @overload
