@@ -18,35 +18,47 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "skip_device(*names): skip the test variants running on the listed devices.",
     )
+    config.addinivalue_line(
+        "markers",
+        "only_device(*names): only run the test variants on the listed devices.",
+    )
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Drop test variants whose device matches a ``skip_device`` marker.
+    """Drop test variants excluded by a ``skip_device`` or ``only_device`` marker.
+
+    An ``only_device`` marker takes precedence over ``skip_device`` markers.
 
     Args:
         items: List of collected test items; modified in place.
 
     Raises:
-        UsageError: If a ``skip_device`` marker references a device not in
-            ``_DEVICES``.
+        UsageError: If a ``skip_device`` or ``only_device`` marker references a
+            device not in ``_DEVICES``.
     """
     kept: list[pytest.Item] = []
     for item in items:
-        for mark in item.iter_markers("skip_device"):
-            unknown = set(mark.args) - set(_DEVICES)
-            if unknown:
-                raise pytest.UsageError(
-                    f"{item.nodeid}: skip_device got unknown devices "
-                    f"{sorted(unknown)} (known: {sorted(_DEVICES)})"
-                )
+        for name in ("skip_device", "only_device"):
+            for mark in item.iter_markers(name):
+                unknown = set(mark.args) - set(_DEVICES)
+                if unknown:
+                    raise pytest.UsageError(
+                        f"{item.nodeid}: {name} got unknown devices "
+                        f"{sorted(unknown)} (known: {sorted(_DEVICES)})"
+                    )
         callspec = getattr(item, "callspec", None)
         device = callspec.params.get("device") if callspec is not None else None
-        if device is not None and any(
-            device in mark.args for mark in item.iter_markers("skip_device")
-        ):
+        if device is not None and _excludes_device(item, device):
             continue
         kept.append(item)
     items[:] = kept
+
+
+def _excludes_device(item: pytest.Item, device: str) -> bool:
+    only = item.get_closest_marker("only_device")
+    if only is not None:
+        return device not in only.args
+    return any(device in mark.args for mark in item.iter_markers("skip_device"))
 
 
 @pytest.fixture(
@@ -63,9 +75,10 @@ def device(request: pytest.FixtureRequest) -> Generator[torch.device]:
     the override will win.
 
     Each parametrization carries a matching marker (``cpu``, ``cuda``, ...)
-    so variants can be filtered from the CLI. Tests decorated with
-    ``@pytest.mark.skip_device("cuda")`` are dropped from collection for the
-    named device variant(s); see :func:`pytest_collection_modifyitems`.
+    so variants can be filtered from the CLI. Mark a test with
+    ``@pytest.mark.skip_device("cuda")`` to drop the listed devices' variants,
+    or ``@pytest.mark.only_device("cuda")`` to keep only those variants. See
+    :func:`pytest_collection_modifyitems`.
 
     Example:
         Filter test runs by device from the command line::
