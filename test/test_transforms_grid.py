@@ -264,7 +264,7 @@ class TestResampleGridMask3D:
         size = [1, 1, 1]
         size[axis] = n
         out = resample_grid_mask_3d(
-            data, input_affine=input_affine, affine=affine, size=size, fill=-1
+            data, input_affine=input_affine, affine=affine, size=size, fill=[-1]
         )
         assert out.flatten().tolist() == [*range(1, n), -1]
 
