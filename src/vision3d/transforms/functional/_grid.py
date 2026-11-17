@@ -181,12 +181,12 @@ def resample_grid_mask_3d(
     inside = ((index >= -edge) & (index < num_cells - edge)).all(dim=0)
 
     if interpolation == InterpolationMode.NEAREST:
-        # Clamp only to keep indexing valid; outside cells get fill below.
+        # Clamp only so indexing stays valid. Outside cells get fill below.
         cell = index.add_(edge).floor_().clamp_(min=0).clamp_(max=num_cells - 1)
         cell = cell.long()
         output = mask[:, cell[0], cell[1], cell[2]]
     else:
-        output = _sample_bilinear(mask, index)
+        output = _sample_bilinear(mask, index, num_cells)
 
     output = torch.where(inside, output, fill_values)
     return output.squeeze(1) if planar else output
@@ -233,10 +233,9 @@ def _input_index(
     return index
 
 
-def _sample_bilinear(mask: Tensor, index: Tensor) -> Tensor:
+def _sample_bilinear(mask: Tensor, index: Tensor, num_cells: Tensor) -> Tensor:
     # grid_sample takes (w, h, d) in [-1, 1]. align_corners=False also works
     # for a single layer, where align_corners=True would divide by zero.
-    num_cells = torch.tensor(mask.shape[1:], device=index.device).view(3, 1, 1, 1)
     grid = ((2 * index + 1) / num_cells - 1).flip(0).permute(1, 2, 3, 0)
     # float16 coordinates are too coarse for large grids.
     dtype = torch.promote_types(mask.dtype, torch.float32)
