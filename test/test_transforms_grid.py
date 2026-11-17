@@ -30,6 +30,7 @@ from vision3d.transforms import (
     ResampleGrid,
 )
 from vision3d.transforms.functional import resample_grid, resample_grid_mask_3d
+from vision3d.transforms.functional._geometry import _rotation_matrix
 
 _TV_ACCEPTS_INTERPOLATION_STRINGS = Version(torchvision.__version__) >= Version("0.28")
 
@@ -322,18 +323,17 @@ class TestResampleGridMask3D:
     ) -> None:
         # Rotate, shear, scale and reflect, then compare with a per-cell lookup.
         mask = make_grid_mask_3d(channels=2, spatial_shape=spatial_shape)
-        x, y, z = torch.nn.functional.normalize(torch.tensor(axis), dim=0).tolist()
-        cross = torch.tensor(
-            [[0, -z, y], [z, 0, -x], [-y, x, 0]], dtype=torch.float64, device="cpu"
-        )
-        rotation = torch.linalg.matrix_exp(math.radians(50) * cross)
+        # Affines live on the CPU.
+        rotation = _rotation_matrix(
+            torch.tensor(axis, dtype=torch.float64), math.radians(50)
+        ).cpu()
         shear = torch.eye(3, dtype=torch.float64, device="cpu")
         shear[1, 2] = 0.3
-        scale = torch.diag(cross.new_tensor([0.8, 1.1, -1.3]))
+        scale = torch.diag(rotation.new_tensor([0.8, 1.1, -1.3]))
         index_map = torch.eye(4, dtype=torch.float64, device="cpu")
         index_map[:3, :3] = rotation @ shear @ scale
         # Keep the grid centers aligned so most cells stay inside.
-        center = (cross.new_tensor((1, *spatial_shape)[-3:]) - 1) / 2
+        center = (rotation.new_tensor((1, *spatial_shape)[-3:]) - 1) / 2
         index_map[:3, 3] = center - index_map[:3, :3] @ center
         out = _resample(mask, mask.affine @ index_map, spatial_shape, fill=-1)
 
