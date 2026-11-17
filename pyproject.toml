@@ -128,4 +128,4 @@ cache-keys = [
 # Build against nvcc from the `cuda-toolkit` wheels. Only uv reads this,
 # so other installers still need a system-wide CUDA toolkit installation.
 [tool.uv.extra-build-dependencies]
-vision3d = ["cuda-toolkit[nvcc,cccl]"]
+vision3d = ["cuda-toolkit[nvcc]", "nvidia-cuda-cccl"]
