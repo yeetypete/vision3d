@@ -43,6 +43,18 @@ in
   vision3d =
     (prev.vision3d.override { stdenv = pkgs.cudaPackages_13_0.backendStdenv; }).overrideAttrs
       {
+        # Only trigger a rebuild on changes to files used by the build.
+        src = pkgs.lib.fileset.toSource {
+          root = ../.;
+          fileset = pkgs.lib.fileset.unions [
+            ../LICENSE
+            ../MANIFEST.in
+            ../README.md
+            ../pyproject.toml
+            ../setup.py
+            ../src
+          ];
+        };
         env = {
           CUDA_HOME = pkgs.callPackage ./cuda-home.nix { pythonSet = final; };
           FORCE_CUDA = "1";

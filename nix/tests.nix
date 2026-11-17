@@ -8,6 +8,14 @@ let
     ];
   };
 
+  src = pkgs.lib.fileset.toSource {
+    root = ../.;
+    fileset = pkgs.lib.fileset.unions [
+      ../pyproject.toml
+      ../test
+    ];
+  };
+
   # Triton links against libcuda in TRITON_LIBCUDA_PATH, but the linker wrapper
   # skips /run/opengl-driver/lib as an impure path. Link to it from a store path.
   libcuda = pkgs.runCommandLocal "libcuda" { } ''
@@ -19,7 +27,7 @@ let
     name: marker:
     pkgs.stdenv.mkDerivation {
       name = "${final.vision3d.name}-${name}";
-      inherit (final.vision3d) src;
+      inherit src;
       nativeBuildInputs = [ virtualenv ];
       dontConfigure = true;
 
