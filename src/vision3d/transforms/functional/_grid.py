@@ -172,7 +172,9 @@ def resample_grid_mask_3d(
         size = (1, *size)
 
     index = _input_index(input_affine, affine, size, device=mask.device)
-    num_cells = torch.tensor(mask.shape[1:], device=mask.device).view(3, 1, 1, 1)
+    # Same dtype as index, otherwise num_cells - edge would round away the
+    # tolerance in float32.
+    num_cells = index.new_tensor(mask.shape[1:]).view(3, 1, 1, 1)
     # Cell k covers [k - 0.5, k + 0.5). The tolerance makes centers that land
     # on a boundary up to float error go to the upper cell.
     edge = 0.5 + _BOUNDARY_TOLERANCE
@@ -201,11 +203,14 @@ def _fill_values(fill: _FillTypeJIT, mask: Tensor) -> Tensor:
             f"Expected fill with 1 or {num_channels} values for a grid with "
             f"{num_channels} channels, got {len(fill)}."
         )
-    values = torch.tensor(fill, dtype=torch.float64, device=mask.device)
-    if not mask.is_floating_point():
+    if mask.is_floating_point():
+        values = torch.tensor(fill, dtype=torch.float64, device=mask.device)
+    else:
         # Round like torchvision. Going through int64 wraps out-of-range
         # values, e.g. -1 becomes 255 for uint8.
-        values = values.round().long()
+        values = torch.tensor(
+            [round(v) for v in fill], dtype=torch.int64, device=mask.device
+        )
     return values.to(mask.dtype).view(-1, 1, 1, 1)
 
 

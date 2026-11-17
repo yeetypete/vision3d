@@ -246,6 +246,28 @@ class TestResampleGridMask3D:
         )
         assert out.flatten().tolist() == list(range(1, n, 2))
 
+    @pytest.mark.parametrize("axis", [0, 1, 2])
+    def test_nearest_upper_edge_gets_fill(self, axis: int) -> None:
+        # A half cell shift puts every target center on an input cell boundary,
+        # the last one on the upper edge of the input.
+        n = 200
+        cell_size = 0.1
+        shape = [2, 2, 2]
+        shape[axis] = n
+        steps = torch.arange(n).view([n if a == axis else 1 for a in range(3)])
+        data = steps.expand(shape).unsqueeze(0)
+        input_affine = torch.eye(4, dtype=torch.float64)
+        input_affine[:3, :3] *= cell_size
+        input_affine[:3, 3] = -40.0 + cell_size / 2
+        affine = input_affine.clone()
+        affine[:3, 3] += cell_size / 2
+        size = [1, 1, 1]
+        size[axis] = n
+        out = resample_grid_mask_3d(
+            data, input_affine=input_affine, affine=affine, size=size, fill=-1
+        )
+        assert out.flatten().tolist() == [*range(1, n), -1]
+
     def test_bilinear_blends_neighbors(self) -> None:
         mask = GridMask3D(torch.arange(4.0).view(1, 1, 4), affine=make_grid_affine())
         out = _resample(
@@ -356,6 +378,7 @@ class TestResampleGridMask3D:
             (torch.uint8, [-1.0], 255),
             (torch.int64, 0.7, 1),
             (torch.bool, 0.7, True),
+            (torch.int64, 2**53 + 1, 2**53 + 1),
         ],
     )
     def test_fill_is_rounded_for_integer_grids(
