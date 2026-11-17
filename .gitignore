@@ -27,3 +27,8 @@ docs/source/sg_execution_times.rst
 
 # Claude Code
 .claude/settings.local.json
+
+# Nix and direnv
+.direnv/
+result
+result-*
