@@ -440,12 +440,11 @@ def test_geometry_only_ignores_missing_velocity_and_attribute() -> None:
     assert out["nd_score"] == pytest.approx(1.0, abs=_TOL)
 
 
+@pytest.mark.only_device("cuda")
 def test_compute_under_cuda_default_device() -> None:
     # Regression: internal tensors must be pinned to CPU even when both the
     # inputs and the ambient default-device are CUDA, otherwise they mismatch
     # the CPU-moved box data. Exercises the path the module-level skip excludes.
-    if not torch.cuda.is_available():
-        pytest.skip("requires CUDA")
     metric = NuScenesDetectionScore(
         class_ids=[0], tp_metrics=("trans_err", "scale_err", "orient_err")
     )
