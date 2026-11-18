@@ -3,6 +3,7 @@
 from ._box3d_corners import box3d_corners
 from ._box3d_iou import box3d_iou
 from ._box3d_overlap import box3d_overlap
+from ._box3d_truncation import box3d_truncation
 from ._nms_3d import batched_nms_3d, nms_3d
 from ._points_in_boxes_3d import (
     extract_box3d_params,
@@ -22,6 +23,7 @@ __all__ = [
     "box3d_corners",
     "box3d_iou",
     "box3d_overlap",
+    "box3d_truncation",
     "extract_box3d_params",
     "nms_3d",
     "points_in_boxes_3d",
