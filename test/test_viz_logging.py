@@ -189,3 +189,19 @@ class TestBoxPose:
         torch.testing.assert_close(
             vectors / vectors.norm(dim=1, keepdim=True), forward, atol=1e-5, rtol=0
         )
+
+    @pytest.mark.parametrize(
+        ("fmt", "log_heading"),
+        [
+            (BoundingBox3DFormat.XYZLWH, True),
+            (BoundingBox3DFormat.XYZXYZ, True),
+            (BoundingBox3DFormat.XYZLWHY, False),
+        ],
+    )
+    def test_no_heading_clears_stale_arrows(
+        self, spy: _Spy, fmt: BoundingBox3DFormat, log_heading: bool
+    ) -> None:
+        log_boxes_3d("world/boxes", _boxes(4, fmt), log_heading=log_heading)
+        assert spy.arrows_kwargs is None
+        cleared = [e for e, a in spy.logged if isinstance(a, logging_mod.rr.Clear)]
+        assert cleared == ["world/boxes/heading"]

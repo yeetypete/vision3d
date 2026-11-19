@@ -182,6 +182,8 @@ def log_boxes_3d(
                 colors=[(255, 255, 255)] * n,
             ),
         )
+    else:
+        rr.log(f"{entity}/heading", rr.Clear(recursive=False))
 
 
 def log_cameras(
