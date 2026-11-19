@@ -23,10 +23,10 @@ def _boxes(
     Returns:
         ``n`` random boxes in ``fmt``.
     """
-    torch.manual_seed(0)
-    center = torch.randn(n, 3) * 10
-    size = torch.rand(n, 3) * 4 + 0.5
-    angles = (torch.rand(n, 3) * 2 - 1) * torch.pi
+    g = torch.Generator(torch.get_default_device()).manual_seed(0)
+    center = torch.randn(n, 3, generator=g) * 10
+    size = torch.rand(n, 3, generator=g) * 4 + 0.5
+    angles = (torch.rand(n, 3, generator=g) * 2 - 1) * torch.pi
     raw = {
         BoundingBox3DFormat.XYZXYZ: torch.cat(
             [center - size / 2, center + size / 2], 1
@@ -148,10 +148,9 @@ class TestBoxPose:
         )
         torch.testing.assert_close(spy.boxes_kwargs["centers"], centers)
         torch.testing.assert_close(spy.boxes_kwargs["sizes"], 2 * half_dims)
+        # Axis-aligned formats log identity rotations, which overwrite any
+        # rotations left on the entity by an earlier frame.
         quaternions = spy.boxes_kwargs["quaternions"]
-        if not BoundingBox3DFormat.is_rotated(fmt):
-            assert quaternions is None
-            return
         assert isinstance(quaternions, torch.Tensor)
         # Rerun's (x, y, z, w) back to (w, x, y, z).
         torch.testing.assert_close(
