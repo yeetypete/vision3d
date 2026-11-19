@@ -1,7 +1,5 @@
 """Log vision3d data to a Rerun viewer."""
 
-import math
-
 import torch
 from torch import Tensor
 
@@ -142,18 +140,14 @@ def log_boxes_3d(
 
     display_labels = _build_labels(labels, class_ids, label_to_id, score_list)
 
-    centers, sizes, yaws = _extract_centers_sizes_yaws(raw, fmt)
-
-    quaternions = [
-        rr.Quaternion(xyzw=[0.0, 0.0, math.sin(y / 2), math.cos(y / 2)]) for y in yaws
-    ]
+    centers, sizes, yaw, pitch, roll = _extract_box_pose(raw, fmt)
 
     rr.log(
         entity,
         rr.Boxes3D(
             centers=centers,
             sizes=sizes,
-            quaternions=quaternions,
+            quaternions=_quaternions_xyzw(yaw, pitch, roll).numpy(),
             class_ids=class_ids,
             labels=display_labels,
             fill_mode=fill_mode,
@@ -166,17 +160,17 @@ def log_boxes_3d(
         face_area = sizes[:, 1] * sizes[:, 2]
         face_scale = torch.sqrt(face_area)
         arrow_len = face_scale * 0.6
-        yaws_t = torch.tensor(yaws)
-        cos_y = torch.cos(yaws_t)
-        sin_y = torch.sin(yaws_t)
-
-        origins = centers.clone()
-        origins[:, 0] += half_len * cos_y
-        origins[:, 1] += half_len * sin_y
-
-        vectors = torch.zeros(n, 3)
-        vectors[:, 0] = arrow_len * cos_y
-        vectors[:, 1] = arrow_len * sin_y
+        # Local +x axis in world coordinates; roll does not move it.
+        forward = torch.stack(
+            [
+                torch.cos(yaw) * torch.cos(pitch),
+                torch.sin(yaw) * torch.cos(pitch),
+                -torch.sin(pitch),
+            ],
+            dim=1,
+        )
+        origins = centers + half_len[:, None] * forward
+        vectors = arrow_len[:, None] * forward
 
         radii = face_scale * 0.06
 
@@ -367,34 +361,53 @@ def _build_labels(
     return [f"{name} {s:.2f}" for name, s in zip(base, scores)]
 
 
-def _extract_centers_sizes_yaws(
+def _extract_box_pose(
     raw: Tensor, fmt: BoundingBox3DFormat
-) -> tuple[Tensor, Tensor, list[float]]:
-    """Extract centers, sizes (l, w, h), and yaw angles from raw box tensor.
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    """Extract centers, sizes (l, w, h), and yaw, pitch, roll from raw boxes.
+
+    Angles a format does not carry are zero.
 
     Returns:
-        Tuple of (centers, sizes, yaws). Centers and sizes are tensors,
-        yaws is a list of floats.
+        Tuple of (centers ``[N, 3]``, sizes ``[N, 3]``, yaw ``[N]``,
+        pitch ``[N]``, roll ``[N]``).
 
     Raises:
         ValueError: If ``fmt`` is not a supported format.
     """
+    zeros = raw.new_zeros(raw.shape[0])
     if fmt is BoundingBox3DFormat.XYZXYZ:
         mins = raw[:, :3]
         maxs = raw[:, 3:]
-        centers = (mins + maxs) / 2
-        sizes = maxs - mins
-        yaws = [0.0] * raw.shape[0]
-    elif fmt is BoundingBox3DFormat.XYZLWH:
-        centers = raw[:, :3]
-        sizes = raw[:, 3:6]
-        yaws = [0.0] * raw.shape[0]
-    elif fmt is BoundingBox3DFormat.XYZLWHY or fmt is BoundingBox3DFormat.XYZLWHYPR:
-        centers = raw[:, :3]
-        sizes = raw[:, 3:6]
-        yaws = raw[:, 6].tolist()
-    else:
-        msg = f"Unsupported format: {fmt}"
-        raise ValueError(msg)
+        return (mins + maxs) / 2, maxs - mins, zeros, zeros, zeros
+    if fmt is BoundingBox3DFormat.XYZLWH:
+        return raw[:, :3], raw[:, 3:6], zeros, zeros, zeros
+    if fmt is BoundingBox3DFormat.XYZLWHY:
+        return raw[:, :3], raw[:, 3:6], raw[:, 6], zeros, zeros
+    if fmt is BoundingBox3DFormat.XYZLWHYPR:
+        return raw[:, :3], raw[:, 3:6], raw[:, 6], raw[:, 7], raw[:, 8]
+    msg = f"Unsupported format: {fmt}"
+    raise ValueError(msg)
 
-    return centers, sizes, yaws
+
+def _quaternions_xyzw(yaw: Tensor, pitch: Tensor, roll: Tensor) -> Tensor:
+    """Convert intrinsic Tait-Bryan ZY'X'' angles to quaternions.
+
+    Matches :class:`~vision3d.tensors.BoundingBoxes3D`'s rotation convention,
+    ``R = Rz(yaw) @ Ry(pitch) @ Rx(roll)``.
+
+    Returns:
+        Quaternions ``[N, 4]`` in Rerun's ``(x, y, z, w)`` order.
+    """
+    cy, sy = torch.cos(yaw / 2), torch.sin(yaw / 2)
+    cp, sp = torch.cos(pitch / 2), torch.sin(pitch / 2)
+    cr, sr = torch.cos(roll / 2), torch.sin(roll / 2)
+    return torch.stack(
+        [
+            sr * cp * cy - cr * sp * sy,
+            cr * sp * cy + sr * cp * sy,
+            cr * cp * sy - sr * sp * cy,
+            cr * cp * cy + sr * sp * sy,
+        ],
+        dim=1,
+    )

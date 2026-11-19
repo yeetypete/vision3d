@@ -9,29 +9,49 @@ import pytest
 import torch
 
 import vision3d.viz._logging as logging_mod
+from vision3d.ops import extract_box3d_params
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
 from vision3d.viz._logging import _build_labels, log_boxes_3d
 
 
-def _boxes(n: int) -> BoundingBoxes3D:
-    """Build ``n`` arbitrary yaw-rotated boxes.
+def _boxes(
+    n: int, fmt: BoundingBox3DFormat = BoundingBox3DFormat.XYZLWHY
+) -> BoundingBoxes3D:
+    """Build ``n`` random boxes in ``fmt``, with angles over the full circle.
 
     Returns:
-        ``n`` random ``XYZLWHY`` boxes.
+        ``n`` random boxes in ``fmt``.
     """
-    return BoundingBoxes3D(torch.rand(n, 7), format=BoundingBox3DFormat.XYZLWHY)
+    torch.manual_seed(0)
+    center = torch.randn(n, 3) * 10
+    size = torch.rand(n, 3) * 4 + 0.5
+    angles = (torch.rand(n, 3) * 2 - 1) * torch.pi
+    raw = {
+        BoundingBox3DFormat.XYZXYZ: torch.cat(
+            [center - size / 2, center + size / 2], 1
+        ),
+        BoundingBox3DFormat.XYZLWH: torch.cat([center, size], 1),
+        BoundingBox3DFormat.XYZLWHY: torch.cat([center, size, angles[:, :1]], 1),
+        BoundingBox3DFormat.XYZLWHYPR: torch.cat([center, size, angles], 1),
+    }[fmt]
+    return BoundingBoxes3D(raw, format=fmt)
 
 
 class _Spy:
-    """Capture the kwargs passed to ``rr.Boxes3D`` and ``rr.log`` calls."""
+    """Capture the kwargs passed to ``rr.Boxes3D``, ``rr.Arrows3D`` and ``rr.log``."""
 
     def __init__(self) -> None:
         self.boxes_kwargs: dict[str, object] | None = None
+        self.arrows_kwargs: dict[str, object] | None = None
         self.logged: list[tuple[str, object]] = []
 
     def boxes3d(self, **kwargs: object) -> str:
         self.boxes_kwargs = kwargs
         return "boxes3d"
+
+    def arrows3d(self, **kwargs: object) -> str:
+        self.arrows_kwargs = kwargs
+        return "arrows3d"
 
     def log(self, entity: str, archetype: object, **_: object) -> None:
         self.logged.append((entity, archetype))
@@ -39,7 +59,7 @@ class _Spy:
 
 @pytest.fixture
 def spy(monkeypatch: pytest.MonkeyPatch) -> _Spy:
-    """Patch Rerun's ``log``/``Boxes3D`` to capture calls.
+    """Patch Rerun's ``log``/``Boxes3D``/``Arrows3D`` to capture calls.
 
     Returns:
         The :class:`_Spy` recording calls into Rerun.
@@ -47,7 +67,31 @@ def spy(monkeypatch: pytest.MonkeyPatch) -> _Spy:
     s = _Spy()
     monkeypatch.setattr(logging_mod.rr, "log", s.log)
     monkeypatch.setattr(logging_mod.rr, "Boxes3D", s.boxes3d)
+    monkeypatch.setattr(logging_mod.rr, "Arrows3D", s.arrows3d)
     return s
+
+
+def _quaternion_to_matrix(q: torch.Tensor) -> torch.Tensor:
+    """Convert ``[N, 4]`` ``(x, y, z, w)`` quaternions to ``[N, 3, 3]`` matrices.
+
+    Returns:
+        Rotation matrices ``[N, 3, 3]``.
+    """
+    x, y, z, w = q.unbind(1)
+    return torch.stack(
+        [
+            torch.stack(
+                [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)], 1
+            ),
+            torch.stack(
+                [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)], 1
+            ),
+            torch.stack(
+                [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)], 1
+            ),
+        ],
+        dim=1,
+    )
 
 
 class TestBuildLabels:
@@ -111,3 +155,47 @@ class TestValidation:
     def test_score_threshold_without_scores_raises(self, spy: _Spy) -> None:
         with pytest.raises(ValueError, match="score_threshold requires scores"):
             log_boxes_3d("world/pred/boxes", _boxes(2), score_threshold=0.5)
+
+
+class TestBoxPose:
+    @pytest.mark.parametrize("fmt", list(BoundingBox3DFormat))
+    def test_centers_sizes_and_rotation(
+        self, spy: _Spy, fmt: BoundingBox3DFormat
+    ) -> None:
+        boxes = _boxes(16, fmt)
+        log_boxes_3d("world/boxes", boxes, log_heading=False)
+        assert spy.boxes_kwargs is not None
+        centers, half_dims, rot = extract_box3d_params(
+            boxes.as_subclass(torch.Tensor).cpu(), fmt
+        )
+        torch.testing.assert_close(spy.boxes_kwargs["centers"], centers)
+        torch.testing.assert_close(spy.boxes_kwargs["sizes"], 2 * half_dims)
+        quaternions = torch.as_tensor(spy.boxes_kwargs["quaternions"], device="cpu")
+        torch.testing.assert_close(
+            _quaternion_to_matrix(quaternions), rot, atol=1e-5, rtol=0
+        )
+
+    @pytest.mark.parametrize(
+        "fmt", [BoundingBox3DFormat.XYZLWHY, BoundingBox3DFormat.XYZLWHYPR]
+    )
+    def test_heading_follows_box_forward_axis(
+        self, spy: _Spy, fmt: BoundingBox3DFormat
+    ) -> None:
+        boxes = _boxes(16, fmt)
+        log_boxes_3d("world/boxes", boxes)
+        assert spy.arrows_kwargs is not None
+        centers, half_dims, rot = extract_box3d_params(
+            boxes.as_subclass(torch.Tensor).cpu(), fmt
+        )
+        forward = rot[:, :, 0]
+        torch.testing.assert_close(
+            spy.arrows_kwargs["origins"],
+            centers + half_dims[:, :1] * forward,
+            atol=1e-5,
+            rtol=0,
+        )
+        vectors = spy.arrows_kwargs["vectors"]
+        assert isinstance(vectors, torch.Tensor)
+        torch.testing.assert_close(
+            vectors / vectors.norm(dim=1, keepdim=True), forward, atol=1e-5, rtol=0
+        )
