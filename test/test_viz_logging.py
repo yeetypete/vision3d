@@ -10,6 +10,7 @@ import torch
 
 import vision3d.viz._logging as logging_mod
 from vision3d.ops import extract_box3d_params
+from vision3d.ops._rotation import _quaternion_to_matrix
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
 from vision3d.viz._logging import _build_labels, log_boxes_3d
 
@@ -69,29 +70,6 @@ def spy(monkeypatch: pytest.MonkeyPatch) -> _Spy:
     monkeypatch.setattr(logging_mod.rr, "Boxes3D", s.boxes3d)
     monkeypatch.setattr(logging_mod.rr, "Arrows3D", s.arrows3d)
     return s
-
-
-def _quaternion_to_matrix(q: torch.Tensor) -> torch.Tensor:
-    """Convert ``[N, 4]`` ``(x, y, z, w)`` quaternions to ``[N, 3, 3]`` matrices.
-
-    Returns:
-        Rotation matrices ``[N, 3, 3]``.
-    """
-    x, y, z, w = q.unbind(1)
-    return torch.stack(
-        [
-            torch.stack(
-                [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)], 1
-            ),
-            torch.stack(
-                [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)], 1
-            ),
-            torch.stack(
-                [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)], 1
-            ),
-        ],
-        dim=1,
-    )
 
 
 class TestBuildLabels:
@@ -170,10 +148,23 @@ class TestBoxPose:
         )
         torch.testing.assert_close(spy.boxes_kwargs["centers"], centers)
         torch.testing.assert_close(spy.boxes_kwargs["sizes"], 2 * half_dims)
-        quaternions = torch.as_tensor(spy.boxes_kwargs["quaternions"], device="cpu")
+        quaternions = spy.boxes_kwargs["quaternions"]
+        if not BoundingBox3DFormat.is_rotated(fmt):
+            assert quaternions is None
+            return
+        assert isinstance(quaternions, torch.Tensor)
+        # Rerun's (x, y, z, w) back to (w, x, y, z).
         torch.testing.assert_close(
-            _quaternion_to_matrix(quaternions), rot, atol=1e-5, rtol=0
+            _quaternion_to_matrix(quaternions[:, [3, 0, 1, 2]]), rot, atol=1e-5, rtol=0
         )
+
+    def test_bfloat16_boxes(self, spy: _Spy) -> None:
+        raw = torch.rand(4, 9, dtype=torch.bfloat16)
+        log_boxes_3d(
+            "world/boxes", BoundingBoxes3D(raw, format=BoundingBox3DFormat.XYZLWHYPR)
+        )
+        assert spy.boxes_kwargs is not None
+        assert spy.arrows_kwargs is not None
 
     @pytest.mark.parametrize(
         "fmt", [BoundingBox3DFormat.XYZLWHY, BoundingBox3DFormat.XYZLWHYPR]
