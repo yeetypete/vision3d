@@ -145,9 +145,11 @@ def log_boxes_3d(
 
     centers, half_dims, rot = extract_box3d_params(raw, fmt)
     sizes = 2 * half_dims
-    rotated = BoundingBox3DFormat.is_rotated(fmt)
-    # Rerun expects (x, y, z, w); ours are (w, x, y, z).
-    quaternions = _matrix_to_quaternion(rot)[:, [1, 2, 3, 0]] if rotated else None
+    # Always log rotations, identity for axis-aligned formats: Rerun keeps
+    # unset components from earlier frames, so omitting them would let stale
+    # rotations apply to these boxes. Rerun expects (x, y, z, w); ours are
+    # (w, x, y, z).
+    quaternions = _matrix_to_quaternion(rot)[:, [1, 2, 3, 0]]
 
     rr.log(
         entity,
@@ -162,7 +164,7 @@ def log_boxes_3d(
         ),
     )
 
-    if log_heading and rotated:
+    if log_heading and BoundingBox3DFormat.is_rotated(fmt):
         face_scale = torch.sqrt(sizes[:, 1] * sizes[:, 2])
         # The box's local +x axis in world coordinates.
         forward = rot[:, :, 0]
