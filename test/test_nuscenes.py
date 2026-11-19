@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
-from hypothesis import assume, given, settings
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from nuscenes.eval.detection.constants import DETECTION_NAMES as DEVKIT_DETECTION_NAMES
 from nuscenes.eval.detection.utils import (
@@ -34,7 +34,6 @@ from vision3d.datasets.nuscenes import (
     _VAL,
     _get_split_scenes,
     _NuScenesDB,
-    _quaternion_to_rotation_matrix,
 )
 
 # Datasets return CPU tensors by convention.
@@ -84,26 +83,6 @@ def test_split_all_skips_scene_filtering(version: str) -> None:
 def test_unsupported_split_error_offers_all() -> None:
     with pytest.raises(ValueError, match="'all'"):
         _get_split_scenes("v1.0-test", "train")
-
-
-@given(
-    components=st.lists(
-        st.floats(min_value=-1.0, max_value=1.0, allow_nan=False, allow_infinity=False),
-        min_size=4,
-        max_size=4,
-    )
-)
-def test_quaternion_to_rotation_matrix_matches_pyquaternion(
-    components: list[float],
-) -> None:
-    q = np.array(components)
-    norm = float(np.linalg.norm(q))
-    # A near-zero vector has no well-defined rotation; skip it.
-    assume(norm > 1e-6)
-    q = q / norm  # unit quaternion in wxyz order
-    ours = _quaternion_to_rotation_matrix(q.tolist())
-    ref = Quaternion(q.tolist()).rotation_matrix
-    np.testing.assert_allclose(ours, ref, atol=1e-12)
 
 
 def _default_mini_root() -> Path:

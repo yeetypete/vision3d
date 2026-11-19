@@ -1,12 +1,12 @@
 """Log vision3d data to a Rerun viewer."""
 
-import math
-
 import torch
 from torch import Tensor
 
 from vision3d.datasets import SampleInputs, SampleTargets
 from vision3d.metrics import Prediction3D
+from vision3d.ops import extract_box3d_params
+from vision3d.ops._rotation import _matrix_to_quaternion
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -105,7 +105,8 @@ def log_boxes_3d(
             static=True,
         )
 
-    raw = boxes.as_subclass(Tensor).detach().cpu()
+    # Rerun cannot ingest low-precision dtypes such as bfloat16.
+    raw = boxes.as_subclass(Tensor).detach().cpu().float()
     fmt = boxes.format
 
     score_list = (
@@ -142,11 +143,13 @@ def log_boxes_3d(
 
     display_labels = _build_labels(labels, class_ids, label_to_id, score_list)
 
-    centers, sizes, yaws = _extract_centers_sizes_yaws(raw, fmt)
-
-    quaternions = [
-        rr.Quaternion(xyzw=[0.0, 0.0, math.sin(y / 2), math.cos(y / 2)]) for y in yaws
-    ]
+    centers, half_dims, rot = extract_box3d_params(raw, fmt)
+    sizes = 2 * half_dims
+    # Always log rotations, identity for axis-aligned formats: Rerun keeps
+    # unset components from earlier frames, so omitting them would let stale
+    # rotations apply to these boxes. Rerun expects (x, y, z, w); ours are
+    # (w, x, y, z).
+    quaternions = _matrix_to_quaternion(rot)[:, [1, 2, 3, 0]]
 
     rr.log(
         entity,
@@ -162,21 +165,11 @@ def log_boxes_3d(
     )
 
     if log_heading and BoundingBox3DFormat.is_rotated(fmt):
-        half_len = sizes[:, 0] / 2
-        face_area = sizes[:, 1] * sizes[:, 2]
-        face_scale = torch.sqrt(face_area)
-        arrow_len = face_scale * 0.6
-        yaws_t = torch.tensor(yaws)
-        cos_y = torch.cos(yaws_t)
-        sin_y = torch.sin(yaws_t)
-
-        origins = centers.clone()
-        origins[:, 0] += half_len * cos_y
-        origins[:, 1] += half_len * sin_y
-
-        vectors = torch.zeros(n, 3)
-        vectors[:, 0] = arrow_len * cos_y
-        vectors[:, 1] = arrow_len * sin_y
+        face_scale = torch.sqrt(sizes[:, 1] * sizes[:, 2])
+        # The box's local +x axis in world coordinates.
+        forward = rot[:, :, 0]
+        origins = centers + half_dims[:, :1] * forward
+        vectors = (face_scale * 0.6)[:, None] * forward
 
         radii = face_scale * 0.06
 
@@ -189,6 +182,8 @@ def log_boxes_3d(
                 colors=[(255, 255, 255)] * n,
             ),
         )
+    else:
+        rr.log(f"{entity}/heading", rr.Clear(recursive=False))
 
 
 def log_cameras(
@@ -365,36 +360,3 @@ def _build_labels(
     if base is None:
         return [f"{s:.2f}" for s in scores]
     return [f"{name} {s:.2f}" for name, s in zip(base, scores)]
-
-
-def _extract_centers_sizes_yaws(
-    raw: Tensor, fmt: BoundingBox3DFormat
-) -> tuple[Tensor, Tensor, list[float]]:
-    """Extract centers, sizes (l, w, h), and yaw angles from raw box tensor.
-
-    Returns:
-        Tuple of (centers, sizes, yaws). Centers and sizes are tensors,
-        yaws is a list of floats.
-
-    Raises:
-        ValueError: If ``fmt`` is not a supported format.
-    """
-    if fmt is BoundingBox3DFormat.XYZXYZ:
-        mins = raw[:, :3]
-        maxs = raw[:, 3:]
-        centers = (mins + maxs) / 2
-        sizes = maxs - mins
-        yaws = [0.0] * raw.shape[0]
-    elif fmt is BoundingBox3DFormat.XYZLWH:
-        centers = raw[:, :3]
-        sizes = raw[:, 3:6]
-        yaws = [0.0] * raw.shape[0]
-    elif fmt is BoundingBox3DFormat.XYZLWHY or fmt is BoundingBox3DFormat.XYZLWHYPR:
-        centers = raw[:, :3]
-        sizes = raw[:, 3:6]
-        yaws = raw[:, 6].tolist()
-    else:
-        msg = f"Unsupported format: {fmt}"
-        raise ValueError(msg)
-
-    return centers, sizes, yaws
