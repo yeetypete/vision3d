@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any, ClassVar, Literal, TypedDict, overload, override
 
@@ -17,6 +18,7 @@ from torch import Tensor
 from torch.utils.data import Dataset
 from torchcodec.decoders import decode_image
 from torchvision.datasets.utils import download_and_extract_archive
+from torchvision.tv_tensors._dataset_wrapper import parse_target_keys
 
 from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.ops import accumulate_sweeps
@@ -1312,6 +1314,10 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         split (str): One of ``"train"``, ``"val"``, or ``"test"``, depending on
             ``version``, or ``"all"`` for every scene in the tables.
             Default: ``"train"``.
+        target_keys (collection of str or "all", optional): Target keys to
+            return. If ``None`` (default), returns ``"boxes"`` and
+            ``"labels"``. If ``"all"``, returns every available key. Can also be
+            a collection of strings for fine grained access.
         transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
         num_sweeps (int): Number of lidar sweeps to aggregate into each sample,
@@ -1349,6 +1355,9 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     # categories are skipped when loading annotations.
     category_map: ClassVar[dict[str, str]] = _CATEGORY_TO_DETECTION
 
+    _available_target_keys: ClassVar[frozenset[str]] = frozenset({"boxes", "labels"})
+    _default_target_keys: ClassVar[frozenset[str]] = frozenset({"boxes", "labels"})
+
     data_url: ClassVar[str] = (
         "https://motional-nuscenes.s3.ap-northeast-1.amazonaws.com/public/v1.0/"
     )
@@ -1360,10 +1369,18 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         root: str | os.PathLike[str],
         version: str = "v1.0-mini",
         split: str = "train",
+        target_keys: Collection[str] | Literal["all"] | None = None,
         transforms: Any | None = None,
         num_sweeps: int = 1,
         download: bool = False,
     ) -> None:
+        self.target_keys: frozenset[str] = frozenset(
+            parse_target_keys(
+                target_keys,
+                available=self._available_target_keys,
+                default=self._default_target_keys,
+            )
+        )
         if num_sweeps < 1:
             raise ValueError(f"num_sweeps must be >= 1, got {num_sweeps}.")
         self.class_to_idx = {name: i for i, name in enumerate(self.classes)}
@@ -1456,7 +1473,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
               (lidar-to-camera).
             - ``"intrinsics"``: :class:`CameraIntrinsics` ``[6, 3, 3]``.
 
-            **targets** is a dict with keys:
+            **targets** is a dict with the keys selected by ``target_keys``:
 
             - ``"boxes"``: :class:`BoundingBoxes3D` in lidar frame,
               format ``XYZLWHY``.
@@ -1526,7 +1543,12 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         }
 
         # Annotations (in global frame -> convert to lidar frame)
-        targets = self._load_annotations(sample, lidar_to_global)
+        annotations = self._load_annotations(sample, lidar_to_global)
+        targets: SampleTargets = {}
+        if "boxes" in self.target_keys:
+            targets["boxes"] = annotations["boxes"]
+        if "labels" in self.target_keys:
+            targets["labels"] = annotations["labels"]
 
         if self.transforms is not None:
             inputs, targets = self.transforms(inputs, targets)

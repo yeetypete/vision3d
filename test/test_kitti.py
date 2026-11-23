@@ -97,6 +97,10 @@ class TestKitti3DConstruction:
         with pytest.raises(RuntimeError, match="not found"):
             Kitti3D(tmp_path, train=True)
 
+    def test_unavailable_target_keys_raise(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="not available"):
+            Kitti3D(tmp_path, target_keys={"boxes", "masks"})
+
     def test_str_repr(self, kitti_root: Path) -> None:
         ds = Kitti3D(kitti_root, train=True)
         assert isinstance(str(ds), str)
@@ -128,6 +132,22 @@ class TestKitti3DGetItem:
         assert targets is not None
         assert isinstance(targets["boxes"], BoundingBoxes3D)
         assert isinstance(targets["labels"], torch.Tensor)
+
+    @pytest.mark.parametrize(
+        ("target_keys", "keys"),
+        [
+            (None, {"boxes", "labels"}),
+            ("all", {"boxes", "labels"}),
+            ({"boxes"}, {"boxes"}),
+            ((), set()),
+        ],
+    )
+    def test_target_keys_select_targets(
+        self, kitti_root: Path, target_keys: Any, keys: set[str]
+    ) -> None:
+        _, targets = Kitti3D(kitti_root, target_keys=target_keys)[0]
+        assert targets is not None
+        assert targets.keys() == keys
 
     def test_target_none_test(self, kitti_root: Path) -> None:
         ds = Kitti3D(kitti_root, train=False)

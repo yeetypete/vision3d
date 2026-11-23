@@ -9,6 +9,7 @@ split is available on disk.They may be pointed at a custom location with the
 
 import os
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -86,6 +87,11 @@ def test_unsupported_split_error_offers_all() -> None:
         _get_split_scenes("v1.0-test", "train")
 
 
+def test_unavailable_target_keys_raise(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="not available"):
+        NuScenes3D(tmp_path, target_keys={"boxes", "masks"})
+
+
 @given(
     components=st.lists(
         st.floats(min_value=-1.0, max_value=1.0, allow_nan=False, allow_infinity=False),
@@ -141,6 +147,23 @@ def datasets(mini_root: Path) -> dict[str, NuScenes3D]:
         split: NuScenes3D(mini_root, version="v1.0-mini", split=split)
         for split in ("train", "val")
     }
+
+
+@pytest.mark.parametrize(
+    ("target_keys", "keys"),
+    [
+        (None, {"boxes", "labels"}),
+        ("all", {"boxes", "labels"}),
+        ({"boxes"}, {"boxes"}),
+        ((), set()),
+    ],
+)
+def test_target_keys_select_targets(
+    mini_root: Path, target_keys: Any, keys: set[str]
+) -> None:
+    dataset = NuScenes3D(mini_root, version="v1.0-mini", target_keys=target_keys)
+    _, targets = dataset[0]
+    assert targets.keys() == keys
 
 
 def test_split_all_is_every_scene(

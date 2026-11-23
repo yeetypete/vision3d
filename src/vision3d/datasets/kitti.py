@@ -5,9 +5,9 @@ import io
 import os
 import urllib.request
 import zipfile
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from pathlib import Path
-from typing import Any, ClassVar, override
+from typing import Any, ClassVar, Literal, override
 
 import numpy as np
 import torch
@@ -15,6 +15,7 @@ from torch import Tensor
 from torch.utils.data import Dataset
 from torchcodec.decoders import decode_image
 from torchvision.datasets.utils import download_and_extract_archive
+from torchvision.tv_tensors._dataset_wrapper import parse_target_keys
 
 from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.ops import points_in_image
@@ -55,6 +56,10 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
 
         train (bool, optional): Use ``train`` split if true, else ``test`` split.
             Defaults to ``True``.
+        target_keys (collection of str or "all", optional): Target keys to
+            return. If ``None`` (default), returns ``"boxes"`` and
+            ``"labels"``. If ``"all"``, returns every available key. Can also be
+            a collection of strings for fine grained access.
         transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
         download (bool, optional): If true, downloads the dataset from the internet
@@ -99,15 +104,26 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
     )
     class_to_idx: ClassVar[dict[str, int]] = {name: i for i, name in enumerate(classes)}
 
+    _available_target_keys: ClassVar[frozenset[str]] = frozenset({"boxes", "labels"})
+    _default_target_keys: ClassVar[frozenset[str]] = frozenset({"boxes", "labels"})
+
     def __init__(
         self,
         root: str | os.PathLike[str],
         train: bool = True,
+        target_keys: Collection[str] | Literal["all"] | None = None,
         transforms: Any | None = None,
         download: bool = False,
         mini: bool = False,
         frames: Iterable[int] = range(10),
     ) -> None:
+        self.target_keys: frozenset[str] = frozenset(
+            parse_target_keys(
+                target_keys,
+                available=self._available_target_keys,
+                default=self._default_target_keys,
+            )
+        )
         self.root = Path(root)
         self.train = train
         self.transforms = transforms
@@ -153,7 +169,8 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
               (lidar-to-camera).
             - ``"intrinsics"``: :class:`CameraIntrinsics` ``[1, 3, 3]``.
 
-            **targets** is a dict (training) or None (testing) with keys:
+            **targets** is None (testing) or a dict (training) with the keys
+            selected by ``target_keys``:
 
             - ``"boxes"``: :class:`BoundingBoxes3D` in lidar frame,
               format ``XYZLWHY``.
@@ -182,9 +199,14 @@ class Kitti3D(Dataset[tuple[FusionInputs, SampleTargets | None]]):
             ),
         }
 
-        targets = None
+        targets: SampleTargets | None = None
         if self.train:
-            targets = self._load_targets(base, frame_id, calib)
+            annotations = self._load_targets(base, frame_id, calib)
+            targets = {}
+            if "boxes" in self.target_keys:
+                targets["boxes"] = annotations["boxes"]
+            if "labels" in self.target_keys:
+                targets["labels"] = annotations["labels"]
 
         if self.transforms is not None:
             inputs, targets = self.transforms(inputs, targets)

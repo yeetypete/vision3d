@@ -59,6 +59,7 @@ napoleon_preprocess_types = True
 napoleon_use_admonition_for_examples = True
 napoleon_use_admonition_for_notes = True
 napoleon_use_ivar = True
+napoleon_type_aliases = {"collection": "collections.abc.Collection"}
 
 # Private base classes that appear in autodoc's "Bases:" line for our
 # public subclasses. They aren't documented separately on purpose, so
