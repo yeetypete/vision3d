@@ -22,6 +22,7 @@ from torchvision.tv_tensors._dataset_wrapper import parse_target_keys
 
 from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.ops import accumulate_sweeps
+from vision3d.ops._rotation import _quaternion_to_rotation_matrix
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -1701,32 +1702,17 @@ def _get_split_scenes(version: str, split: str) -> frozenset[str] | None:
     return frozenset(split_map[split])
 
 
-def _quaternion_to_rotation_matrix(rotation_wxyz: list[float]) -> np.ndarray:
-    """Convert a unit quaternion ``(w, x, y, z)`` to a 3x3 rotation matrix.
-
-    Returns:
-        ``[3, 3]`` rotation matrix.
-    """
-    w, x, y, z = rotation_wxyz
-    return np.array(
-        [
-            [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
-            [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
-            [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
-        ],
-        dtype=np.float64,
-    )
-
-
 def _make_transform(translation: list[float], rotation_wxyz: list[float]) -> Tensor:
     """Build a 4x4 transform from translation + quaternion ``(w, x, y, z)``.
 
     Returns:
         ``[4, 4]`` homogeneous transform matrix.
     """
-    rot = _quaternion_to_rotation_matrix(rotation_wxyz)
+    rot = _quaternion_to_rotation_matrix(
+        torch.tensor(rotation_wxyz, dtype=torch.float64)
+    )
     T = torch.eye(4, dtype=torch.float32)
-    T[:3, :3] = torch.from_numpy(rot.astype(np.float32))
+    T[:3, :3] = rot.float()
     T[:3, 3] = torch.tensor(translation, dtype=torch.float32)
     return T
 
@@ -1743,7 +1729,9 @@ def _quaternion_to_yaw(
     Returns:
         Yaw angle in radians.
     """
-    rot = _quaternion_to_rotation_matrix(rotation_wxyz)
+    rot = _quaternion_to_rotation_matrix(
+        torch.tensor(rotation_wxyz, dtype=torch.float64)
+    )
     # Box's local +X axis expressed in the lidar frame.
-    forward_lidar = global_to_lidar_rot @ rot @ np.array([1.0, 0.0, 0.0])
+    forward_lidar = global_to_lidar_rot @ rot.numpy() @ np.array([1.0, 0.0, 0.0])
     return float(np.arctan2(forward_lidar[1], forward_lidar[0]))
