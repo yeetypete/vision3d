@@ -1,7 +1,11 @@
 """Log vision3d data to a Rerun viewer."""
 
+from collections.abc import Sequence
+from typing import NamedTuple
+
 import torch
 from torch import Tensor
+from torchvision.utils import _generate_color_palette
 
 from vision3d.datasets import SampleInputs, SampleTargets
 from vision3d.metrics import Prediction3D
@@ -13,6 +17,7 @@ from vision3d.tensors import (
     CameraExtrinsics,
     CameraImages,
     CameraIntrinsics,
+    GridMask3D,
     PointCloud3D,
 )
 
@@ -21,6 +26,10 @@ try:
 except ImportError as e:
     msg = "rerun-sdk is required for visualization. Install with: pip install vision3d[viz]"
     raise ImportError(msg) from e
+
+# Thickness of planar grids relative to their smallest cell edge. Rerun
+# rejects a voxel size of zero.
+_PLANAR_THICKNESS = 1e-3
 
 
 def log_point_cloud(
@@ -272,6 +281,122 @@ def _log_single_camera(
     rr.log(entity, archetype)
 
 
+# TODO: Replace with a Rerun custom type for GridMask3D. See
+# https://github.com/yeetypete/vision3d/issues/253
+def log_grid_mask(
+    entity: str,
+    grid: GridMask3D,
+    *,
+    channel_names: Sequence[str] | None = None,
+    colors: Sequence[tuple[int, int, int]] | None = None,
+    background: float | None = 0,
+    colormap: rr.components.ColormapLike | None = None,
+    value_range: tuple[float, float] | None = None,
+    opacity: float | None = None,
+) -> None:
+    """Log a label grid to Rerun as sparse voxels.
+
+    Planar grids ``[C, H, W]`` and volumes ``[C, D, H, W]`` are placed by
+    their ``affine``, so they line up with the rest of the scene. A grid with
+    one channel is logged at ``entity``, otherwise each channel is logged at
+    ``{entity}/{name}``.
+
+    How cells are colored depends on the dtype:
+
+    - ``bool``: Multi-label masks. Set cells take one color per channel.
+    - Integer: Class indices. Each cell takes the color of its value.
+    - Floating point: Soft labels or regression targets, colored through
+      ``colormap`` over ``value_range``.
+
+    Args:
+        entity: Rerun entity path (e.g. ``"world/gt/map"``).
+        grid: Label grid to log.
+        channel_names: One name per channel for the entity paths. Defaults to
+            the channel indices.
+        colors: RGB colors, indexed by channel for ``bool`` grids and by value
+            for integer grids. Defaults to a generated palette. Ignored for
+            floating point grids.
+        background: Cells equal to this value are not logged, e.g. ``False``
+            for masks, a free-space class, or zero soft labels. ``None`` logs
+            every cell.
+        colormap: Colormap for floating point grids. Defaults to Rerun's
+            default colormap.
+        value_range: ``(min, max)`` mapped onto ``colormap``. Defaults to the
+            range of the logged values.
+        opacity: Voxel opacity in ``[0, 1]``.
+
+    Raises:
+        ValueError: If ``channel_names`` does not have one name per channel,
+            or if the affine shears the grid, which voxels cannot represent.
+    """
+    data = grid.as_subclass(Tensor).detach().cpu()
+    planar = data.ndim == 3
+    if planar:
+        data = data.unsqueeze(1)
+    num_channels = data.shape[0]
+    if channel_names is None:
+        channel_names = [str(c) for c in range(num_channels)]
+    if len(channel_names) != num_channels:
+        msg = (
+            f"channel_names has length {len(channel_names)} but the grid has "
+            f"{num_channels} channels"
+        )
+        raise ValueError(msg)
+    palette = None
+    if colors is not None:
+        palette = torch.tensor(colors, dtype=torch.uint8, device="cpu").reshape(-1, 3)
+
+    pose = _grid_pose(grid.affine, planar=planar)
+    for c, name in enumerate(channel_names):
+        path = entity if num_channels == 1 else f"{entity}/{name}"
+        channel = data[c]
+        keep = (
+            channel != background
+            if background is not None
+            else torch.ones_like(channel, dtype=torch.bool)
+        )
+        indices = keep.nonzero()
+        if len(indices) == 0:
+            rr.log(path, rr.Clear(recursive=False))
+            continue
+        values = channel[keep]
+        d, h, w = indices.unbind(1)
+        if pose.flip_d:
+            d = -d - 1
+        # Local voxel axes are (x, y, z) = (h, w, d). See ``_grid_pose``.
+        voxel_indices = torch.stack([h, w, d], dim=1).to(torch.int32)
+
+        voxel_values = None
+        voxel_colors = None
+        channel_range = None
+        if channel.dtype.is_floating_point:
+            voxel_values = values.float()
+            channel_range = value_range or (float(values.min()), float(values.max()))
+        else:
+            # A mask takes the color of its channel, a class grid that of each value.
+            ids = (
+                values.long()
+                if channel.dtype != torch.bool
+                else torch.tensor([c], device="cpu")
+            )
+            voxel_colors = _palette_colors(ids, palette)
+
+        rr.log(
+            path,
+            rr.VoxelGridMap(
+                voxel_indices,
+                voxel_size=pose.voxel_size,
+                values=voxel_values,
+                colors=voxel_colors,
+                translation=pose.translation,
+                quaternion=rr.Quaternion(xyzw=pose.quaternion),
+                opacity=opacity,
+                value_range=channel_range,
+                colormap=colormap,
+            ),
+        )
+
+
 def log_sample(
     inputs: SampleInputs,
     targets: SampleTargets | None = None,
@@ -281,6 +406,8 @@ def log_sample(
     label_to_id: dict[str, int] | None = None,
     score_threshold: float | None = None,
     jpeg_quality: int | None = None,
+    map_channel_names: Sequence[str] | None = None,
+    map_colors: Sequence[tuple[int, int, int]] | None = None,
 ) -> None:
     """Log a full sample dict to Rerun.
 
@@ -295,7 +422,9 @@ def log_sample(
         inputs: :class:`~vision3d.datasets.SampleInputs` with ``"points"``,
             ``"images"``, ``"extrinsics"``, ``"intrinsics"`` keys.
         targets: Optional :class:`~vision3d.datasets.SampleTargets` with
-            ``"boxes"``, ``"labels"`` keys (ground truth).
+            ``"boxes"``, ``"labels"`` keys (ground truth). A ``"map"`` grid
+            is logged to ``{entity_prefix}/gt/map`` with
+            :func:`log_grid_mask` at half opacity.
         predictions: Optional :class:`~vision3d.metrics.Prediction3D` with
             ``"boxes"``, ``"scores"``, ``"labels"`` keys. Prediction labels
             show their score.
@@ -305,6 +434,10 @@ def log_sample(
         score_threshold: If set, predictions below this score are dropped.
         jpeg_quality: If set, JPEG-encode camera images at this quality
             (0-100) before logging. See :func:`log_cameras`.
+        map_channel_names: Channel names for ``targets["map"]``, e.g.
+            ``NuScenes3D.map_layers``. See :func:`log_grid_mask`.
+        map_colors: One RGB color per channel of ``targets["map"]``, e.g.
+            ``NuScenes3D.map_colors``. See :func:`log_grid_mask`.
     """
     if "points" in inputs:
         log_point_cloud(f"{entity_prefix}/lidar", inputs["points"])
@@ -326,6 +459,18 @@ def log_sample(
             class_ids=class_ids,
             label_to_id=label_to_id,
             fill_mode="transparentfillmajorwireframe",
+        )
+
+    if targets and "map" in targets:
+        log_grid_mask(
+            f"{entity_prefix}/gt/map",
+            targets["map"],
+            channel_names=map_channel_names,
+            colors=map_colors,
+            # Overlapping translucent channels may flicker as the camera moves.
+            # Rerun sorts transparent geometry per entity, not per pixel. See
+            # https://github.com/rerun-io/rerun/issues/10347
+            opacity=0.5,
         )
 
     if predictions and "boxes" in predictions:
@@ -368,3 +513,74 @@ def _build_labels(
     if base is None:
         return [f"{s:.2f}" for s in scores]
     return [f"{name} {s:.2f}" for name, s in zip(base, scores)]
+
+
+class _GridPose(NamedTuple):
+    """Pose of a Rerun voxel grid.
+
+    Attributes:
+        voxel_size: Edge lengths of a voxel along the local ``(x, y, z)`` axes.
+        translation: Position of the minimum corner of local voxel
+            ``(0, 0, 0)``.
+        quaternion: Rotation of the local axes as ``(x, y, z, w)``.
+        flip_d: Whether the affine is a reflection. Each depth index ``d``,
+            the first grid index, must then be logged as ``-d - 1``.
+    """
+
+    voxel_size: list[float]
+    translation: list[float]
+    quaternion: list[float]
+    flip_d: bool
+
+
+def _grid_pose(affine: Tensor, *, planar: bool = False) -> _GridPose:
+    """Split a grid affine into a Rerun voxel grid pose.
+
+    The local voxel axes ``(x, y, z)`` are the grid's ``(h, w, d)`` axes. A
+    reflection is undone by reversing the ``d`` axis.
+
+    Returns:
+        The voxel grid pose.
+
+    Raises:
+        ValueError: If the grid axes are not orthogonal.
+    """
+    affine = affine.double()
+    columns = affine[:3, :3]
+    axes = torch.stack([columns[:, 1], columns[:, 2], columns[:, 0]], dim=1)
+    size = torch.linalg.norm(axes, dim=0)
+    rotation = axes / size
+    identity = torch.eye(3, dtype=torch.float64, device=rotation.device)
+    if not torch.allclose(rotation.T @ rotation, identity, atol=1e-6):
+        msg = (
+            "Rerun voxel grids need orthogonal grid axes, but the affine "
+            f"shears the grid: {affine.tolist()}"
+        )
+        raise ValueError(msg)
+    reflected = bool(torch.linalg.det(rotation) < 0)
+    if reflected:
+        rotation[:, 2] = -rotation[:, 2]
+    first_center = affine[:3, 3]
+    if planar:
+        size[2] = _PLANAR_THICKNESS * min(float(size[0]), float(size[1]))
+    elif reflected:
+        # Local voxel 0 along z is the cell at d = -1.
+        first_center = first_center - columns[:, 0]
+    flip_d = reflected and not planar
+    translation = first_center - rotation @ (size / 2)
+    # Rerun takes the rotation as a quaternion (x, y, z, w).
+    quaternion = _rotation_matrix_to_quaternion(rotation)[[1, 2, 3, 0]]
+    return _GridPose(size.tolist(), translation.tolist(), quaternion.tolist(), flip_d)
+
+
+def _palette_colors(ids: Tensor, palette: Tensor | None) -> Tensor:
+    """Look up RGB colors for channel or class indices.
+
+    Returns:
+        ``[N, 3]`` uint8 colors, from ``palette`` when given and otherwise from
+        a generated palette.
+    """
+    if palette is None:
+        colors = _generate_color_palette(int(ids.max()) + 1)
+        palette = torch.tensor(colors, dtype=torch.uint8, device="cpu")
+    return palette[ids % len(palette)]
