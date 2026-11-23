@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 import torch
 from common_utils import make_grid_affine
+from torchvision.utils import _generate_color_palette
 
 import vision3d.viz._logging as logging_mod
 from vision3d.ops import extract_box3d_params
@@ -358,8 +359,8 @@ class TestLogGridMask:
         assert set(voxel_spy.calls) == {"world/map/road", "world/map/walkway"}
         assert voxel_spy.calls["world/map/road"]["colors"].tolist() == [[1, 2, 3]]
         assert voxel_spy.calls["world/map/walkway"]["colors"].tolist() == [[4, 5, 6]]
-        # An empty channel clears what an earlier frame logged there.
-        assert voxel_spy.cleared == ["world/map/empty"]
+        # Clearing the whole entity also clears earlier voxels of empty channels.
+        assert voxel_spy.cleared == ["world/map"]
 
     def test_integer_cells_are_colored_by_value(self, voxel_spy: _VoxelSpy) -> None:
         data = torch.tensor([[[0, 1], [2, 0]]])
@@ -369,6 +370,13 @@ class TestLogGridMask:
         # Background cells (0) are skipped, in row-major order (1 then 2).
         assert call["voxel_indices"].tolist() == [[0, 1, 0], [1, 0, 0]]
         assert call["colors"].tolist() == [[10, 0, 0], [0, 20, 0]]
+
+    def test_negative_ids_get_default_colors(self, voxel_spy: _VoxelSpy) -> None:
+        grid = GridMask3D(torch.tensor([[[-1]]]), affine=make_grid_affine())
+        log_grid_mask("world/occ", grid)
+        # torchvision's palette repeats every 255 ids, so -1 is colored as 254.
+        expected = list(_generate_color_palette(255)[254])
+        assert voxel_spy.calls["world/occ"]["colors"].tolist() == [expected]
 
     def test_float_channels_use_their_own_value_range(
         self, voxel_spy: _VoxelSpy
@@ -397,7 +405,8 @@ class TestLogGridMask:
         grid = GridMask3D(_random_mask(2, 3, 4, 5), affine=_rotated_affine())
         log_grid_mask("world/map", grid)
         logged = [type(a) for _, a in spy.logged]
-        assert logged == [logging_mod.rr.VoxelGridMap] * 2
+        rr = logging_mod.rr
+        assert logged == [rr.Clear, rr.VoxelGridMap, rr.VoxelGridMap]
 
     def test_log_sample_logs_map_target(self, voxel_spy: _VoxelSpy) -> None:
         grid = GridMask3D(torch.ones(1, 2, 2, dtype=torch.bool), affine=torch.eye(4))

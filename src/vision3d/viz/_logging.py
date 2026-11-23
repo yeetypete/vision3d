@@ -31,6 +31,9 @@ except ImportError as e:
 # rejects a voxel size of zero.
 _PLANAR_THICKNESS = 1e-3
 
+# torchvision's palette repeats every 255 ids.
+_PALETTE = torch.tensor(_generate_color_palette(255), dtype=torch.uint8, device="cpu")
+
 
 def log_point_cloud(
     entity: str,
@@ -299,7 +302,7 @@ def log_grid_mask(
     Planar grids ``[C, H, W]`` and volumes ``[C, D, H, W]`` are placed by
     their ``affine``, so they line up with the rest of the scene. A grid with
     one channel is logged at ``entity``, otherwise each channel is logged at
-    ``{entity}/{name}``.
+    ``{entity}/{name}``. Each call replaces everything logged under ``entity``.
 
     How cells are colored depends on the dtype:
 
@@ -342,11 +345,13 @@ def log_grid_mask(
             f"{num_channels} channels"
         )
         raise ValueError(msg)
-    palette = None
+    palette = _PALETTE
     if colors is not None:
         palette = torch.tensor(colors, dtype=torch.uint8, device="cpu").reshape(-1, 3)
 
     pose = _grid_pose(grid.affine, planar=planar)
+    # Clear what earlier frames logged, such as removed channels or colors.
+    rr.log(entity, rr.Clear(recursive=True))
     for c, name in enumerate(channel_names):
         path = entity if num_channels == 1 else f"{entity}/{name}"
         channel = data[c]
@@ -357,7 +362,6 @@ def log_grid_mask(
         )
         indices = keep.nonzero()
         if len(indices) == 0:
-            rr.log(path, rr.Clear(recursive=False))
             continue
         values = channel[keep]
         d, h, w = indices.unbind(1)
@@ -379,7 +383,7 @@ def log_grid_mask(
                 if channel.dtype != torch.bool
                 else torch.tensor([c], device="cpu")
             )
-            voxel_colors = _palette_colors(ids, palette)
+            voxel_colors = palette[ids % len(palette)]
 
         rr.log(
             path,
@@ -571,16 +575,3 @@ def _grid_pose(affine: Tensor, *, planar: bool = False) -> _GridPose:
     # Rerun takes the rotation as a quaternion (x, y, z, w).
     quaternion = _rotation_matrix_to_quaternion(rotation)[[1, 2, 3, 0]]
     return _GridPose(size.tolist(), translation.tolist(), quaternion.tolist(), flip_d)
-
-
-def _palette_colors(ids: Tensor, palette: Tensor | None) -> Tensor:
-    """Look up RGB colors for channel or class indices.
-
-    Returns:
-        ``[N, 3]`` uint8 colors, from ``palette`` when given and otherwise from
-        a generated palette.
-    """
-    if palette is None:
-        colors = _generate_color_palette(int(ids.max()) + 1)
-        palette = torch.tensor(colors, dtype=torch.uint8, device="cpu")
-    return palette[ids % len(palette)]
