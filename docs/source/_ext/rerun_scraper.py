@@ -31,12 +31,6 @@ from sphinx_gallery.typing import PathLikeStr
 # once: at the end of the cell that first calls rr.init for that app_id.
 _embedded: set[tuple[str, str]] = set()
 
-# Whether the current gallery script has called ``rr.init``. Rerun's
-# global recording state otherwise persists across scripts in the same
-# build, which would falsely signal "this script logged to rerun" for
-# every cell after the first script's ``rr.init`` call.
-_init_called: bool = False
-
 # Capture the true ``rr.init`` once at module load and define a single
 # wrapper that always forces ``spawn=False`` to avoid spawning the rerun
 # viewer during sphinx-gallery builds. ``_reset_rerun_init`` rebinds
@@ -44,9 +38,7 @@ _init_called: bool = False
 _original_rr_init = rr.init
 
 
-def _patched_rr_init(*args: Any, spawn: bool = False, **kwargs: Any) -> Any:
-    global _init_called
-    _init_called = True
+def _patched_rr_init(*args: Any, spawn: bool = False, **kwargs: Any) -> None:
     return _original_rr_init(*args, spawn=False, **kwargs)
 
 
@@ -71,7 +63,7 @@ def rerun_scraper(
         A ``.. rerun-embed::`` directive the first time a given
         ``(script, app_id)`` is seen, empty string otherwise.
     """
-    if not _init_called:
+    if rr.get_global_data_recording() is None:
         return ""
 
     app_id = rr.get_application_id()
@@ -93,10 +85,10 @@ def rerun_scraper(
 
 
 def _reset_rerun_init(gallery_conf: GalleryConfig, fname: PathLikeStr | None) -> None:
-    """Rebind ``rr.init`` and clear the per-script init flag."""
-    global _init_called
+    """Rebind ``rr.init`` and clear the global recording."""
     rr.init = _patched_rr_init
-    _init_called = False
+    # Clear the previous script's global recording so the scraper ignores it.
+    rr.set_global_data_recording(None)
 
 
 def _get_sg_image_scraper() -> Callable[[Block, dict[str, Any], GalleryConfig], str]:
