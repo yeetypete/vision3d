@@ -22,7 +22,7 @@ from torchvision.tv_tensors._dataset_wrapper import parse_target_keys
 
 from vision3d.datasets import FusionInputs, SampleTargets
 from vision3d.ops import accumulate_sweeps
-from vision3d.ops._rotation import _quaternion_to_matrix
+from vision3d.ops._rotation import _quaternion_to_rotation_matrix
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -1708,7 +1708,9 @@ def _make_transform(translation: list[float], rotation_wxyz: list[float]) -> Ten
     Returns:
         ``[4, 4]`` homogeneous transform matrix.
     """
-    rot = _quaternion_to_matrix(torch.tensor(rotation_wxyz, dtype=torch.float64))
+    rot = _quaternion_to_rotation_matrix(
+        torch.tensor(rotation_wxyz, dtype=torch.float64)
+    )
     T = torch.eye(4, dtype=torch.float32)
     T[:3, :3] = rot.float()
     T[:3, 3] = torch.tensor(translation, dtype=torch.float32)
@@ -1727,7 +1729,9 @@ def _quaternion_to_yaw(
     Returns:
         Yaw angle in radians.
     """
-    rot = _quaternion_to_matrix(torch.tensor(rotation_wxyz, dtype=torch.float64))
+    rot = _quaternion_to_rotation_matrix(
+        torch.tensor(rotation_wxyz, dtype=torch.float64)
+    )
     # Box's local +X axis expressed in the lidar frame.
     forward_lidar = global_to_lidar_rot @ rot.numpy() @ np.array([1.0, 0.0, 0.0])
     return float(np.arctan2(forward_lidar[1], forward_lidar[0]))

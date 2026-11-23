@@ -6,7 +6,7 @@ from torch import Tensor
 from vision3d.datasets import SampleInputs, SampleTargets
 from vision3d.metrics import Prediction3D
 from vision3d.ops import extract_box3d_params
-from vision3d.ops._rotation import _matrix_to_quaternion
+from vision3d.ops._rotation import _rotation_matrix_to_quaternion
 from vision3d.tensors import (
     BoundingBox3DFormat,
     BoundingBoxes3D,
@@ -105,8 +105,10 @@ def log_boxes_3d(
             static=True,
         )
 
-    # Rerun cannot ingest low-precision dtypes such as bfloat16.
-    raw = boxes.as_subclass(Tensor).detach().cpu().float()
+    raw = boxes.as_subclass(Tensor).detach().cpu()
+    # Rerun cannot ingest low-precision dtypes such as bfloat16. Keep float64
+    # so that sizes stay exact.
+    raw = raw.to(torch.promote_types(raw.dtype, torch.float32))
     fmt = boxes.format
 
     score_list = (
@@ -144,18 +146,16 @@ def log_boxes_3d(
     display_labels = _build_labels(labels, class_ids, label_to_id, score_list)
 
     centers, half_dims, rot = extract_box3d_params(raw, fmt)
-    sizes = 2 * half_dims
-    # Always log rotations, identity for axis-aligned formats: Rerun keeps
-    # unset components from earlier frames, so omitting them would let stale
-    # rotations apply to these boxes. Rerun expects (x, y, z, w); ours are
-    # (w, x, y, z).
-    quaternions = _matrix_to_quaternion(rot)[:, [1, 2, 3, 0]]
+    # Rerun expects (x, y, z, w). Ours are (w, x, y, z).
+    quaternions = _rotation_matrix_to_quaternion(rot)[:, [1, 2, 3, 0]]
 
     rr.log(
         entity,
-        rr.Boxes3D(
+        rr.Boxes3D.from_fields(
+            # Rerun otherwise keeps stale components, such as earlier labels.
+            clear_unset=True,
             centers=centers,
-            sizes=sizes,
+            half_sizes=half_dims,
             quaternions=quaternions,
             class_ids=class_ids,
             labels=display_labels,
@@ -165,7 +165,7 @@ def log_boxes_3d(
     )
 
     if log_heading and BoundingBox3DFormat.is_rotated(fmt):
-        face_scale = torch.sqrt(sizes[:, 1] * sizes[:, 2])
+        face_scale = 2 * torch.sqrt(half_dims[:, 1] * half_dims[:, 2])
         # The box's local +x axis in world coordinates.
         forward = rot[:, :, 0]
         origins = centers + half_dims[:, :1] * forward

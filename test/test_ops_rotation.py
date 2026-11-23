@@ -5,7 +5,10 @@ from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 from pyquaternion import Quaternion
 
-from vision3d.ops._rotation import _matrix_to_quaternion, _quaternion_to_matrix
+from vision3d.ops._rotation import (
+    _quaternion_to_rotation_matrix,
+    _rotation_matrix_to_quaternion,
+)
 
 
 @settings(deadline=None)
@@ -17,14 +20,15 @@ from vision3d.ops._rotation import _matrix_to_quaternion, _quaternion_to_matrix
     )
 )
 def test_conversions_match_pyquaternion(components: list[float]) -> None:
-    q = torch.tensor(components, dtype=torch.float64)
-    # A near-zero vector has no well-defined rotation; skip it.
-    assume(float(q.norm()) > 1e-6)
-    q = q / q.norm()  # unit quaternion in wxyz order
+    raw = torch.tensor(components, dtype=torch.float64)
+    # A near-zero vector has no well-defined rotation.
+    assume(float(raw.norm()) > 1e-6)
+    q = raw / raw.norm()
     ref = torch.as_tensor(Quaternion(q.tolist()).rotation_matrix)
 
-    torch.testing.assert_close(_quaternion_to_matrix(q), ref, atol=1e-12, rtol=0)
+    # Non-unit quaternions are normalized.
+    torch.testing.assert_close(_quaternion_to_rotation_matrix(raw), ref)
 
     # q and -q are the same rotation.
-    back = _matrix_to_quaternion(ref)
-    torch.testing.assert_close(back * torch.sign(back @ q), q, atol=1e-9, rtol=0)
+    back = _rotation_matrix_to_quaternion(ref)
+    torch.testing.assert_close(back * torch.sign(back @ q), q)
