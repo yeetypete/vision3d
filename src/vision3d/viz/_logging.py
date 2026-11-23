@@ -43,12 +43,20 @@ def log_point_cloud(
         distances = torch.linalg.norm(xyz, dim=1)
         max_dist = max(float(torch.quantile(distances, 0.98)), 1e-6)
         normalized = (distances / max_dist).clamp(0, 1)
-        colors = torch.zeros(len(xyz), 4, dtype=torch.uint8)
+        colors = torch.zeros(len(xyz), 4, dtype=torch.uint8, device=xyz.device)
         colors[:, 0] = (normalized * 255).to(torch.uint8)
         colors[:, 2] = ((1 - normalized) * 255).to(torch.uint8)
         colors[:, 3] = 255
 
-    rr.log(entity, rr.Points3D(xyz, colors=colors))
+    rr.log(
+        entity,
+        rr.Points3D.from_fields(
+            # Rerun otherwise keeps stale components, such as earlier colors.
+            clear_unset=True,
+            positions=xyz,
+            colors=colors,
+        ),
+    )
 
 
 def log_boxes_3d(

@@ -1,4 +1,4 @@
-"""Tests for :mod:`vision3d.viz._logging` box logging logic.
+"""Tests for :mod:`vision3d.viz._logging` point cloud and box logging logic.
 
 These exercise the pure label-building and score-filtering logic without a
 live Rerun recording: ``rr.log`` and ``rr.Boxes3D`` are spied on so the
@@ -12,7 +12,7 @@ import vision3d.viz._logging as logging_mod
 from vision3d.ops import extract_box3d_params
 from vision3d.ops._rotation import _quaternion_to_rotation_matrix
 from vision3d.tensors import BoundingBox3DFormat, BoundingBoxes3D
-from vision3d.viz._logging import _build_labels, log_boxes_3d
+from vision3d.viz._logging import _build_labels, log_boxes_3d, log_point_cloud
 
 
 def _boxes(
@@ -209,3 +209,19 @@ class TestBoxPose:
         assert spy.arrows_kwargs is None
         cleared = [e for e, a in spy.logged if isinstance(a, logging_mod.rr.Clear)]
         assert cleared == ["world/boxes/heading"]
+
+
+class TestPointCloud:
+    @pytest.mark.parametrize("color_by_distance", [True, False])
+    def test_clears_unset_colors(self, spy: _Spy, color_by_distance: bool) -> None:
+        points = torch.randn(8, 4)
+        log_point_cloud("world/lidar", points, color_by_distance=color_by_distance)
+        assert len(spy.logged) == 1
+        entity, archetype = spy.logged[0]
+        assert entity == "world/lidar"
+        assert isinstance(archetype, logging_mod.rr.Points3D)
+        assert archetype.positions is not None
+        assert len(archetype.positions) == 8
+        # An empty batch clears colors from earlier frames. None would keep them.
+        assert archetype.colors is not None
+        assert len(archetype.colors) == (8 if color_by_distance else 0)
