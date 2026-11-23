@@ -64,10 +64,12 @@ class FusionInputs(SampleInputs):
 class SampleTargets(TypedDict):
     """Per-frame ground-truth annotations.
 
+    Datasets return the keys selected by their ``target_keys`` argument.
+
     Attributes:
         boxes: 3D bounding boxes in the lidar frame.
         labels: Integer class labels, one per box.
     """
 
-    boxes: BoundingBoxes3D
-    labels: Tensor
+    boxes: NotRequired[BoundingBoxes3D]
+    labels: NotRequired[Tensor]
