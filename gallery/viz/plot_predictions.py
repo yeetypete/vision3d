@@ -28,7 +28,13 @@ from vision3d.datasets import NuScenes3D
 
 NUSCENES_ROOT = Path("~/.cache/vision3d/nuscenes-mini").expanduser()
 
-dataset = NuScenes3D(NUSCENES_ROOT, version="v1.0-mini", split="train", download=True)
+dataset = NuScenes3D(
+    NUSCENES_ROOT,
+    version="v1.0-mini",
+    split="train",
+    target_keys="all",
+    download=True,
+)
 
 # %%
 # Synthesize predictions
@@ -109,6 +115,8 @@ for frame_idx in range(10):
         label_to_id=dataset.class_to_idx,
         score_threshold=0.4,
         jpeg_quality=75,
+        map_channel_names=dataset.map_layers,
+        map_colors=dataset.map_colors,
     )
 
 # %%

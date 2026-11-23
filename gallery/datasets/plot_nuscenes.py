@@ -24,7 +24,14 @@ from vision3d.datasets import NuScenes3D
 
 NUSCENES_ROOT = Path("~/.cache/vision3d/nuscenes-mini").expanduser()
 
-dataset = NuScenes3D(NUSCENES_ROOT, version="v1.0-mini", split="train", download=True)
+dataset = NuScenes3D(
+    NUSCENES_ROOT,
+    version="v1.0-mini",
+    split="train",
+    # Boxes, labels, and a 100 x 100 m map patch around the lidar.
+    target_keys="all",
+    download=True,
+)
 print(f"len(dataset) = {len(dataset)}")
 print(f"classes ({len(dataset.classes)}): {dataset.classes}")
 
@@ -70,6 +77,11 @@ print(
 print(
     f"  labels: type={type(targets['labels']).__name__} "
     f"shape={tuple(targets['labels'].shape)} dtype={targets['labels'].dtype}"
+)
+print(
+    f"  map: type={type(targets['map']).__name__} "
+    f"shape={tuple(targets['map'].shape)} dtype={targets['map'].dtype} "
+    f"channels={list(dataset.map_layers)}"
 )
 
 # %%
@@ -171,4 +183,11 @@ rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
 for frame_idx in range(10):
     f_inputs, f_targets = dataset[frame_idx]
     rr.set_time("frame", sequence=frame_idx)
-    log_sample(f_inputs, f_targets, label_to_id=dataset.class_to_idx, jpeg_quality=75)
+    log_sample(
+        f_inputs,
+        f_targets,
+        label_to_id=dataset.class_to_idx,
+        jpeg_quality=75,
+        map_channel_names=dataset.map_layers,
+        map_colors=dataset.map_colors,
+    )
