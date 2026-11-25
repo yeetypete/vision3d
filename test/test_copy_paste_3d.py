@@ -695,6 +695,7 @@ class TestOffset:
             min_points=1,
             offset_range=((ox, ox), (oy, oy), (oz, oz)),
         )
+        torch.manual_seed(0)
         cp(*_make_lidar_batch(batch_size=3, num_boxes=3, format=fmt))
         n_original = 1
         _, out_targets = cp(
@@ -703,8 +704,7 @@ class TestOffset:
 
         out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
         pasted = out_boxes[n_original:]
-        if pasted.shape[0] == 0:
-            pytest.skip("no objects pasted")
+        assert pasted.shape[0] > 0, "expected objects to be pasted"
 
         # Each pasted centre must equal some unmodified source centre, either
         # shifted by the per-axis offset or (when every jittered pose collided)
@@ -736,6 +736,7 @@ class TestOffset:
             min_points=1,
             offset_range=((3.0, 3.0), (-4.0, -4.0), (7.0, 7.0)),
         )
+        torch.manual_seed(0)
         cp(*_make_lidar_batch(batch_size=3, num_boxes=3, format=fmt))
         n_original = 1
         out_inputs, out_targets = cp(
@@ -744,8 +745,7 @@ class TestOffset:
 
         out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
         pasted = BoundingBoxes3D(out_boxes[n_original:], format=fmt)
-        if pasted.shape[0] == 0:
-            pytest.skip("no objects pasted")
+        assert pasted.shape[0] > 0, "expected objects to be pasted"
 
         points = out_inputs[0]["points"]
         inside = points_in_boxes_3d(points, pasted, fmt)
@@ -909,8 +909,7 @@ class TestOffset:
         )
 
         out_boxes = out_targets[0]["boxes"].as_subclass(torch.Tensor)
-        if out_boxes.shape[0] <= n_original:
-            pytest.skip("no objects pasted")
+        assert out_boxes.shape[0] > n_original, "expected objects to be pasted"
 
         # Camera reprojection of the jittered box succeeded: crop pixels (0.9)
         # appear over the original fill (0.1), confirming the re-bound box gave
