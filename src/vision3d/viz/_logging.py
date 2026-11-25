@@ -163,25 +163,35 @@ def log_boxes_3d(
         rr.log(entity, rr.Clear(recursive=True))
         return
 
+    # Resolve class names here. An empty labels batch from clear_unset=True
+    # would hide the AnnotationContext names.
     display_labels = _build_labels(labels, class_ids, label_to_id, score_list)
 
     centers, half_dims, rot = extract_box3d_params(raw, fmt)
     # Rerun expects (x, y, z, w). Ours are (w, x, y, z).
     quaternions = _rotation_matrix_to_quaternion(rot)[:, [1, 2, 3, 0]]
 
+    archetype = rr.Boxes3D.from_fields(
+        # Rerun otherwise keeps stale components, such as earlier labels.
+        clear_unset=True,
+        centers=centers,
+        half_sizes=half_dims,
+        quaternions=quaternions,
+        class_ids=class_ids,
+        labels=display_labels,
+        fill_mode=fill_mode,
+        show_labels=show_labels,
+    )
+    # Do not log colors. Even an empty batch counts as recorded colors and
+    # hides the per-class colors from the AnnotationContext, which is logged
+    # statically from label_to_id.
     rr.log(
         entity,
-        rr.Boxes3D.from_fields(
-            # Rerun otherwise keeps stale components, such as earlier labels.
-            clear_unset=True,
-            centers=centers,
-            half_sizes=half_dims,
-            quaternions=quaternions,
-            class_ids=class_ids,
-            labels=display_labels,
-            fill_mode=fill_mode,
-            show_labels=show_labels,
-        ),
+        [
+            batch
+            for batch in archetype.as_component_batches()
+            if batch.component_descriptor() != rr.Boxes3D.descriptor_colors()
+        ],
     )
 
     if log_heading and BoundingBox3DFormat.is_rotated(fmt):
@@ -499,21 +509,19 @@ def _build_labels(
 ) -> list[str] | None:
     """Build per-box display labels, appending scores when available.
 
-    Returns ``None`` when there is nothing to display (no explicit labels,
-    no resolvable class names, and no scores), letting Rerun fall back to
-    its ``AnnotationContext`` names.
+    Without explicit ``labels``, class names are looked up in ``label_to_id``.
 
     Returns:
-        Per-box label strings, or ``None``.
+        Per-box label strings, or ``None`` when there are no explicit labels,
+        no resolvable class names, and no scores.
     """
-    if scores is None:
-        return labels
-
     base = labels
     if base is None and class_ids is not None and label_to_id is not None:
         id_to_label = {i: name for name, i in label_to_id.items()}
         base = [id_to_label.get(c, str(c)) for c in class_ids]
 
+    if scores is None:
+        return base
     if base is None:
         return [f"{s:.2f}" for s in scores]
     return [f"{name} {s:.2f}" for name, s in zip(base, scores)]

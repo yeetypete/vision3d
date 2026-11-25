@@ -5,6 +5,7 @@ live Rerun recording: ``rr.log`` and ``rr.Boxes3D`` are spied on so the
 arguments handed to Rerun can be asserted directly.
 """
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -52,14 +53,15 @@ def _boxes(
 class _Spy:
     """Capture the kwargs passed to Rerun's boxes, arrows, and ``rr.log``."""
 
-    def __init__(self) -> None:
+    def __init__(self, boxes_from_fields: Callable[..., object]) -> None:
+        self._boxes_from_fields = boxes_from_fields
         self.boxes_kwargs: dict[str, object] | None = None
         self.arrows_kwargs: dict[str, object] | None = None
         self.logged: list[tuple[str, object]] = []
 
-    def boxes3d(self, **kwargs: object) -> str:
+    def boxes3d(self, **kwargs: object) -> object:
         self.boxes_kwargs = kwargs
-        return "boxes3d"
+        return self._boxes_from_fields(**kwargs)
 
     def arrows3d(self, **kwargs: object) -> str:
         self.arrows_kwargs = kwargs
@@ -76,7 +78,7 @@ def spy(monkeypatch: pytest.MonkeyPatch) -> _Spy:
     Returns:
         The :class:`_Spy` recording calls into Rerun.
     """
-    s = _Spy()
+    s = _Spy(logging_mod.rr.Boxes3D.from_fields)
     monkeypatch.setattr(logging_mod.rr, "log", s.log)
     monkeypatch.setattr(logging_mod.rr.Boxes3D, "from_fields", s.boxes3d)
     monkeypatch.setattr(logging_mod.rr, "Arrows3D", s.arrows3d)
@@ -94,6 +96,13 @@ class TestBuildLabels:
     def test_unknown_class_id_falls_back_to_str(self) -> None:
         out = _build_labels(None, [7], {"car": 0}, [0.5])
         assert out == ["7 0.50"]
+
+    def test_resolves_class_ids_without_scores(self) -> None:
+        out = _build_labels(None, [1, 0], {"car": 0, "ped": 1}, None)
+        assert out == ["ped", "car"]
+
+    def test_none_when_nothing_to_display(self) -> None:
+        assert _build_labels(None, [1, 0], None, None) is None
 
 
 class TestScoreFiltering:
@@ -416,3 +425,28 @@ class TestLogGridMask:
         call = voxel_spy.calls["world/gt/map"]
         assert call["opacity"] == pytest.approx(0.5)
         assert call["colors"].tolist() == [[1, 2, 3]]
+
+
+class TestBoxColors:
+    @pytest.mark.parametrize("scores", [None, [0.9, 0.1]])
+    def test_uses_annotation_context_colors(
+        self, spy: _Spy, scores: list[float] | None
+    ) -> None:
+        log_boxes_3d(
+            "world/boxes",
+            _boxes(2),
+            class_ids=[1, 0],
+            label_to_id={"car": 0, "ped": 1},
+            scores=scores,
+            log_heading=False,
+        )
+        boxes = [a for e, a in spy.logged if e == "world/boxes" and isinstance(a, list)]
+        assert len(boxes) == 1
+        logged = {
+            b.component_descriptor().component: b.as_arrow_array() for b in boxes[0]
+        }
+        # An empty batch would hide the colors provided by the AnnotationContext.
+        assert "Boxes3D:colors" not in logged
+        assert len(logged["Boxes3D:labels"]) == 2
+        # Unset fields are still cleared.
+        assert len(logged["Boxes3D:radii"]) == 0
