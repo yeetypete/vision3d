@@ -123,7 +123,8 @@ def resample_grid_mask_3d(
     the input cell containing the center, with ties going to the higher index.
     Bilinear interpolates between input cell centers and clamps at the edges
     of ``mask``. Target cells whose center falls outside ``mask`` get
-    ``fill``. For a planar grid, the single layer is one cell thick.
+    ``fill``. A planar ``mask`` is projected along the ``d`` column of
+    ``input_affine``, so only ``h`` and ``w`` decide where a center falls.
 
     Args:
         mask: Grid data ``[C, H, W]`` or ``[C, D, H, W]``.
@@ -140,9 +141,7 @@ def resample_grid_mask_3d(
             constants, e.g. ``PIL.Image.BILINEAR`` are accepted as well.
             Bilinear requires a floating point ``mask``.
         fill: Value for target cells that fall outside ``mask``, either a
-            single value or one value per channel. ``None`` means 0. A
-            planar ``mask`` is projected along the ``d`` column of
-            ``input_affine`` (see :class:`~vision3d.tensors.GridMask3D`).
+            single value or one value per channel. ``None`` means 0.
 
     Returns:
         Resampled grid ``[C, *size]`` with the dtype and device of ``mask``.
@@ -174,6 +173,9 @@ def resample_grid_mask_3d(
         size = (1, *size)
 
     index = _input_index(input_affine, affine, size, device=mask.device)
+    if planar:
+        # Projected along the d column, so only h and w locate a center.
+        index[0] = 0
     # Same dtype as index, otherwise num_cells - edge would round away the
     # tolerance in float32.
     num_cells = index.new_tensor(mask.shape[1:]).view(3, 1, 1, 1)

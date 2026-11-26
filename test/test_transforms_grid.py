@@ -303,9 +303,7 @@ class TestResampleGridMask3D:
         )
         assert out.flatten().tolist() == [0.0, 0.75, 1.75, 2.75]
 
-    @pytest.mark.parametrize(
-        ("offset", "inside"), [(0.4, True), (-0.5, True), (0.5, False), (-0.6, False)]
-    )
+    @pytest.mark.parametrize("offset", [0.4, -0.5, 0.5, -0.6, 25.0])
     @pytest.mark.parametrize(
         ("dtype", "interpolation"),
         [
@@ -313,14 +311,10 @@ class TestResampleGridMask3D:
             (torch.float32, InterpolationMode.BILINEAR),
         ],
     )
-    def test_planar_layer_thickness(
-        self,
-        offset: float,
-        inside: bool,
-        dtype: torch.dtype,
-        interpolation: InterpolationMode,
+    def test_planar_grid_ignores_d(
+        self, offset: float, dtype: torch.dtype, interpolation: InterpolationMode
     ) -> None:
-        # The layer is one cell thick.
+        # A planar grid is projected along its d column.
         mask = make_grid_mask_3d(spatial_shape=(6, 7), dtype=dtype)
         out = _resample(
             mask,
@@ -329,13 +323,11 @@ class TestResampleGridMask3D:
             interpolation=interpolation,
             fill=255,
         )
-        data = mask.as_subclass(Tensor)
-        torch.testing.assert_close(out, data if inside else torch.full_like(data, 255))
+        torch.testing.assert_close(out, mask.as_subclass(Tensor))
 
     @pytest.mark.parametrize(
         ("spatial_shape", "axis"),
         [
-            # Mostly about d, so the planar layer only tilts a little.
             ((5, 6), (5.0, 1.0, 1.0)),
             ((4, 5, 6), (1.0, 2.0, 3.0)),
         ],
@@ -365,6 +357,8 @@ class TestResampleGridMask3D:
         for target in itertools.product(*map(range, volume.shape[1:])):
             point = index_map @ index_map.new_tensor([*target, 1.0])
             cell = [math.floor(x + 0.5) for x in point[:3].tolist()]
+            if data.ndim == 3:
+                cell[0] = 0  # projected along d
             if all(0 <= c < n for c, n in zip(cell, volume.shape[1:], strict=True)):
                 expected[(slice(None), *target)] = volume[(slice(None), *cell)]
         expected = expected.view(out.shape)
