@@ -1454,7 +1454,7 @@ class _NuScenesMap:
         with path.open() as f:
             expansion = json.load(f)
         version = expansion.get("version")
-        if version is None or version < "1.3":
+        if version is None or tuple(map(int, version.split("."))) < (1, 3):
             msg = (
                 f"nuScenes map expansion at {str(path)!r} has version "
                 f"{version}. Version 1.3 or newer is required."

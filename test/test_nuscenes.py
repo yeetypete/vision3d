@@ -456,6 +456,13 @@ def test_map_rejects_old_expansion(tmp_path: Path) -> None:
         _NuScenesMap(path, ["drivable_area"])
 
 
+def test_map_compares_versions_numerically(tmp_path: Path) -> None:
+    path = _write_map(tmp_path / "map.json")
+    expansion = json.loads(path.read_text())
+    path.write_text(json.dumps(expansion | {"version": "1.10"}))
+    _NuScenesMap(path, ["drivable_area"])
+
+
 @pytest.mark.parametrize(
     ("kwargs", "match"),
     [
