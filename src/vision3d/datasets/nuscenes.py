@@ -112,6 +112,10 @@ _MAP_POLYGON_LAYERS = (
 _MAP_LINE_LAYERS = ("road_divider", "lane_divider")
 # In the order of ``NuScenesMap.non_geometric_layers``.
 _MAP_LAYERS = (*_MAP_POLYGON_LAYERS, *_MAP_LINE_LAYERS)
+# singapore-hollandvillage and singapore-queenstown have no individual road
+# blocks. Every ``road_block`` there shares one polygon that covers the whole
+# drivable area. See https://github.com/nutonomy/nuscenes-devkit/issues/1183.
+_MAP_DEFAULT_LAYERS = tuple(name for name in _MAP_LAYERS if name != "road_block")
 
 # Colors of the map expansion layers. Mirrors
 # ``NuScenesMapExplorer.color_map`` from nuscenes-devkit.
@@ -1467,9 +1471,7 @@ class _NuScenesMap:
 
         self._layers: dict[str, _MapLayer] = {}
         for name in layer_names:
-            geoms: list[_MapGeometry] = []
-            for record in expansion[name]:
-                geoms += _record_geometries(record, polygons, lines, nodes)
+            geoms = _layer_geometries(expansion[name], polygons, lines, nodes)
             self._layers[name] = _MapLayer.from_geoms(
                 geoms, name in _MAP_POLYGON_LAYERS
             )
@@ -1595,7 +1597,7 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     # categories are skipped when loading annotations.
     category_map: ClassVar[dict[str, str]] = _CATEGORY_TO_DETECTION
     # Map expansion layers returned as map channels, in channel order.
-    map_layers: ClassVar[tuple[str, ...]] = _MAP_LAYERS
+    map_layers: ClassVar[tuple[str, ...]] = _MAP_DEFAULT_LAYERS
 
     _available_target_keys: ClassVar[frozenset[str]] = frozenset(
         {"boxes", "labels", "map"}
@@ -2093,27 +2095,30 @@ def _quaternion_to_yaw(
     return float(np.arctan2(forward_lidar[1], forward_lidar[0]))
 
 
-def _record_geometries(
-    record: dict[str, Any],
+def _layer_geometries(
+    records: list[dict[str, Any]],
     polygons: dict[str, dict[str, Any]],
     lines: dict[str, dict[str, Any]],
     nodes: _MapNodes,
 ) -> list[_MapGeometry]:
-    """Build the geometries of one map expansion layer record.
+    """Build the geometries of one map expansion layer.
 
     Returns:
-        The record's polygons or line, skipping any without vertices.
+        The layer's polygons and lines, skipping any without vertices.
     """
-    if "line_token" in record:
-        tokens = lines[record["line_token"]]["node_tokens"]
-        geoms = [_MapGeometry(nodes[tokens], holes=[])]
-    else:
-        polygon_tokens = (
-            record["polygon_tokens"]
-            if "polygon_tokens" in record
-            else [record["polygon_token"]]
-        )
-        geoms = [_polygon_geometry(polygons[t], nodes) for t in polygon_tokens]
+    polygon_tokens: dict[str, None] = {}
+    line_tokens: dict[str, None] = {}
+    for record in records:
+        if "line_token" in record:
+            line_tokens[record["line_token"]] = None
+        elif "polygon_tokens" in record:
+            polygon_tokens.update(dict.fromkeys(record["polygon_tokens"]))
+        else:
+            polygon_tokens[record["polygon_token"]] = None
+    geoms = [_polygon_geometry(polygons[t], nodes) for t in polygon_tokens]
+    geoms += [
+        _MapGeometry(nodes[lines[t]["node_tokens"]], holes=[]) for t in line_tokens
+    ]
     return [geom for geom in geoms if len(geom.points)]
 
 
