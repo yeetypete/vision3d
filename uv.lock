@@ -3245,7 +3245,7 @@ modal = [
 requires-dist = [
     { name = "numpy", specifier = ">=2" },
     { name = "pillow", specifier = ">=11.3" },
-    { name = "rerun-sdk", marker = "extra == 'viz'", specifier = ">=0.31.1" },
+    { name = "rerun-sdk", marker = "extra == 'viz'", specifier = ">=0.34.0" },
     { name = "torch", specifier = ">=2.11" },
     { name = "torchcodec", specifier = ">=0.16" },
     { name = "torchvision", specifier = ">=0.26" },
