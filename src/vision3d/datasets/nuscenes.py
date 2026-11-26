@@ -1977,8 +1977,9 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     def _load_map(self, sample: _Sample, lidar_to_global: Tensor) -> GridMask3D:
         """Rasterize the map patch around the lidar.
 
-        The patch is horizontal. Its ``affine`` carries the roll and pitch of
-        the lidar. Each cell is a cube with edge ``map_resolution``.
+        The patch lies in the global plane ``z = 0``, with the global ``z`` axis
+        as its projection direction. Its ``affine`` carries the roll and pitch
+        of the lidar.
 
         Returns:
             ``[C, H, W]`` boolean :class:`GridMask3D` in the lidar frame.
@@ -2002,8 +2003,9 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             ],
             dtype=torch.float64,
         )
-        # Index columns are ordered (d, h, w). The cell (0, 0, 0) is centered
-        # half a cell inside the patch corner.
+        # Index columns are ordered (d, h, w). The d column is parallel to the
+        # global z axis, the projection direction of the planar grid. The cell
+        # (0, 0, 0) is centered half a cell inside the patch corner.
         x_min, y_min = -height * res / 2, -width * res / 2
         cell_to_patch = torch.tensor(
             [

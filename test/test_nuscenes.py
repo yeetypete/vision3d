@@ -644,6 +644,11 @@ def test_map_affine_places_cells_on_map(
         np.testing.assert_allclose(
             centers[:2].mean(axis=1), lidar_to_global[:2, 3], atol=1e-6
         )
+        # The grid projects along the global vertical.
+        d_axis = (lidar_to_global @ grid.affine.numpy())[:3, 0]
+        np.testing.assert_allclose(
+            d_axis / np.linalg.norm(d_axis), [0.0, 0.0, 1.0], atol=1e-6
+        )
 
         nusc_map = devkit_maps[_devkit_location(devkit_db, token)]
         ours = grid[channel].numpy().ravel()
