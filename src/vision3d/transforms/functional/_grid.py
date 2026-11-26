@@ -130,7 +130,9 @@ def resample_grid_mask_3d(
             constants, e.g. ``PIL.Image.BILINEAR`` are accepted as well.
             Bilinear requires a floating point ``mask``.
         fill: Value for target cells that fall outside ``mask``, either a
-            single value or one value per channel. ``None`` means 0.
+            single value or one value per channel. ``None`` means 0. A
+            planar ``mask`` is projected along the ``d`` column of
+            ``input_affine`` (see :class:`~vision3d.tensors.GridMask3D`).
 
     Raises:
         ValueError: If ``interpolation`` is bilinear and ``mask`` is not

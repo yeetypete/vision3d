@@ -102,9 +102,9 @@ class GridMask3D(_Grid):
 
     ``affine`` maps homogeneous cell indices to the sample's 3D frame. Its
     columns follow the spatial axis order of the data, ``(d, h, w)``, and
-    index ``(0, 0, 0)`` is the center of the first cell. A planar grid
-    ``[C, H, W]`` is treated as ``[C, 1, H, W]``. The ``d`` column sets the
-    direction and thickness of its single layer of cells.
+    index ``(0, 0, 0)`` is the center of the first cell. For a planar grid
+    ``[C, H, W]``, the ``d`` column sets the projection direction (e.g.
+    vertical for a top-down map).
 
     Instead of resampling the data, 3D transforms compose their rotation,
     translation, scaling, or reflection into ``affine`` and leave cells
