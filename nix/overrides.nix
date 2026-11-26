@@ -106,6 +106,14 @@ in
 
   rerun-sdk = prev.rerun-sdk.overrideAttrs (old: {
     buildInputs = (old.buildInputs or [ ]) ++ [ pkgs.udev ];
+    # The viewer loads these with dlopen(3). Matches the nixpkgs rerun package.
+    appendRunpaths = [
+      (pkgs.lib.makeLibraryPath [
+        pkgs.libxkbcommon
+        pkgs.vulkan-loader
+        pkgs.wayland
+      ])
+    ];
   });
 
   # The RDMA plugin, which requires these libraries, is optional and not needed.
