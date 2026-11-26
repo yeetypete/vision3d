@@ -7,7 +7,9 @@ split is available on disk.They may be pointed at a custom location with the
 ``NUSCENES_MINI_ROOT`` environment variable.
 """
 
+import json
 import os
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -23,11 +25,13 @@ from nuscenes.eval.detection.utils import (
 from nuscenes.nuscenes import NuScenes as devkit_NuScenes
 from nuscenes.utils import splits as devkit_splits
 from nuscenes.utils.data_classes import LidarPointCloud
-from PIL import Image
+from nuscenes.utils.geometry_utils import transform_matrix
+from PIL import Image, ImageFilter
 from pyquaternion import Quaternion
 
 from vision3d.datasets import NuScenes3D
 from vision3d.datasets.nuscenes import (
+    _MAP_LINE_LAYERS,
     _MINI_TRAIN,
     _MINI_VAL,
     _TEST,
@@ -35,7 +39,9 @@ from vision3d.datasets.nuscenes import (
     _VAL,
     _get_split_scenes,
     _NuScenesDB,
+    _NuScenesMap,
 )
+from vision3d.tensors import GridMask3D
 
 # Datasets return CPU tensors by convention.
 pytestmark = pytest.mark.skip_device("cuda")
@@ -132,7 +138,6 @@ def datasets(mini_root: Path) -> dict[str, NuScenes3D]:
     ("target_keys", "keys"),
     [
         (None, {"boxes", "labels"}),
-        ("all", {"boxes", "labels"}),
         ({"boxes"}, {"boxes"}),
         ((), set()),
     ],
@@ -164,6 +169,7 @@ def test_split_all_is_every_scene(
         "sensor",
         "calibrated_sensor",
         "ego_pose",
+        "log",
         "scene",
         "sample",
         "sample_data",
@@ -178,6 +184,9 @@ def test_db_tables_match(
     theirs = getattr(devkit_db, table)
     assert len(ours) == len(theirs)
     for rec, ref in zip(ours, theirs, strict=True):
+        # ``map_token`` is a legacy map format. We use the vector maps in
+        # ``maps/expansion`` instead.
+        ref = {k: v for k, v in ref.items() if k != "map_token"}
         assert rec == ref, f"{table}[{rec['token']}]: {rec!r} != {ref!r}"
 
 
@@ -200,81 +209,59 @@ def test_db_annotation_category_names_match(
         assert ours["category_name"] == ref["category_name"]
 
 
-def _devkit_make_transform(
-    translation: list[float], rotation_wxyz: list[float]
-) -> torch.Tensor:
-    quaternion = Quaternion(rotation_wxyz)
-    T = torch.eye(4, dtype=torch.float32)
-    T[:3, :3] = torch.tensor(quaternion.rotation_matrix, dtype=torch.float32)
-    T[:3, 3] = torch.tensor(translation, dtype=torch.float32)
-    return T
+def _devkit_sensor_to_global(
+    nusc: devkit_NuScenes, sample_data: dict[str, Any]
+) -> np.ndarray:
+    pose = nusc.get("ego_pose", sample_data["ego_pose_token"])
+    calib = nusc.get("calibrated_sensor", sample_data["calibrated_sensor_token"])
+    return transform_matrix(
+        pose["translation"], Quaternion(pose["rotation"])
+    ) @ transform_matrix(calib["translation"], Quaternion(calib["rotation"]))
+
+
+def _devkit_lidar_to_global(nusc: devkit_NuScenes, sample_token: str) -> np.ndarray:
+    sample = nusc.get("sample", sample_token)
+    lidar_data = nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
+    return _devkit_sensor_to_global(nusc, lidar_data)
 
 
 def _devkit_sample_outputs(
-    nusc: devkit_NuScenes, sample_token: str, root: Path
+    nusc: devkit_NuScenes, sample_token: str
 ) -> dict[str, torch.Tensor]:
-    # Reproduce ``NuScenes3D.__getitem__`` using the devkit directly so we
-    # can compare every tensor field 1:1.
-
+    # Reproduce ``NuScenes3D.__getitem__`` with the devkit so that every
+    # tensor field can be compared.
     class_to_idx = {n: i for i, n in enumerate(DEVKIT_DETECTION_NAMES)}
     sample = nusc.get("sample", sample_token)
     lidar_data = nusc.get("sample_data", sample["data"]["LIDAR_TOP"])
-    points = torch.from_numpy(
-        np.fromfile(root / lidar_data["filename"], dtype=np.float32).reshape(-1, 5)
-    )
-
-    lidar_ego_pose = nusc.get("ego_pose", lidar_data["ego_pose_token"])
-    lidar_calib = nusc.get("calibrated_sensor", lidar_data["calibrated_sensor_token"])
-    lidar_to_global = _devkit_make_transform(
-        lidar_ego_pose["translation"], lidar_ego_pose["rotation"]
-    ) @ _devkit_make_transform(lidar_calib["translation"], lidar_calib["rotation"])
+    # ``get_sample_data`` returns the annotations as boxes in the lidar frame.
+    lidar_path, lidar_boxes, _ = nusc.get_sample_data(lidar_data["token"])
+    points = torch.from_numpy(np.fromfile(lidar_path, dtype=np.float32).reshape(-1, 5))
+    lidar_to_global = _devkit_sensor_to_global(nusc, lidar_data)
 
     images_list: list[torch.Tensor] = []
     intrinsics_list: list[torch.Tensor] = []
     extrinsics_list: list[torch.Tensor] = []
     for cam_name in NuScenes3D.camera_names:
         cam_data = nusc.get("sample_data", sample["data"][cam_name])
-        cam_calib = nusc.get("calibrated_sensor", cam_data["calibrated_sensor_token"])
-        cam_ego_pose = nusc.get("ego_pose", cam_data["ego_pose_token"])
-        img = np.array(Image.open(root / cam_data["filename"]).convert("RGB"))
+        cam_path, _, K = nusc.get_sample_data(cam_data["token"], selected_anntokens=[])
+        img = np.array(Image.open(cam_path).convert("RGB"))
         images_list.append(torch.from_numpy(img).permute(2, 0, 1).float() / 255.0)
-        K = torch.tensor(cam_calib["camera_intrinsic"], dtype=torch.float32)
-        intrinsics_list.append(K)
-        cam_to_global = _devkit_make_transform(
-            cam_ego_pose["translation"], cam_ego_pose["rotation"]
-        ) @ _devkit_make_transform(cam_calib["translation"], cam_calib["rotation"])
-        lidar_to_cam = torch.linalg.inv(cam_to_global) @ lidar_to_global
-        extrinsics_list.append(lidar_to_cam)
+        intrinsics_list.append(torch.from_numpy(K).float())
+        cam_to_global = _devkit_sensor_to_global(nusc, cam_data)
+        lidar_to_cam = np.linalg.inv(cam_to_global) @ lidar_to_global
+        extrinsics_list.append(torch.from_numpy(lidar_to_cam).float())
 
-    global_to_lidar = torch.linalg.inv(lidar_to_global)
     boxes: list[list[float]] = []
     label_ids: list[int] = []
-    for ann_token in sample["anns"]:
-        ann = nusc.get("sample_annotation", ann_token)
-        det_name = devkit_category_to_detection_name(ann["category_name"])
+    for box in lidar_boxes:
+        det_name = devkit_category_to_detection_name(box.name)
         if det_name is None:
             continue
         label_ids.append(class_to_idx[det_name])
-        center_global = torch.tensor([*ann["translation"], 1.0], dtype=torch.float32)
-        center_lidar = (global_to_lidar @ center_global)[:3]
-        w, l, h = ann["size"]
-        quaternion = Quaternion(ann["rotation"])
-        forward_global = quaternion.rotate(np.array([1.0, 0.0, 0.0]))
-        forward_lidar = (
-            global_to_lidar[:3, :3] @ torch.tensor(forward_global, dtype=torch.float32)
-        ).numpy()
-        yaw = float(np.arctan2(forward_lidar[1], forward_lidar[0]))
-        boxes.append(
-            [
-                center_lidar[0].item(),
-                center_lidar[1].item(),
-                center_lidar[2].item(),
-                l,
-                w,
-                h,
-                yaw,
-            ]
-        )
+        w, l, h = box.wlh
+        forward = box.orientation.rotation_matrix[:, 0]
+        yaw = np.arctan2(forward[1], forward[0])
+        boxes.append([*box.center, l, w, h, yaw])
 
     return {
         "points": points,
@@ -296,7 +283,6 @@ def _devkit_sample_outputs(
 @given(data=st.data())
 def test_nuscenes3d_outputs_match_devkit(
     split: str,
-    mini_root: Path,
     devkit_db: devkit_NuScenes,
     datasets: dict[str, NuScenes3D],
     data: st.DataObject,
@@ -305,17 +291,19 @@ def test_nuscenes3d_outputs_match_devkit(
     ds = datasets[split]
     index = data.draw(st.integers(min_value=0, max_value=len(ds) - 1))
     inputs, targets = ds[index]
-    ref = _devkit_sample_outputs(devkit_db, ds._sample_tokens[index], mini_root)
+    ref = _devkit_sample_outputs(devkit_db, ds._sample_tokens[index])
     assert torch.equal(inputs["points"], ref["points"])
     assert torch.equal(inputs["images"], ref["images"])
+    # Test with reduced precision because NuScenes3D computes poses in float32
+    # and the devkit in float64.
     torch.testing.assert_close(
-        inputs["extrinsics"], ref["extrinsics"], atol=1e-6, rtol=0
+        inputs["extrinsics"], ref["extrinsics"], atol=1e-3, rtol=0
     )
     torch.testing.assert_close(
         inputs["intrinsics"], ref["intrinsics"], atol=1e-6, rtol=0
     )
     assert torch.equal(targets["labels"], ref["labels"])
-    torch.testing.assert_close(targets["boxes"], ref["boxes"], atol=1e-5, rtol=0)
+    torch.testing.assert_close(targets["boxes"], ref["boxes"], atol=1e-3, rtol=0)
 
 
 def _devkit_multisweep(
@@ -389,3 +377,286 @@ def test_nuscenes3d_sweeps_scene_start(
     torch.testing.assert_close(
         _drop_ring(points), _devkit_multisweep(devkit_db, token, 10), atol=1e-3, rtol=0
     )
+
+
+def _write_map(path: Path) -> Path:
+    """Write a tiny map expansion with one location's worth of layers.
+
+    The drivable area is a 10x10 square with a 6x6 hole, and a second polygon
+    fills the center of the hole. A road divider runs along ``y = 15``.
+
+    Returns:
+        ``path``.
+    """
+    nodes = {
+        "outer": [(0, 0), (10, 0), (10, 10), (0, 10)],
+        "hole": [(2, 2), (8, 2), (8, 8), (2, 8)],
+        "island": [(4, 4), (6, 4), (6, 6), (4, 6)],
+        "line": [(0, 15), (10, 15)],
+    }
+    node_records: list[dict[str, Any]] = []
+    tokens: dict[str, list[str]] = {}
+    for name, coords in nodes.items():
+        tokens[name] = [f"{name}{i}" for i in range(len(coords))]
+        node_records += [
+            {"token": t, "x": float(x), "y": float(y)}
+            for t, (x, y) in zip(tokens[name], coords, strict=True)
+        ]
+    expansion: dict[str, Any] = {
+        "version": "1.3",
+        "node": node_records,
+        "polygon": [
+            {
+                "token": "p_outer",
+                "exterior_node_tokens": tokens["outer"],
+                "holes": [{"node_tokens": tokens["hole"]}],
+            },
+            {
+                "token": "p_island",
+                "exterior_node_tokens": tokens["island"],
+                "holes": [],
+            },
+        ],
+        "line": [{"token": "l0", "node_tokens": tokens["line"]}],
+        # List the island first on purpose so we test that the outer polygon's
+        # hole cannot erase it.
+        "drivable_area": [{"token": "d0", "polygon_tokens": ["p_island", "p_outer"]}],
+        "road_divider": [{"token": "r0", "line_token": "l0"}],
+    }
+    path.write_text(json.dumps(expansion))
+    return path
+
+
+_IDENTITY_CELLS = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+_PATCH = np.array([-0.5, -0.5, 19.5, 19.5])
+
+
+def test_map_rasterizes_polygons_and_lines(tmp_path: Path) -> None:
+    layers = ["drivable_area", "road_divider"]
+    nusc_map = _NuScenesMap(_write_map(tmp_path / "map.json"), layers)
+    area, divider = (
+        nusc_map.rasterize(name, _IDENTITY_CELLS, (20, 20), _PATCH) for name in layers
+    )
+    # Masks are indexed [row, column] = [y, x].
+    assert area[1, 1]  # Ring between exterior and hole.
+    assert not area[3, 3]  # Inside the hole.
+    assert area[5, 5]  # Island inside the hole survives the hole.
+    assert not area[12, 5]  # Outside the polygon.
+    # A 3-cell stroke covers one row on each side of the line.
+    assert divider[14:17, 0:11].all()
+    assert not divider[12, 5]
+    assert not divider[18, 5]
+
+
+def test_map_rejects_old_expansion(tmp_path: Path) -> None:
+    path = _write_map(tmp_path / "map.json")
+    expansion = json.loads(path.read_text())
+    path.write_text(json.dumps(expansion | {"version": "1.2"}))
+    with pytest.raises(ValueError, match="or newer is required"):
+        _NuScenesMap(path, ["drivable_area"])
+
+
+def test_map_compares_versions_numerically(tmp_path: Path) -> None:
+    path = _write_map(tmp_path / "map.json")
+    expansion = json.loads(path.read_text())
+    path.write_text(json.dumps(expansion | {"version": "1.10"}))
+    _NuScenesMap(path, ["drivable_area"])
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"map_resolution": 0.0}, "map_resolution"),
+        ({"map_size": (100.0,)}, "two extents"),
+        ({"map_size": (0.1, 100.0)}, "at least one cell"),
+    ],
+)
+def test_map_args_are_validated(
+    tmp_path: Path, kwargs: dict[str, Any], match: str
+) -> None:
+    with pytest.raises(ValueError, match=match):
+        NuScenes3D(tmp_path, **kwargs)
+
+
+def test_map_missing_expansion_raises(mini_root: Path, tmp_path: Path) -> None:
+    (tmp_path / "v1.0-mini").symlink_to(mini_root / "v1.0-mini")
+    with pytest.raises(FileNotFoundError, match="map expansion"):
+        NuScenes3D(tmp_path, target_keys="all")
+    # Without the map target the expansion is not needed.
+    NuScenes3D(tmp_path)
+
+
+@pytest.fixture(scope="module")
+def map_dataset(mini_root: Path) -> NuScenes3D:
+    if not (mini_root / "maps" / "expansion").is_dir():
+        pytest.skip(
+            "nuScenes map expansion not found. Download it via "
+            "NuScenes3D(root, target_keys='all', download=True)."
+        )
+    return NuScenes3D(mini_root, version="v1.0-mini", split="all", target_keys="all")
+
+
+@pytest.fixture(scope="module")
+def devkit_maps(mini_root: Path, map_dataset: NuScenes3D) -> dict[str, Any]:
+    from nuscenes.map_expansion.map_api import NuScenesMap
+
+    return {loc: NuScenesMap(str(mini_root), loc) for loc in map_dataset._maps}
+
+
+@pytest.fixture(scope="module")
+def devkit_invalid_polygons(
+    devkit_maps: dict[str, Any],
+) -> defaultdict[tuple[str, str], list[Any]]:
+    # The devkit incorrectly drops polygons that shapely considers invalid.
+    # They are real map features, which we draw.
+    invalid: defaultdict[tuple[str, str], list[Any]] = defaultdict(list)
+    for location, nusc_map in devkit_maps.items():
+        for name in nusc_map.non_geometric_polygon_layers:
+            for record in getattr(nusc_map, name):
+                tokens = record.get("polygon_tokens", [record.get("polygon_token")])
+                polygons = (nusc_map.extract_polygon(t) for t in tokens)
+                invalid[location, name].extend(p for p in polygons if not p.is_valid)
+    return invalid
+
+
+def _devkit_location(nusc: devkit_NuScenes, sample_token: str) -> str:
+    scene = nusc.get("scene", nusc.get("sample", sample_token)["scene_token"])
+    return nusc.get("log", scene["log_token"])["location"]
+
+
+def _devkit_patch(
+    lidar_to_global: np.ndarray, shift: float = 0.0
+) -> tuple[tuple[float, float, float, float], float]:
+    # A 100 m patch along the lidar heading, as BEVFusion requests it, with the
+    # center moved by ``shift`` meters along both patch axes.
+    yaw = np.arctan2(lidar_to_global[1, 0], lidar_to_global[0, 0])
+    cos, sin = np.cos(yaw), np.sin(yaw)
+    x, y = lidar_to_global[:2, 3] + np.array([[cos, -sin], [sin, cos]]) @ [shift, shift]
+    return (x, y, 100.0, 100.0), np.degrees(yaw)
+
+
+def _devkit_map_mask(
+    nusc_map: Any, lidar_to_global: np.ndarray, shift: float, layers: list[str]
+) -> np.ndarray:
+    # Rasterized at 0.5 m per cell.
+    mask = nusc_map.get_map_mask(
+        *_devkit_patch(lidar_to_global, shift), layers, (200, 200)
+    )
+    # The devkit puts rows along y. Ours run along x, as in BEVFusion.
+    return mask.transpose(0, 2, 1).astype(bool)
+
+
+# PIL and cv2 fill polygon edges and stroke lines slightly differently, so
+# masks may disagree by one cell along edges. Allow some stray cells beyond
+# that.
+_MAX_STRAY_CELLS = 10
+
+
+def _dilate(mask: np.ndarray) -> np.ndarray:
+    # Grow the mask by one cell, diagonals included.
+    return np.asarray(Image.fromarray(mask).filter(ImageFilter.MaxFilter(3)))
+
+
+def test_map_matches_devkit(
+    map_dataset: NuScenes3D,
+    devkit_db: devkit_NuScenes,
+    devkit_maps: dict[str, Any],
+    devkit_invalid_polygons: defaultdict[tuple[str, str], list[Any]],
+) -> None:
+    """Map channels match ``NuScenesMap.get_map_mask`` as BEVFusion calls it."""
+    from nuscenes.map_expansion.map_api import NuScenesMapExplorer
+
+    layers = map_dataset.map_layers
+    line_layers = [name for name in layers if name in _MAP_LINE_LAYERS]
+    polygon_layers = [name for name in layers if name not in _MAP_LINE_LAYERS]
+    half_cell = map_dataset.map_resolution / 2
+    checked: set[str] = set()
+    for index in range(0, len(map_dataset), 40):
+        token = map_dataset._sample_tokens[index]
+        grid = map_dataset[index][1]["map"]
+        assert isinstance(grid, GridMask3D)
+        assert grid.shape == (len(layers), 200, 200)
+        assert grid.dtype == torch.bool
+        grid = grid.numpy()
+        lidar_to_global = _devkit_lidar_to_global(devkit_db, token)
+        location = _devkit_location(devkit_db, token)
+        nusc_map = devkit_maps[location]
+
+        # The devkit rounds polygon vertices to integer pixels, which are half
+        # a cell off our cell centers. We shift its polygon patch by half a
+        # cell to compare. It truncates line vertices instead, which cancels
+        # that offset.
+        refs = dict(
+            zip(
+                polygon_layers,
+                _devkit_map_mask(nusc_map, lidar_to_global, half_cell, polygon_layers),
+                strict=True,
+            )
+        )
+        refs.update(
+            zip(
+                line_layers,
+                _devkit_map_mask(nusc_map, lidar_to_global, 0.0, line_layers),
+                strict=True,
+            )
+        )
+        patch = NuScenesMapExplorer.get_patch_coord(*_devkit_patch(lidar_to_global))
+        for channel, name in enumerate(layers):
+            # Skip layers where the devkit drops an invalid polygon in the patch.
+            invalid = devkit_invalid_polygons[location, name]
+            if any(polygon.intersects(patch) for polygon in invalid):
+                continue
+            ours, theirs = grid[channel], refs[name]
+            assert (ours & ~_dilate(theirs)).sum() <= _MAX_STRAY_CELLS, (index, name)
+            assert (theirs & ~_dilate(ours)).sum() <= _MAX_STRAY_CELLS, (index, name)
+            checked.add(name)
+    assert checked == set(layers)
+
+
+# Sampled cells may disagree with the devkit only on polygon edges.
+_MIN_CELL_AGREEMENT = 0.95
+
+
+def test_map_affine_places_cells_on_map(
+    mini_root: Path, devkit_db: devkit_NuScenes, devkit_maps: dict[str, Any]
+) -> None:
+    """Cells mapped through the affine land on the map geometry they label."""
+    # A non-square patch catches swapped rows and columns.
+    dataset = NuScenes3D(
+        mini_root,
+        version="v1.0-mini",
+        split="all",
+        target_keys={"map"},
+        map_size=(100.0, 60.0),
+    )
+    channel = dataset.map_layers.index("drivable_area")
+    rng = np.random.default_rng(0)
+    for index in (0, len(dataset) // 2, len(dataset) - 1):
+        token = dataset._sample_tokens[index]
+        grid = dataset[index][1]["map"]
+        assert grid.shape[1:] == (200, 120)
+        lidar_to_global = _devkit_lidar_to_global(devkit_db, token)
+        cells = np.indices((1, *grid.shape[1:])).reshape(3, -1)
+        cells = np.vstack([cells, np.ones(cells.shape[1])])
+        centers = lidar_to_global @ grid.affine.numpy() @ cells
+        # Cells lie in the global ground plane, centered below the lidar.
+        np.testing.assert_allclose(centers[2], 0.0, atol=1e-6)
+        np.testing.assert_allclose(
+            centers[:2].mean(axis=1), lidar_to_global[:2, 3], atol=1e-6
+        )
+        # The grid projects along the global vertical.
+        d_axis = (lidar_to_global @ grid.affine.numpy())[:3, 0]
+        np.testing.assert_allclose(
+            d_axis / np.linalg.norm(d_axis), [0.0, 0.0, 1.0], atol=1e-6
+        )
+
+        nusc_map = devkit_maps[_devkit_location(devkit_db, token)]
+        ours = grid[channel].numpy().ravel()
+        picked = rng.choice(ours.size, size=300, replace=False)
+        inside = np.array(
+            [
+                bool(nusc_map.record_on_point(*centers[:2, i], "drivable_area"))
+                for i in picked
+            ]
+        )
+        assert np.mean(ours[picked] == inside) > _MIN_CELL_AGREEMENT

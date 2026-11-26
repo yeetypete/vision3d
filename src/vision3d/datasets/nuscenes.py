@@ -3,9 +3,19 @@
 import json
 import os
 import sys
-from collections.abc import Collection
+from collections.abc import Collection, Iterable
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, ClassVar, Literal, TypedDict, overload, override
+from typing import (
+    Any,
+    ClassVar,
+    Literal,
+    NamedTuple,
+    Self,
+    TypedDict,
+    overload,
+    override,
+)
 
 if sys.version_info >= (3, 13):
     from typing import ReadOnly
@@ -14,6 +24,7 @@ else:
 
 import numpy as np
 import torch
+from PIL import Image, ImageColor, ImageDraw
 from torch import Tensor
 from torch.utils.data import Dataset
 from torchcodec.decoders import decode_image
@@ -29,6 +40,7 @@ from vision3d.tensors import (
     CameraExtrinsics,
     CameraImages,
     CameraIntrinsics,
+    GridMask3D,
     PointCloud3D,
 )
 
@@ -68,18 +80,61 @@ _CATEGORY_TO_DETECTION = {
 }
 
 # Subset of ``nuscenes.NuScenes.table_names`` from nuscenes-devkit
-# required for 3D object detection tasks.
+# required for 3D tasks.
 _TABLE_NAMES = (
     "category",
     "instance",
     "sensor",
     "calibrated_sensor",
     "ego_pose",
+    "log",
     "scene",
     "sample",
     "sample_data",
     "sample_annotation",
 )
+
+# Map expansion layers that can be rasterized. Mirrors
+# ``NuScenesMap.non_geometric_polygon_layers`` and the line layers of
+# ``NuScenesMap.non_geometric_line_layers``.
+# ``traffic_light`` is left out because the nuscenes-devkit does not
+# render a mask for it.
+_MAP_POLYGON_LAYERS = (
+    "drivable_area",
+    "road_segment",
+    "road_block",
+    "lane",
+    "ped_crossing",
+    "walkway",
+    "stop_line",
+    "carpark_area",
+)
+_MAP_LINE_LAYERS = ("road_divider", "lane_divider")
+# In the order of ``NuScenesMap.non_geometric_layers``.
+_MAP_LAYERS = (*_MAP_POLYGON_LAYERS, *_MAP_LINE_LAYERS)
+# singapore-hollandvillage and singapore-queenstown have no individual road
+# blocks. Every ``road_block`` there shares one polygon that covers the whole
+# drivable area. See https://github.com/nutonomy/nuscenes-devkit/issues/1183.
+_MAP_DEFAULT_LAYERS = tuple(name for name in _MAP_LAYERS if name != "road_block")
+
+# Colors of the map expansion layers. Mirrors
+# ``NuScenesMapExplorer.color_map`` from nuscenes-devkit.
+_MAP_LAYER_COLORS = {
+    "drivable_area": "#a6cee3",
+    "road_segment": "#1f78b4",
+    "road_block": "#b2df8a",
+    "lane": "#33a02c",
+    "ped_crossing": "#fb9a99",
+    "walkway": "#e31a1c",
+    "stop_line": "#fdbf6f",
+    "carpark_area": "#ff7f00",
+    "road_divider": "#cab2d6",
+    "lane_divider": "#6a3d9a",
+}
+
+# Width in cells of rasterized line layers. The nuscenes-devkit uses
+# ``cv2.polylines`` with a thickness of 2 to draw lines 3 cells wide.
+_MAP_LINE_WIDTH = 3
 
 
 # Hard-coded scene splits from ``nuscenes.utils.splits``.
@@ -1149,6 +1204,14 @@ class _EgoPose(TypedDict):
     translation: ReadOnly[list[float]]
 
 
+class _Log(TypedDict):
+    token: ReadOnly[str]
+    logfile: ReadOnly[str]
+    vehicle: ReadOnly[str]
+    date_captured: ReadOnly[str]
+    location: ReadOnly[str]
+
+
 class _Scene(TypedDict):
     token: ReadOnly[str]
     log_token: ReadOnly[str]
@@ -1242,6 +1305,7 @@ class _NuScenesDB:
         self.sensor: list[_Sensor] = _load("sensor")
         self.calibrated_sensor: list[_CalibratedSensor] = _load("calibrated_sensor")
         self.ego_pose: list[_EgoPose] = _load("ego_pose")
+        self.log: list[_Log] = _load("log")
         self.scene: list[_Scene] = _load("scene")
         self.sample: list[_Sample] = _load("sample")
         self.sample_data: list[_SampleData] = _load("sample_data")
@@ -1287,6 +1351,8 @@ class _NuScenesDB:
     @overload
     def get(self, table_name: Literal["ego_pose"], token: str) -> _EgoPose: ...
     @overload
+    def get(self, table_name: Literal["log"], token: str) -> _Log: ...
+    @overload
     def get(self, table_name: Literal["scene"], token: str) -> _Scene: ...
     @overload
     def get(self, table_name: Literal["sample"], token: str) -> _Sample: ...
@@ -1301,6 +1367,166 @@ class _NuScenesDB:
         return getattr(self, table_name)[self._token2ind[table_name][token]]
 
 
+class _MapGeometry(NamedTuple):
+    """One polygon or line of a map expansion layer.
+
+    Attributes:
+        points: ``[N, 2]`` global ``(x, y)`` vertices of a polygon's outline
+            or of a line.
+        holes: ``[M, 2]`` vertices of each hole of a polygon. Lines have
+            none.
+    """
+
+    points: np.ndarray
+    holes: list[np.ndarray]
+
+
+class _MapNodes:
+    """Global ``(x, y)`` coordinates of map expansion ``node`` records.
+
+    Indexing with a list of node tokens returns their ``[N, 2]`` coordinates
+    in the same order.
+    """
+
+    def __init__(self, records: list[dict[str, Any]]) -> None:
+        self._index = {record["token"]: i for i, record in enumerate(records)}
+        self._xy = np.array(
+            [(record["x"], record["y"]) for record in records], dtype=np.float64
+        ).reshape(-1, 2)
+
+    def __getitem__(self, tokens: list[str]) -> np.ndarray:
+        return self._xy[[self._index[t] for t in tokens]]
+
+
+@dataclass(frozen=True)
+class _MapLayer:
+    """Geometries of one map expansion layer.
+
+    Attributes:
+        geoms: The layer's polygons or lines.
+        bounds: ``[N, 4]`` global ``(x_min, y_min, x_max, y_max)`` of each
+            geometry.
+        polygonal: Whether ``geoms`` are polygons rather than lines.
+    """
+
+    geoms: list[_MapGeometry]
+    bounds: np.ndarray
+    polygonal: bool
+
+    @classmethod
+    def from_geoms(cls, geoms: list[_MapGeometry], polygonal: bool) -> Self:
+        """Create a layer from its geometries.
+
+        Returns:
+            The layer with the bounding box of each geometry.
+        """
+        bounds = [(*g.points.min(axis=0), *g.points.max(axis=0)) for g in geoms]
+        return cls(geoms, np.array(bounds, dtype=np.float64).reshape(-1, 4), polygonal)
+
+    def in_patch(self, patch: np.ndarray) -> list[_MapGeometry]:
+        """Select the geometries whose bounding box overlaps a patch.
+
+        Args:
+            patch: Global ``(x_min, y_min, x_max, y_max)`` of the patch.
+
+        Returns:
+            The overlapping geometries.
+        """
+        bounds = self.bounds
+        overlapping = np.flatnonzero(
+            (bounds[:, 0] <= patch[2])
+            & (bounds[:, 2] >= patch[0])
+            & (bounds[:, 1] <= patch[3])
+            & (bounds[:, 3] >= patch[1])
+        )
+        return [self.geoms[i] for i in overlapping]
+
+
+class _NuScenesMap:
+    """Rasterizer for one map location of the nuScenes map expansion.
+
+    Loads one ``maps/expansion/<location>.json`` file, e.g.
+    ``boston-seaport.json``, which covers every scene recorded at that
+    location. :meth:`rasterize` draws one layer into a grid placed anywhere
+    on the map. :class:`NuScenes3D` calls it for every sample with the patch
+    around the sample's lidar. This is a reimplementation of
+    ``nuscenes.map_expansion.map_api.NuScenesMap.get_map_mask`` without
+    opencv or shapely.
+    """
+
+    def __init__(self, path: Path, layer_names: Iterable[str]) -> None:
+        with path.open() as f:
+            expansion = json.load(f)
+        version = expansion.get("version")
+        if version is None or tuple(map(int, version.split("."))) < (1, 3):
+            msg = (
+                f"nuScenes map expansion at {str(path)!r} has version "
+                f"{version}. Version 1.3 or newer is required."
+            )
+            raise ValueError(msg)
+
+        nodes = _MapNodes(expansion["node"])
+        polygons = {rec["token"]: rec for rec in expansion["polygon"]}
+        lines = {rec["token"]: rec for rec in expansion["line"]}
+
+        self._layers: dict[str, _MapLayer] = {}
+        for name in layer_names:
+            geoms = _layer_geometries(expansion[name], polygons, lines, nodes)
+            self._layers[name] = _MapLayer.from_geoms(
+                geoms, name in _MAP_POLYGON_LAYERS
+            )
+
+    def rasterize(
+        self,
+        name: str,
+        global_to_cell: np.ndarray,
+        size: tuple[int, int],
+        bounds: np.ndarray,
+    ) -> np.ndarray:
+        """Rasterize one layer into a grid.
+
+        Vertices are rounded to the nearest cell center before drawing. A
+        line covers a stroke ``_MAP_LINE_WIDTH`` cells wide.
+
+        Args:
+            name: Layer name.
+            global_to_cell: ``[2, 3]`` affine transform from global ``(x, y)``
+                to cell coordinates ``(column, row)``, where integers are cell
+                centers.
+            size: Grid size ``(H, W)``.
+            bounds: Global ``(x_min, y_min, x_max, y_max)`` that encloses the
+                grid. Geometries outside it are skipped.
+
+        Returns:
+            ``[H, W]`` boolean mask.
+        """
+        height, width = size
+        layer = self._layers[name]
+        image = Image.new("L", (width, height))
+        draw = ImageDraw.Draw(image)
+        for geom in layer.in_patch(bounds):
+            if not layer.polygonal:
+                draw.line(
+                    _to_cells(geom.points, global_to_cell),
+                    fill=1,
+                    width=_MAP_LINE_WIDTH,
+                )
+                continue
+            # Note: the nuscenes-devkit incorrectly draws all polygons on one
+            # canvas, where a hole also erases any polygon drawn earlier inside
+            # it, e.g. drivable area islands. See
+            # https://github.com/nutonomy/nuscenes-devkit/blob/b40adc467b919192899405d9b77871afee8efa07/python-sdk/nuscenes/map_expansion/map_api.py#L1879-L1890
+            # We draw each polygon on its own canvas so its holes cannot erase
+            # other polygons.
+            canvas = Image.new("L", (width, height))
+            canvas_draw = ImageDraw.Draw(canvas)
+            canvas_draw.polygon(_to_cells(geom.points, global_to_cell), fill=255)
+            for hole in geom.holes:
+                canvas_draw.polygon(_to_cells(hole, global_to_cell), fill=0)
+            image.paste(1, mask=canvas)
+        return np.asarray(image, dtype=bool)
+
+
 class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     """`nuScenes <https://www.nuscenes.org/>`_ 3D object detection dataset.
 
@@ -1308,6 +1534,13 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     :class:`~vision3d.tensors.BoundingBoxes3D` in ``XYZLWHY`` format.
     Multi-camera images, intrinsics, and lidar-to-camera extrinsics are
     returned for all 6 cameras.
+
+    With ``"map"`` in ``target_keys``, each sample also carries a top-down map
+    patch from the `nuScenes map expansion
+    <https://www.nuscenes.org/download>`_ as a
+    :class:`~vision3d.tensors.GridMask3D` with one boolean channel per entry
+    of ``map_layers``. The expansion is a separate archive that
+    ``download=True`` fetches.
 
     Args:
         root (str or pathlib.Path): Root directory of the nuScenes dataset.
@@ -1318,7 +1551,8 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         target_keys (collection of str or "all", optional): Target keys to
             return. If ``None`` (default), returns ``"boxes"`` and
             ``"labels"``. If ``"all"``, returns every available key. Can also be
-            a collection of strings for fine grained access.
+            a collection of strings for fine grained access. Available keys
+            are ``"boxes"``, ``"labels"``, and ``"map"``.
         transforms (Callable, optional): A function/transform that takes input
             sample and its target as entry and returns a transformed version.
         num_sweeps (int): Number of lidar sweeps to aggregate into each sample,
@@ -1327,12 +1561,19 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             time-offset column (seconds before the key-frame) is appended to
             every point. Scenes shorter than ``num_sweeps`` contribute as many
             sweeps as are available. Default: ``1``.
+        map_size (tuple of float): Extent ``(x, y)`` in meters of the map
+            patch centered on the lidar. Default: ``(100.0, 100.0)``.
+        map_resolution (float): Edge length in meters of a map cell. Each
+            extent in ``map_size`` is rounded to a whole number of cells.
+            Default: ``0.5``.
         download (bool, optional): If true, downloads the dataset from the
             internet and puts it in root directory. If dataset is already
-            downloaded, it is not downloaded again. Only the publicly
-            available ``v1.0-mini`` split is supported. Other versions
-            require manual download from `nuscenes.org
-            <https://www.nuscenes.org/>`_.
+            downloaded, it is not downloaded again. Only the small
+            ``v1.0-mini`` version is downloaded. Download other versions from
+            the `AWS Open Data registry
+            <https://registry.opendata.aws/motional-nuscenes/>`_. With
+            ``"map"`` in ``target_keys``, the map expansion is downloaded too,
+            for any version.
     """
 
     # Camera ordering for consistent multi-camera tensor layout
@@ -1355,8 +1596,12 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     # Fine-grained ``category.name`` to ``classes`` entry. Unmapped
     # categories are skipped when loading annotations.
     category_map: ClassVar[dict[str, str]] = _CATEGORY_TO_DETECTION
+    # Map expansion layers returned as map channels, in channel order.
+    map_layers: ClassVar[tuple[str, ...]] = _MAP_DEFAULT_LAYERS
 
-    _available_target_keys: ClassVar[frozenset[str]] = frozenset({"boxes", "labels"})
+    _available_target_keys: ClassVar[frozenset[str]] = frozenset(
+        {"boxes", "labels", "map"}
+    )
     _default_target_keys: ClassVar[frozenset[str]] = frozenset({"boxes", "labels"})
 
     data_url: ClassVar[str] = (
@@ -1364,6 +1609,8 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     )
     mini_archive: ClassVar[str] = "v1.0-mini.tgz"
     mini_archive_md5: ClassVar[str] = "dc2267f6e62b221efb9575929028603b"
+    map_archive: ClassVar[str] = "nuScenes-map-expansion-v1.3.zip"
+    map_archive_md5: ClassVar[str] = "b3a717def24130beb4becdbbd8c8cd56"
 
     def __init__(
         self,
@@ -1373,6 +1620,8 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         target_keys: Collection[str] | Literal["all"] | None = None,
         transforms: Any | None = None,
         num_sweeps: int = 1,
+        map_size: tuple[float, float] = (100.0, 100.0),
+        map_resolution: float = 0.5,
         download: bool = False,
     ) -> None:
         self.target_keys: frozenset[str] = frozenset(
@@ -1384,6 +1633,24 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         )
         if num_sweeps < 1:
             raise ValueError(f"num_sweeps must be >= 1, got {num_sweeps}.")
+        if map_resolution <= 0:
+            raise ValueError(f"map_resolution must be > 0, got {map_resolution}.")
+        if len(map_size) != 2:
+            raise ValueError(f"map_size must have two extents, got {map_size}.")
+        height, width = (round(extent / map_resolution) for extent in map_size)
+        if min(height, width) < 1:
+            msg = (
+                f"map_size must span at least one cell, got {map_size} at "
+                f"resolution {map_resolution}."
+            )
+            raise ValueError(msg)
+        self._map_grid_size = (height, width)
+        unknown = sorted(set(self.map_layers) - set(_MAP_LAYERS))
+        if unknown:
+            raise ValueError(f"map_layers has unknown map layers: {unknown}.")
+        self.map_colors = [
+            ImageColor.getrgb(_MAP_LAYER_COLORS[name])[:3] for name in self.map_layers
+        ]
         self.class_to_idx = {name: i for i, name in enumerate(self.classes)}
         unknown = sorted(set(self.category_map.values()) - set(self.class_to_idx))
         if unknown:
@@ -1395,15 +1662,17 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         self.split = split
         self.transforms = transforms
         self.num_sweeps = num_sweeps
+        self.map_size = map_size
+        self.map_resolution = map_resolution
 
         if download:
             self.download()
         if not self._check_exists():
             raise RuntimeError(
                 f"Dataset not found at {str(self.root)!r}. "
-                f"You may use download=True to download the v1.0-mini split. "
-                f"Other versions require manual download from "
-                f"https://www.nuscenes.org."
+                f"You may use download=True to download the v1.0-mini version. "
+                f"Download other versions from "
+                f"https://registry.opendata.aws/motional-nuscenes/."
             )
 
         self._nusc = _NuScenesDB(dataroot=self.root, version=version)
@@ -1411,13 +1680,27 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
         # Collect sample tokens for the requested split
         split_scenes = _get_split_scenes(version, split)
         self._sample_tokens: list[str] = []
+        locations: set[str] = set()
         for scene in self._nusc.scene:
             if split_scenes is None or scene["name"] in split_scenes:
+                locations.add(self._nusc.get("log", scene["log_token"])["location"])
                 token = scene["first_sample_token"]
                 while token:
                     self._sample_tokens.append(token)
                     sample = self._nusc.get("sample", token)
                     token = sample["next"]
+
+        self._maps: dict[str, _NuScenesMap] = {}
+        if "map" in self.target_keys:
+            for location in sorted(locations):
+                path = self.root / "maps" / "expansion" / f"{location}.json"
+                if not path.is_file():
+                    msg = (
+                        f"nuScenes map expansion not found at {str(path)!r}. "
+                        "You may use download=True to download it."
+                    )
+                    raise FileNotFoundError(msg)
+                self._maps[location] = _NuScenesMap(path, self.map_layers)
 
     def __len__(self) -> int:
         """Return the number of samples."""
@@ -1426,32 +1709,43 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
     def _check_exists(self) -> bool:
         return (self.root / self.version).is_dir()
 
+    def _check_map_exists(self) -> bool:
+        return (self.root / "maps" / "expansion").is_dir()
+
     def download(self) -> None:
         """Download the nuScenes dataset if it doesn't exist already.
 
-        Only the publicly available ``v1.0-mini`` split is supported.
-        Other versions require manual download from
-        `nuscenes.org <https://www.nuscenes.org/>`_.
+        Only the small ``v1.0-mini`` version is downloaded. Download other
+        versions from the `AWS Open Data registry
+        <https://registry.opendata.aws/motional-nuscenes/>`_. With ``"map"``
+        in ``target_keys``, the map expansion is downloaded.
 
         Raises:
-            RuntimeError: If ``version`` is not ``"v1.0-mini"``.
+            RuntimeError: If ``version`` is not ``"v1.0-mini"`` and its tables
+                are missing.
         """
-        if self._check_exists():
-            return
-        if self.version != "v1.0-mini":
-            msg = (
-                f"Automatic download is only supported for v1.0-mini. Got "
-                f"version={self.version!r}. Other versions require manual "
-                f"download from https://www.nuscenes.org."
+        if not self._check_exists():
+            if self.version != "v1.0-mini":
+                msg = (
+                    f"Automatic download is only supported for v1.0-mini. Got "
+                    f"version={self.version!r}. Download other versions from "
+                    f"https://registry.opendata.aws/motional-nuscenes/."
+                )
+                raise RuntimeError(msg)
+            self.root.mkdir(parents=True, exist_ok=True)
+            download_and_extract_archive(
+                url=f"{self.data_url}{self.mini_archive}",
+                download_root=str(self.root),
+                filename=self.mini_archive,
+                md5=self.mini_archive_md5,
             )
-            raise RuntimeError(msg)
-        self.root.mkdir(parents=True, exist_ok=True)
-        download_and_extract_archive(
-            url=f"{self.data_url}{self.mini_archive}",
-            download_root=str(self.root),
-            filename=self.mini_archive,
-            md5=self.mini_archive_md5,
-        )
+        if "map" in self.target_keys and not self._check_map_exists():
+            download_and_extract_archive(
+                url=f"{self.data_url}{self.map_archive}",
+                download_root=str(self.root / "maps"),
+                filename=self.map_archive,
+                md5=self.map_archive_md5,
+            )
 
     @override
     def __getitem__(self, index: int) -> tuple[FusionInputs, SampleTargets]:
@@ -1479,6 +1773,10 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             - ``"boxes"``: :class:`BoundingBoxes3D` in lidar frame,
               format ``XYZLWHY``.
             - ``"labels"``: :class:`~torch.Tensor` of class indices.
+            - ``"map"``: :class:`GridMask3D` ``[C, H, W]`` of booleans, one
+              channel per entry of ``map_layers``. The patch is centered on
+              the lidar and aligned with its yaw. It lies in the global plane
+              ``z = 0`` at the height of the ego poses.
         """
         sample = self._nusc.get("sample", self._sample_tokens[index])
 
@@ -1550,6 +1848,8 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             targets["boxes"] = annotations["boxes"]
         if "labels" in self.target_keys:
             targets["labels"] = annotations["labels"]
+        if "map" in self.target_keys:
+            targets["map"] = self._load_map(sample, lidar_to_global)
 
         if self.transforms is not None:
             inputs, targets = self.transforms(inputs, targets)
@@ -1676,6 +1976,64 @@ class NuScenes3D(Dataset[tuple[FusionInputs, SampleTargets]]):
             "labels": torch.tensor(label_ids, dtype=torch.int64),
         }
 
+    def _load_map(self, sample: _Sample, lidar_to_global: Tensor) -> GridMask3D:
+        """Rasterize the map patch around the lidar.
+
+        The patch lies in the global plane ``z = 0``, with the global ``z`` axis
+        as its projection direction. Its ``affine`` carries the roll and pitch
+        of the lidar.
+
+        Returns:
+            ``[C, H, W]`` boolean :class:`GridMask3D` in the lidar frame.
+        """
+        height, width = self._map_grid_size
+        res = self.map_resolution
+        scene = self._nusc.get("scene", sample["scene_token"])
+        location = self._nusc.get("log", scene["log_token"])["location"]
+
+        lidar_to_global64 = lidar_to_global.double()
+        x, y = lidar_to_global64[:2, 3].tolist()
+        heading = lidar_to_global64[:2, 0]
+        cos, sin = (heading / heading.norm()).tolist()
+
+        patch_to_global = torch.tensor(
+            [
+                [cos, -sin, 0.0, x],
+                [sin, cos, 0.0, y],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=torch.float64,
+        )
+        # Index columns are ordered (d, h, w). The d column is parallel to the
+        # global z axis, the projection direction of the planar grid. The cell
+        # (0, 0, 0) is centered half a cell inside the patch corner.
+        x_min, y_min = -height * res / 2, -width * res / 2
+        cell_to_patch = torch.tensor(
+            [
+                [0.0, res, 0.0, x_min + res / 2],
+                [0.0, 0.0, res, y_min + res / 2],
+                [res, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=torch.float64,
+        )
+        cell_to_global = patch_to_global @ cell_to_patch
+        affine = torch.linalg.inv(lidar_to_global64) @ cell_to_global
+
+        # PIL draws in (column, row) = (w, h). Global map points lie at z = 0,
+        # so only the x, y, and constant columns of the inverse are needed.
+        global_to_cell = torch.linalg.inv(cell_to_global)[[2, 1]][:, [0, 1, 3]].numpy()
+        radius = np.hypot(height, width) * res / 2
+        bounds = np.array([x - radius, y - radius, x + radius, y + radius])
+
+        location_map = self._maps[location]
+        channels = [
+            location_map.rasterize(name, global_to_cell, (height, width), bounds)
+            for name in self.map_layers
+        ]
+        return GridMask3D(torch.from_numpy(np.stack(channels)), affine=affine)
+
 
 def _get_split_scenes(version: str, split: str) -> frozenset[str] | None:
     """Return the set of scene names for ``(version, split)``.
@@ -1735,3 +2093,61 @@ def _quaternion_to_yaw(
     # Box's local +X axis expressed in the lidar frame.
     forward_lidar = global_to_lidar_rot @ rot.numpy() @ np.array([1.0, 0.0, 0.0])
     return float(np.arctan2(forward_lidar[1], forward_lidar[0]))
+
+
+def _layer_geometries(
+    records: list[dict[str, Any]],
+    polygons: dict[str, dict[str, Any]],
+    lines: dict[str, dict[str, Any]],
+    nodes: _MapNodes,
+) -> list[_MapGeometry]:
+    """Build the geometries of one map expansion layer.
+
+    Returns:
+        The layer's polygons and lines, skipping any without vertices.
+    """
+    polygon_tokens: dict[str, None] = {}
+    line_tokens: dict[str, None] = {}
+    for record in records:
+        if "line_token" in record:
+            line_tokens[record["line_token"]] = None
+        elif "polygon_tokens" in record:
+            polygon_tokens.update(dict.fromkeys(record["polygon_tokens"]))
+        else:
+            polygon_tokens[record["polygon_token"]] = None
+    geoms = [_polygon_geometry(polygons[t], nodes) for t in polygon_tokens]
+    geoms += [
+        _MapGeometry(nodes[lines[t]["node_tokens"]], holes=[]) for t in line_tokens
+    ]
+    return [geom for geom in geoms if len(geom.points)]
+
+
+def _polygon_geometry(record: dict[str, Any], nodes: _MapNodes) -> _MapGeometry:
+    """Build the geometry of a map expansion ``polygon`` record.
+
+    Note:
+        Unlike the devkit, polygons that shapely considers invalid are kept.
+        They are mostly roads whose outline touches itself.
+
+    Returns:
+        The polygon's outline and its non-empty holes.
+    """
+    holes = [
+        nodes[hole["node_tokens"]] for hole in record["holes"] if hole["node_tokens"]
+    ]
+    return _MapGeometry(nodes[record["exterior_node_tokens"]], holes)
+
+
+def _to_cells(points: np.ndarray, global_to_cell: np.ndarray) -> list[int]:
+    """Map global ``(x, y)`` vertices to flat integer cell coordinates for PIL.
+
+    Returns:
+        ``[column0, row0, column1, row1, ...]`` rounded to the nearest cell
+        center.
+    """
+    # Note: the nuscenes-devkit incorrectly truncates line vertices, which
+    # shifts its lines half a cell off its polygons. See
+    # https://github.com/nutonomy/nuscenes-devkit/blob/b40adc467b919192899405d9b77871afee8efa07/python-sdk/nuscenes/map_expansion/map_api.py#L1839-L1843
+    # We round to keep lines aligned with polygons.
+    cells = points @ global_to_cell[:, :2].T + global_to_cell[:, 2]
+    return np.rint(cells).astype(np.int64).ravel().tolist()

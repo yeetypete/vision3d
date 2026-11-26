@@ -15,6 +15,7 @@ from vision3d.tensors import (
     CameraExtrinsics,
     CameraImages,
     CameraIntrinsics,
+    GridMask3D,
     PointCloud3D,
 )
 
@@ -69,7 +70,9 @@ class SampleTargets(TypedDict):
     Attributes:
         boxes: 3D bounding boxes in the lidar frame.
         labels: Integer class labels, one per box.
+        map: Top-down map label grid in the lidar frame.
     """
 
     boxes: NotRequired[BoundingBoxes3D]
     labels: NotRequired[Tensor]
+    map: NotRequired[GridMask3D]
