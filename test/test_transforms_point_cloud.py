@@ -13,8 +13,10 @@ from common_utils import (
 )
 
 from vision3d.tensors import BoundingBox3DFormat, PointCloud3D
-from vision3d.transforms import PointJitter, PointSample, PointShuffle
+from vision3d.transforms import ClosePointFilter, PointJitter, PointSample, PointShuffle
 from vision3d.transforms.functional import (
+    filter_close_points,
+    filter_close_points_point_cloud,
     jitter_points,
     jitter_points_point_cloud,
     sample_points,
@@ -24,6 +26,62 @@ from vision3d.transforms.functional import (
 )
 
 _make_sample = functools.partial(make_lidar_sample, num_points=100)
+
+
+class TestFilterClosePointsKernel:
+    def test_matches_nuscenes_square_semantics(self) -> None:
+        points = torch.tensor(
+            [
+                [0.0, 0.0, 0.0, 10.0],  # close
+                [0.5, -0.5, 20.0, 11.0],  # close despite z
+                [1.0, 0.0, 0.0, 12.0],  # boundary is kept
+                [0.0, -1.0, 0.0, 13.0],  # boundary is kept
+                [0.5, 2.0, 0.0, 14.0],  # outside in y
+            ]
+        )
+
+        out = filter_close_points_point_cloud(points, radius=1.0)
+
+        assert torch.equal(out, points[2:])
+
+    def test_zero_radius_is_identity(self) -> None:
+        points = torch.randn(10, 5)
+        out = filter_close_points_point_cloud(points, radius=0.0)
+        assert torch.equal(out, points)
+
+    def test_empty_point_cloud(self) -> None:
+        points = torch.empty(0, 6)
+        out = filter_close_points_point_cloud(points, radius=1.0)
+        assert out.shape == points.shape
+
+    def test_does_not_modify_input(self) -> None:
+        points = torch.randn(20, 5)
+        original = points.clone()
+        filter_close_points_point_cloud(points, radius=1.0)
+        assert torch.equal(points, original)
+
+
+class TestFilterClosePointsDispatch:
+    def test_dispatches_point_cloud(self) -> None:
+        points = PointCloud3D(
+            torch.tensor([[0.0, 0.0, 0.0, 1.0], [2.0, 0.0, 0.0, 2.0]])
+        )
+        out = filter_close_points(points, radius=1.0)
+        assert isinstance(out, PointCloud3D)
+        assert out is not points
+        assert torch.equal(out, points[1:])
+
+    def test_rejects_bounding_boxes(self) -> None:
+        boxes = make_bounding_boxes_3d(
+            format=BoundingBox3DFormat.XYZLWHYPR, num_boxes=3
+        )
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            filter_close_points(boxes, radius=1.0)
+
+    def test_rejects_plain_tensor(self) -> None:
+        labels = torch.tensor([0, 1])
+        with pytest.raises(TypeError, match="supports inputs of type"):
+            filter_close_points(labels, radius=1.0)
 
 
 class TestShufflePointsKernel:
@@ -268,3 +326,19 @@ class TestPointJitter:
         out = PointJitter(sigma=0.1, p=1.0)(sample)
         assert out["lidar"].shape == sample["lidar"].shape
         assert out["radar"].shape == sample["radar"].shape
+
+
+class TestClosePointFilter:
+    def test_transform(self) -> None:
+        check_transform(ClosePointFilter(), make_fusion_sample())
+
+    def test_preserves_features(self) -> None:
+        points = PointCloud3D(
+            torch.tensor([[0.0, 0.0, 0.0, 7.0, 9.0], [2.0, 0.0, 0.0, 8.0, 10.0]])
+        )
+        out = ClosePointFilter(radius=1.0)(points)
+        assert torch.equal(out, points[1:])
+
+    def test_invalid_radius_raises(self) -> None:
+        with pytest.raises(ValueError, match="non-negative"):
+            ClosePointFilter(radius=-1.0)

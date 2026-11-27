@@ -35,6 +35,8 @@ from ._geometry import (
 )
 from ._grid import resample_grid, resample_grid_mask_3d
 from ._point_cloud import (
+    filter_close_points,
+    filter_close_points_point_cloud,
     jitter_points,
     jitter_points_point_cloud,
     sample_points,
@@ -47,6 +49,8 @@ from ._registry import register_kernel
 __all__ = [
     "center_crop_camera_intrinsics",
     "crop_camera_intrinsics",
+    "filter_close_points",
+    "filter_close_points_point_cloud",
     "flip_3d",
     "flip_3d_bounding_boxes",
     "flip_3d_point_cloud",
