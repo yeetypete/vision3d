@@ -6,10 +6,43 @@ from vision3d.tensors import PointCloud3D
 
 from ._transform import Transform, _RandomApplyTransform
 from .functional._point_cloud import (
+    filter_close_points,
     jitter_points,
     sample_points,
     shuffle_points,
 )
+
+
+class ClosePointFilter(Transform):
+    """Remove points close to the sensor origin.
+
+    Points with ``abs(x) < radius`` and ``abs(y) < radius`` are removed; z is
+    ignored. The square is centred on the input's origin, so apply this before
+    spatial augmentations and on single-sweep clouds.
+
+    Args:
+        radius: Half-width of the excluded square in the xy plane. Default: ``1.0``.
+
+    Raises:
+        ValueError: If ``radius`` is negative.
+    """
+
+    _transformed_types = (PointCloud3D,)
+
+    def __init__(self, radius: float = 1.0) -> None:
+        super().__init__()
+        if radius < 0:
+            raise ValueError(f"radius must be non-negative, got {radius}.")
+        self.radius = radius
+
+    @override
+    def transform(self, inpt: Any, params: dict[str, Any]) -> Any:
+        """Filter close point-cloud returns.
+
+        Returns:
+            Point cloud containing only points outside the exclusion region.
+        """
+        return self._call_kernel(filter_close_points, inpt, radius=self.radius)
 
 
 class PointShuffle(_RandomApplyTransform):

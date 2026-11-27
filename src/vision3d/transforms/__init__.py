@@ -3,11 +3,12 @@
 from ._copy_paste_3d import CopyPaste3D
 from ._geometry import RandomFlip3D, RandomRotate3D, RandomScale3D, RandomTranslate3D
 from ._grid import ResampleGrid
-from ._point_cloud import PointJitter, PointSample, PointShuffle
+from ._point_cloud import ClosePointFilter, PointJitter, PointSample, PointShuffle
 from ._range_filter import RangeFilter3D
 from ._transform import Transform
 
 __all__ = [
+    "ClosePointFilter",
     "CopyPaste3D",
     "PointJitter",
     "PointSample",

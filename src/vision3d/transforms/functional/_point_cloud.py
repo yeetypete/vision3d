@@ -8,6 +8,45 @@ from vision3d.tensors import PointCloud3D
 from ._registry import _get_kernel, register_kernel
 
 
+def filter_close_points(inpt: Tensor, *, radius: float) -> Tensor:
+    """Remove points close to the sensor origin from a point cloud.
+
+    Dispatcher entry point. Type-specific kernels are registered below.
+
+    Args:
+        inpt: Input tensor.
+        radius: Half-width of the excluded square in the xy plane.
+
+    Returns:
+        Filtered tensor.
+
+    Raises:
+        TypeError: If ``inpt`` is not an instance of
+            :class:`~vision3d.tensors.PointCloud3D`.
+    """  # noqa: DOC502
+    kernel = _get_kernel(filter_close_points, type(inpt))
+    return kernel(inpt, radius=radius)
+
+
+def filter_close_points_point_cloud(points: Tensor, *, radius: float) -> Tensor:
+    """Remove points with ``abs(x) < radius`` and ``abs(y) < radius``.
+
+    Args:
+        points: Point cloud ``[N, 3+C]``.
+        radius: Half-width of the excluded square in the xy plane.
+
+    Returns:
+        Filtered point cloud ``[M, 3+C]``.
+    """
+    close = (points[:, :2].abs() < radius).all(dim=1)
+    return points[~close]
+
+
+@register_kernel(filter_close_points, PointCloud3D)
+def _filter_close_points_kernel(points: Tensor, *, radius: float) -> Tensor:
+    return filter_close_points_point_cloud(points, radius=radius)
+
+
 def shuffle_points(inpt: Tensor) -> Tensor:
     """Randomly shuffle the points of a point cloud.
 
