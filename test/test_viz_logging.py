@@ -6,7 +6,7 @@ arguments handed to Rerun can be asserted directly.
 """
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 import torch
@@ -25,6 +25,9 @@ from vision3d.viz._logging import (
     log_point_cloud,
     log_sample,
 )
+
+if TYPE_CHECKING:
+    from vision3d.metrics import Target3D
 
 
 def _boxes(
@@ -450,3 +453,10 @@ class TestBoxColors:
         assert len(logged["Boxes3D:labels"]) == 2
         # Unset fields are still cleared.
         assert len(logged["Boxes3D:radii"]) == 0
+
+
+class TestLogSample:
+    def test_accepts_metric_targets(self, spy: _Spy) -> None:
+        targets: Target3D = {"boxes": _boxes(2), "labels": torch.tensor([0, 1])}
+        log_sample({}, targets)
+        assert "world/gt/boxes" in [entity for entity, _ in spy.logged]

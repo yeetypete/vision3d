@@ -8,7 +8,7 @@ from torch import Tensor
 from torchvision.utils import _generate_color_palette
 
 from vision3d.datasets import SampleInputs, SampleTargets
-from vision3d.metrics import Prediction3D
+from vision3d.metrics import Prediction3D, Target3D
 from vision3d.ops import extract_box3d_params
 from vision3d.ops._rotation import _rotation_matrix_to_quaternion
 from vision3d.tensors import (
@@ -413,7 +413,7 @@ def log_grid_mask(
 
 def log_sample(
     inputs: SampleInputs,
-    targets: SampleTargets | None = None,
+    targets: SampleTargets | Target3D | None = None,
     *,
     predictions: Prediction3D | None = None,
     entity_prefix: str = "world",
@@ -435,8 +435,9 @@ def log_sample(
     Args:
         inputs: :class:`~vision3d.datasets.SampleInputs` with ``"points"``,
             ``"images"``, ``"extrinsics"``, ``"intrinsics"`` keys.
-        targets: Optional :class:`~vision3d.datasets.SampleTargets` with
-            ``"boxes"``, ``"labels"`` keys (ground truth). A ``"map"`` grid
+        targets: Optional :class:`~vision3d.datasets.SampleTargets` or
+            :class:`~vision3d.metrics.Target3D` with ``"boxes"``,
+            ``"labels"`` keys (ground truth). A ``"map"`` grid
             is logged to ``{entity_prefix}/gt/map`` with
             :func:`log_grid_mask` at half opacity.
         predictions: Optional :class:`~vision3d.metrics.Prediction3D` with
@@ -475,10 +476,11 @@ def log_sample(
             fill_mode="transparentfillmajorwireframe",
         )
 
-    if targets and "map" in targets:
+    grid = targets.get("map") if targets else None
+    if isinstance(grid, GridMask3D):
         log_grid_mask(
             f"{entity_prefix}/gt/map",
-            targets["map"],
+            grid,
             channel_names=map_channel_names,
             colors=map_colors,
             # Overlapping translucent channels may flicker as the camera moves.
